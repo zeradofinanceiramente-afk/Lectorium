@@ -5,6 +5,7 @@ import { loadOcrData, saveOcrData, touchOfflineFile } from '../services/storageS
 import { PDFDocumentProxy } from 'pdfjs-dist';
 import { OcrManager, OcrStatus } from '../services/ocrManager';
 import { refineOcrWords } from '../services/aiService';
+import { burnPageOcrToPdf } from '../services/pdfModifierService';
 
 export type ToolType = 'cursor' | 'text' | 'ink' | 'eraser' | 'note';
 
@@ -53,6 +54,9 @@ interface PdfContextState {
   ocrNotification: string | null;
   jumpToPage: (page: number) => void;
   accessToken?: string | null;
+  // Permite atualizar o blob principal (Single Source of Truth)
+  updateSourceBlob: (newBlob: Blob) => void;
+  currentBlobRef: React.MutableRefObject<Blob | null>;
 }
 
 const PdfContext = createContext<PdfContextState | null>(null);
@@ -74,10 +78,14 @@ interface PdfProviderProps {
   accessToken?: string | null;
   fileId: string;
   pdfDoc: PDFDocumentProxy | null;
+  // Callbacks para manipular o blob original no componente pai
+  onUpdateSourceBlob: (blob: Blob) => void;
+  currentBlob: Blob | null;
 }
 
 export const PdfProvider: React.FC<PdfProviderProps> = ({ 
-  children, initialScale, numPages, annotations, onAddAnnotation, onRemoveAnnotation, onJumpToPage, accessToken, fileId, pdfDoc
+  children, initialScale, numPages, annotations, onAddAnnotation, onRemoveAnnotation, onJumpToPage, accessToken, fileId, pdfDoc,
+  onUpdateSourceBlob, currentBlob
 }) => {
   const [scale, setScale] = useState(initialScale);
   const [currentPage, setCurrentPage] = useState(1);
@@ -91,12 +99,63 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
   const [spreadSide, setSpreadSide] = useState<'left' | 'right'>('left');
   const ocrManagerRef = useRef<OcrManager | null>(null);
   
+  // Ref para acessar o blob mais atual dentro das funções assíncronas/fila
+  const currentBlobRef = useRef<Blob | null>(currentBlob);
+  useEffect(() => {
+      currentBlobRef.current = currentBlob;
+  }, [currentBlob]);
+
+  // --- FILA DE QUEIMA DE OCR (Single Source Update) ---
+  const burnQueueRef = useRef<{page: number, words: any[]}[]>([]);
+  const isBurningRef = useRef(false);
+  const burnedPagesRef = useRef<Set<number>>(new Set());
+
   const [settings, setSettings] = useState<PdfSettings>({
     pageOffset: 1, disableColorFilter: false, detectColumns: false, showOcrDebug: false,
     showConfidenceOverlay: false,
     pageColor: "#ffffff", textColor: "#000000", highlightColor: "#4ade80",
     highlightOpacity: 0.4, inkColor: "#22c55e", inkStrokeWidth: 20, inkOpacity: 0.35,
   });
+
+  const processBurnQueue = async () => {
+      if (isBurningRef.current || burnQueueRef.current.length === 0 || !currentBlobRef.current) return;
+      
+      isBurningRef.current = true;
+      const task = burnQueueRef.current.shift(); // FIFO
+      
+      if (task) {
+          try {
+              console.log(`[OCR] Injetando texto na página ${task.page} (Source Update)...`);
+              // Usa sempre o blob mais atual da ref
+              const newBlob = await burnPageOcrToPdf(currentBlobRef.current, task.page, task.words);
+              
+              // Atualiza a fonte global. Isso causará um re-render do PDF Viewer (piscada).
+              // Mas garante uso mínimo de RAM (apenas 1 versão do arquivo na memória).
+              onUpdateSourceBlob(newBlob);
+              
+              burnedPagesRef.current.add(task.page);
+              console.log(`[OCR] Página ${task.page} salva no binário.`);
+          } catch (e) {
+              console.error(`[OCR] Falha ao injetar página ${task.page}:`, e);
+          }
+      }
+
+      isBurningRef.current = false;
+      
+      // Se houver mais itens, processa.
+      // Adicionamos um pequeno delay para não travar a UI em caso de fila longa
+      if (burnQueueRef.current.length > 0) {
+          setTimeout(processBurnQueue, 500); 
+      }
+  };
+
+  const schedulePageBurn = useCallback((page: number, words: any[]) => {
+      if (burnedPagesRef.current.has(page)) return;
+      if (!currentBlobRef.current) return;
+
+      burnQueueRef.current.push({ page, words });
+      processBurnQueue();
+  }, []);
 
   const showOcrNotification = useCallback((message: string) => {
     if (notificationTimeoutRef.current) clearTimeout(notificationTimeoutRef.current);
@@ -112,6 +171,8 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
             const statusUpdate: Record<number, OcrStatus> = {};
             Object.keys(data).forEach(p => statusUpdate[parseInt(p)] = 'done');
             setOcrStatusMap(prev => ({ ...prev, ...statusUpdate }));
+            // Não queimamos dados carregados do cache na inicialização para evitar boot lento.
+            // Eles serão queimados sob demanda ou no save final.
         }
     });
   }, [fileId]);
@@ -131,26 +192,11 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
                 if (fileId) touchOfflineFile(fileId).catch(() => {});
             }
         );
-        
         Object.keys(ocrMap).forEach(p => manager.markAsProcessed(parseInt(p)));
         ocrManagerRef.current = manager;
     }
     return () => { ocrManagerRef.current = null; };
   }, [pdfDoc, fileId, showOcrNotification]);
-
-  // REMOVIDO: Agendamento automático de OCR ao mudar de página.
-  // A partir de agora, o OCR só é iniciado por ação explícita do usuário (botão "Extrair Texto").
-  // Isso economiza bateria e evita processamento em páginas de capa ou irrelevantes.
-  /*
-  useEffect(() => {
-    const manager = ocrManagerRef.current;
-    if (manager && numPages > 0) {
-        manager.schedule(currentPage, 'high');
-        if (currentPage < numPages) manager.schedule(currentPage + 1, 'low');
-        if (currentPage > 1) manager.schedule(currentPage - 1, 'low');
-    }
-  }, [currentPage, numPages]);
-  */
 
   const updateSettings = useCallback((newSettings: Partial<PdfSettings>) => {
     setSettings(prev => ({ ...prev, ...newSettings }));
@@ -194,8 +240,10 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
     if (fileId) {
         saveOcrData(fileId, page, words).catch(e => console.error("OCR Save Failed", e));
         setHasUnsavedOcr(true);
+        // DISPARA A ATUALIZAÇÃO DO BLOB ORIGINAL
+        schedulePageBurn(page, words);
     }
-  }, [fileId]);
+  }, [fileId, schedulePageBurn]);
 
   const updateOcrWord = useCallback((page: number, wordIndex: number, newText: string) => {
     setOcrMap(prev => {
@@ -207,10 +255,13 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
         if (fileId) {
             saveOcrData(fileId, page, pageWords).catch(() => {});
             setHasUnsavedOcr(true);
+            // Re-queima para atualizar o texto invisível
+            if (burnedPagesRef.current.has(page)) burnedPagesRef.current.delete(page);
+            schedulePageBurn(page, pageWords);
         }
         return next;
     });
-  }, [fileId]);
+  }, [fileId, schedulePageBurn]);
 
   const triggerOcr = useCallback((page: number) => {
     if (ocrManagerRef.current) {
@@ -250,8 +301,9 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
     scale, setScale, currentPage, setCurrentPage, numPages, activeTool, setActiveTool,
     settings, updateSettings, annotations, addAnnotation: onAddAnnotation, removeAnnotation: onRemoveAnnotation,
     ocrMap, ocrStatusMap, setPageOcrData, updateOcrWord, triggerOcr, refinePageOcr, hasUnsavedOcr, setHasUnsavedOcr, ocrNotification,
-    jumpToPage, accessToken, isSpread, setIsSpread, spreadSide, setSpreadSide, goNext, goPrev
-  }), [scale, currentPage, numPages, activeTool, settings, annotations, onAddAnnotation, onRemoveAnnotation, ocrMap, ocrStatusMap, setPageOcrData, updateOcrWord, triggerOcr, refinePageOcr, hasUnsavedOcr, setHasUnsavedOcr, ocrNotification, jumpToPage, accessToken, isSpread, spreadSide, goNext, goPrev]);
+    jumpToPage, accessToken, isSpread, setIsSpread, spreadSide, setSpreadSide, goNext, goPrev,
+    updateSourceBlob: onUpdateSourceBlob, currentBlobRef
+  }), [scale, currentPage, numPages, activeTool, settings, annotations, onAddAnnotation, onRemoveAnnotation, ocrMap, ocrStatusMap, setPageOcrData, updateOcrWord, triggerOcr, refinePageOcr, hasUnsavedOcr, setHasUnsavedOcr, ocrNotification, jumpToPage, accessToken, isSpread, spreadSide, goNext, goPrev, onUpdateSourceBlob]);
 
   return <PdfContext.Provider value={value}>{children}</PdfContext.Provider>;
 };

@@ -88,7 +88,7 @@ export const PdfPage: React.FC<PdfPageProps> = ({
   pageNumber, filterValues, pdfDoc 
 }) => {
   const { 
-    scale, activeTool, settings, 
+    scale, activeTool, setActiveTool, settings, 
     annotations, addAnnotation, removeAnnotation,
     setIsSpread, spreadSide, ocrMap, updateOcrWord, refinePageOcr
   } = usePdfContext();
@@ -401,15 +401,49 @@ export const PdfPage: React.FC<PdfPageProps> = ({
                 </div>
             )}
 
-            <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 15 }}>
+            {/* ANNOTATIONS LAYER - zIndex boosted to 40 to stay ABOVE textLayer (30) so Note Markers are clickable */}
+            {/* Using pointer-events-none on parent, but auto on children to allow text selection below */}
+            <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 40 }}>
                 <svg className="absolute inset-0 w-full h-full">
                     <g transform={`scale(${scale})`}>
                         {currentPoints.length > 0 && <path d={currentPoints.map((p, i) => (i === 0 ? `M ${p[0]} ${p[1]}` : `L ${p[0]} ${p[1]}`)).join(' ')} stroke={settings.inkColor} strokeWidth={settings.inkStrokeWidth / 5} fill="none" strokeLinecap="round" strokeLinejoin="round" opacity={settings.inkOpacity} />}
-                        {pageAnnotations.filter(a => a.type === 'ink' && !a.isBurned).map(ann => <path key={ann.id} d={(ann.points || []).map((p, i) => (i === 0 ? `M ${p[0]} ${p[1]}` : `L ${p[0]} ${p[1]}`)).join(' ')} stroke={ann.color} strokeWidth={ann.strokeWidth || 3} fill="none" strokeLinecap="round" strokeLinejoin="round" opacity={ann.opacity} className={activeTool === 'eraser' ? 'pointer-events-auto cursor-pointer' : ''} onClick={e => { if(activeTool === 'eraser') { e.stopPropagation(); removeAnnotation(ann); }}} />)}
+                        
+                        {pageAnnotations.filter(a => a.type === 'ink' && !a.isBurned).map(ann => (
+                            <path 
+                                key={ann.id} 
+                                d={(ann.points || []).map((p, i) => (i === 0 ? `M ${p[0]} ${p[1]}` : `L ${p[0]} ${p[1]}`)).join(' ')} 
+                                stroke={ann.color} 
+                                strokeWidth={ann.strokeWidth || 3} 
+                                fill="none" 
+                                strokeLinecap="round" 
+                                strokeLinejoin="round" 
+                                opacity={ann.opacity} 
+                                className={activeTool === 'eraser' ? 'pointer-events-auto cursor-pointer' : 'pointer-events-none'} 
+                                onClick={e => { if(activeTool === 'eraser') { e.stopPropagation(); removeAnnotation(ann); }}} 
+                            />
+                        ))}
                     </g>
                 </svg>
-                {pageAnnotations.filter(a => a.type === 'highlight' && !a.isBurned).map((ann, i) => <div key={ann.id || i} className={`absolute pointer-events-auto ${isDarkPage ? 'mix-blend-screen' : 'mix-blend-multiply'}`} style={{ left: ann.bbox[0] * scale, top: ann.bbox[1] * scale, width: ann.bbox[2] * scale, height: ann.bbox[3] * scale, backgroundColor: ann.color, opacity: ann.opacity }} onClick={e => { if(activeTool === 'eraser') { e.stopPropagation(); removeAnnotation(ann); }}} />)}
-                {pageAnnotations.filter(a => a.type === 'note' && !a.isBurned).map((ann, i) => <NoteMarker key={ann.id || i} ann={ann} scale={scale} activeTool={activeTool} onDelete={removeAnnotation} />)}
+                
+                {pageAnnotations.filter(a => a.type === 'highlight' && !a.isBurned).map((ann, i) => (
+                    <div 
+                        key={ann.id || i} 
+                        className={`absolute ${activeTool === 'eraser' ? 'pointer-events-auto cursor-pointer' : 'pointer-events-none'} ${isDarkPage ? 'mix-blend-screen' : 'mix-blend-multiply'}`} 
+                        style={{ 
+                            left: ann.bbox[0] * scale, 
+                            top: ann.bbox[1] * scale, 
+                            width: ann.bbox[2] * scale, 
+                            height: ann.bbox[3] * scale, 
+                            backgroundColor: ann.color, 
+                            opacity: ann.opacity 
+                        }} 
+                        onClick={e => { if(activeTool === 'eraser') { e.stopPropagation(); removeAnnotation(ann); }}} 
+                    />
+                ))}
+                
+                {pageAnnotations.filter(a => a.type === 'note' && !a.isBurned).map((ann, i) => (
+                    <NoteMarker key={ann.id || i} ann={ann} scale={scale} activeTool={activeTool} onDelete={removeAnnotation} />
+                ))}
             </div>
 
             <div 
@@ -424,7 +458,30 @@ export const PdfPage: React.FC<PdfPageProps> = ({
 
             {draftNote && (
                 <div className="absolute z-50 bg-yellow-100 p-3 rounded-lg shadow-2xl border border-yellow-300 animate-in zoom-in-95 pointer-events-auto" style={{ left: draftNote.x * scale, top: draftNote.y * scale }}>
-                    <textarea autoFocus className="bg-transparent border-none outline-none text-sm text-yellow-900 resize-none w-48 h-24" placeholder="Digite sua nota..." onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (e.currentTarget.value.trim()) addAnnotation({ id: `note-${Date.now()}`, page: pageNumber, bbox: [draftNote.x, draftNote.y, 0, 0], type: 'note', text: e.currentTarget.value, color: '#fef9c3', createdAt: new Date().toISOString() }); setDraftNote(null); } if (e.key === 'Escape') setDraftNote(null); }} />
+                    <textarea 
+                        autoFocus 
+                        className="bg-transparent border-none outline-none text-sm text-yellow-900 resize-none w-48 h-24" 
+                        placeholder="Digite sua nota..." 
+                        onKeyDown={e => { 
+                            if (e.key === 'Enter' && !e.shiftKey) { 
+                                e.preventDefault(); 
+                                if (e.currentTarget.value.trim()) {
+                                    addAnnotation({ 
+                                        id: `note-${Date.now()}`, 
+                                        page: pageNumber, 
+                                        bbox: [draftNote.x, draftNote.y, 0, 0], 
+                                        type: 'note', 
+                                        text: e.currentTarget.value, 
+                                        color: '#fef9c3', 
+                                        createdAt: new Date().toISOString() 
+                                    }); 
+                                }
+                                setDraftNote(null);
+                                setActiveTool('cursor'); // Auto-switch to prevent multiple note creations
+                            } 
+                            if (e.key === 'Escape') setDraftNote(null); 
+                        }} 
+                    />
                 </div>
             )}
         </div>

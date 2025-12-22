@@ -1,3 +1,4 @@
+
 import { Annotation } from '../types';
 
 /**
@@ -13,7 +14,6 @@ export async function burnAnnotationsToPdf(
     
     return new Promise((resolve, reject) => {
         try {
-            // Uso de URL nativa para garantir a correta localização do script do worker
             const worker = new Worker(
               new URL('./../workers/pdfAnnotationWorker.ts', import.meta.url),
               { type: 'module' }
@@ -35,9 +35,57 @@ export async function burnAnnotationsToPdf(
                 reject(new Error('Falha no worker de PDF: ' + e.message));
             };
 
-            // Envia dados (usando Transferable para performance)
             worker.postMessage(
-                { pdfBytes: arrayBuffer, annotations, ocrMap }, 
+                { command: 'burn-all', pdfBytes: arrayBuffer, annotations, ocrMap }, 
+                [arrayBuffer]
+            );
+        } catch (err) {
+            reject(err);
+        }
+    });
+}
+
+/**
+ * Queima APENAS o texto OCR de uma página específica no PDF.
+ * Usado para atualização incremental da "Single Source of Truth".
+ */
+export async function burnPageOcrToPdf(
+    currentPdfBlob: Blob,
+    pageNumber: number,
+    ocrData: any[]
+): Promise<Blob> {
+    const arrayBuffer = await currentPdfBlob.arrayBuffer();
+
+    return new Promise((resolve, reject) => {
+        try {
+            const worker = new Worker(
+                new URL('./../workers/pdfAnnotationWorker.ts', import.meta.url),
+                { type: 'module' }
+            );
+
+            worker.onmessage = (e) => {
+                if (e.data.success) {
+                    const blob = new Blob([e.data.pdfBytes], { type: 'application/pdf' });
+                    worker.terminate();
+                    resolve(blob);
+                } else {
+                    worker.terminate();
+                    reject(new Error(e.data.error));
+                }
+            };
+
+            worker.onerror = (e) => {
+                worker.terminate();
+                reject(new Error('Worker error: ' + e.message));
+            };
+
+            worker.postMessage(
+                { 
+                    command: 'burn-page-ocr', 
+                    pdfBytes: arrayBuffer, 
+                    pageNumber, 
+                    ocrData 
+                }, 
                 [arrayBuffer]
             );
         } catch (err) {

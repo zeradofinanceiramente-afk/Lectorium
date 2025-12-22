@@ -55,7 +55,8 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
     annotations, addAnnotation,
     currentPage, setCurrentPage, numPages,
     ocrMap, setHasUnsavedOcr, ocrNotification,
-    goNext, goPrev 
+    goNext, goPrev,
+    currentBlobRef // Acesso direto ao blob via ref do contexto
   } = usePdfContext();
   
   const containerRef = useRef<HTMLDivElement>(null);
@@ -149,8 +150,14 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
   };
 
   const handleDownload = async () => {
-     if (!originalBlob) return;
-     const newBlob = await burnAnnotationsToPdf(originalBlob, annotations, ocrMap);
+     // Usa o blob atual (que pode já ter o OCR queimado)
+     const sourceBlob = currentBlobRef.current || originalBlob;
+     if (!sourceBlob) return;
+     
+     // Queima apenas as anotações VISUAIS restantes (o OCR já foi queimado incrementalmente)
+     // ou queima tudo se nada foi processado ainda.
+     const newBlob = await burnAnnotationsToPdf(sourceBlob, annotations, ocrMap);
+     
      const url = URL.createObjectURL(newBlob);
      const a = document.createElement('a');
      a.href = url;
@@ -163,7 +170,8 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
   };
 
   const handleSave = async (mode: 'local' | 'overwrite' | 'copy') => {
-    if (!originalBlob) return;
+    const sourceBlob = currentBlobRef.current || originalBlob;
+    if (!sourceBlob) return;
     if (isSaving) return;
 
     setIsSaving(true);
@@ -186,7 +194,8 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
             return;
         }
 
-        const newBlob = await burnAnnotationsToPdf(originalBlob, annotations, ocrMap);
+        // Gera o PDF final com anotações visuais (OCR já deve estar no sourceBlob se foi processado)
+        const newBlob = await burnAnnotationsToPdf(sourceBlob, annotations, ocrMap);
         const isLocal = fileId.startsWith('local-') || !accessToken;
 
         if (!isLocal && !navigator.onLine && accessToken) {
@@ -214,6 +223,8 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
                setSaveMessage("Enviando ao Drive...");
                try {
                   await updateDriveFile(accessToken, fileId, newBlob);
+                  
+                  // Atualiza o blob original (Single Source of Truth) para a nova versão "limpa" (anotações queimadas)
                   setOriginalBlob(newBlob);
                   
                   if (isOfflineAvailable) {
@@ -547,6 +558,8 @@ export const PdfViewer: React.FC<Props> = (props) => {
       accessToken={props.accessToken}
       fileId={props.fileId}
       pdfDoc={pdfDoc}
+      onUpdateSourceBlob={setOriginalBlob} // Conecta a função de atualização
+      currentBlob={originalBlob}
     >
        <PdfViewerContent {...props} originalBlob={originalBlob} setOriginalBlob={setOriginalBlob} pdfDoc={pdfDoc} pageDimensions={pageDimensions} jumpToPageRef={jumpToPageRef} />
     </PdfProvider>

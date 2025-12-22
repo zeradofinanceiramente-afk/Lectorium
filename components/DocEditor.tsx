@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import React, { useRef, useEffect, useMemo, useCallback, useReducer } from 'react';
 import { useDocEditorConfig } from '../hooks/useDocEditorConfig';
 import { useDocFileHandler } from '../hooks/useDocFileHandler';
 import { usePageLayout } from '../hooks/usePageLayout';
@@ -24,9 +24,57 @@ import { SuggestionBubbleMenu } from './doc/SuggestionBubbleMenu';
 import { FootnoteBubbleMenu } from './doc/FootnoteBubbleMenu';
 import { FindReplaceBar } from './doc/FindReplaceBar';
 import { FootnotesLayer } from './doc/FootnotesLayer';
-import { Loader2, ArrowLeft, FileText, Cloud, CheckCircle, Sparkles, Users, Lock } from 'lucide-react';
+import { Ruler } from './doc/Ruler';
+import { VerticalRuler } from './doc/VerticalRuler';
+import { Loader2, ArrowLeft, FileText, Cloud, Sparkles, Users, Lock } from 'lucide-react';
 import { Reference, EditorStats } from '../types';
 import { auth } from '../firebase';
+
+// --- Reducer Types & Logic ---
+interface DocState {
+  comments: CommentData[];
+  references: Reference[];
+  activeCommentId: string | null;
+  activeHeaderFooterTab: 'header' | 'footer';
+}
+
+type DocAction = 
+  | { type: 'SET_COMMENTS'; payload: CommentData[] }
+  | { type: 'ADD_COMMENT'; payload: CommentData }
+  | { type: 'SET_ACTIVE_COMMENT'; payload: string | null }
+  | { type: 'SET_REFERENCES'; payload: Reference[] }
+  | { type: 'ADD_REFERENCE'; payload: Reference }
+  | { type: 'SET_HEADER_FOOTER_TAB'; payload: 'header' | 'footer' };
+
+const initialState: DocState = {
+  comments: [],
+  references: [],
+  activeCommentId: null,
+  activeHeaderFooterTab: 'header'
+};
+
+function docReducer(state: DocState, action: DocAction): DocState {
+  switch (action.type) {
+    case 'SET_COMMENTS':
+      return { ...state, comments: action.payload };
+    case 'ADD_COMMENT':
+      return { 
+        ...state, 
+        comments: [...state.comments, action.payload],
+        activeCommentId: action.payload.id 
+      };
+    case 'SET_ACTIVE_COMMENT':
+      return { ...state, activeCommentId: action.payload };
+    case 'SET_REFERENCES':
+      return { ...state, references: action.payload };
+    case 'ADD_REFERENCE':
+      return { ...state, references: [...state.references, action.payload] };
+    case 'SET_HEADER_FOOTER_TAB':
+      return { ...state, activeHeaderFooterTab: action.payload };
+    default:
+      return state;
+  }
+}
 
 interface Props {
   fileId: string;
@@ -50,15 +98,17 @@ export const DocEditor: React.FC<Props> = ({
   onToggleMenu, onAuthError, onBack 
 }) => {
   const isLocalFile = fileId.startsWith('local-') || !accessToken;
+  
+  // UI Hooks
   const { modals, sidebars, modes, toggleModal, toggleSidebar, toggleMode } = useDocUI();
   
-  const [comments, setComments] = useState<CommentData[]>([]);
-  const [references, setReferences] = useState<Reference[]>([]);
-  const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
-  const [activeHeaderFooterTab, setActiveHeaderFooterTab] = useState<'header' | 'footer'>('header');
+  // State Management via Reducer (Performance Optimization)
+  const [state, dispatch] = useReducer(docReducer, initialState);
 
-  // Referência para o input de arquivo oculto
+  // Refs
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const docScrollerRef = useRef<HTMLDivElement>(null);
 
   const userInfo = useMemo(() => {
     const u = auth.currentUser;
@@ -66,8 +116,6 @@ export const DocEditor: React.FC<Props> = ({
   }, []);
 
   const { editor, spellCheck, setSpellCheck } = useDocEditorConfig({ fileId, userInfo });
-  const contentRef = useRef<HTMLDivElement>(null);
-  const docScrollerRef = useRef<HTMLDivElement>(null);
 
   const pageLayout = usePageLayout({
     editor,
@@ -75,26 +123,30 @@ export const DocEditor: React.FC<Props> = ({
     contentRef
   });
 
+  // Callbacks estáveis para o FileHandler
+  const handleLoadComments = useCallback((comments: CommentData[]) => dispatch({ type: 'SET_COMMENTS', payload: comments }), []);
+  const handleLoadReferences = useCallback((refs: Reference[]) => dispatch({ type: 'SET_REFERENCES', payload: refs }), []);
+
   const fileHandler = useDocFileHandler({
     editor, fileId, fileName, fileBlob, accessToken, isLocalFile, onAuthError, onBack,
-    onFitWidth: pageLayout.handleFitWidth, onLoadSettings: pageLayout.setPageSettings,
-    onLoadComments: setComments, onLoadReferences: setReferences
+    onFitWidth: pageLayout.handleFitWidth, 
+    onLoadSettings: pageLayout.setPageSettings,
+    onLoadComments: handleLoadComments, 
+    onLoadReferences: handleLoadReferences
   });
 
   const handleAddComment = useCallback((text: string) => {
     if (!editor) return;
     const id = `comment-${Date.now()}`;
     (editor.chain().focus() as any).setComment(id).run();
-    setComments(prev => [...prev, { id, text, author: userInfo.name, createdAt: new Date().toISOString() }]);
-    setActiveCommentId(id);
+    
+    dispatch({ 
+      type: 'ADD_COMMENT', 
+      payload: { id, text, author: userInfo.name, createdAt: new Date().toISOString() } 
+    });
   }, [editor, userInfo.name]);
 
-  // Lógica de Inserção de Imagem
-  const triggerImageUpload = useCallback(() => {
-    fileInputRef.current?.click();
-  }, []);
-
-  const handleImageUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInsertImage = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file && editor) {
       const reader = new FileReader();
@@ -106,15 +158,27 @@ export const DocEditor: React.FC<Props> = ({
       };
       reader.readAsDataURL(file);
     }
-    // Limpa o input para permitir selecionar o mesmo arquivo novamente
     e.target.value = '';
   }, [editor]);
+
+  const triggerImageUpload = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
 
   const stats = useMemo<EditorStats>(() => {
      if (!editor) return { words: 0, chars: 0, charsNoSpace: 0, readTime: 0 };
      const words = editor.storage.characterCount.words();
      return { words, chars: editor.storage.characterCount.characters(), charsNoSpace: words, readTime: Math.ceil(words / 200) };
-  }, [editor]);
+  }, [editor?.storage.characterCount.words()]); // Dependência explícita para evitar re-calc
+
+  const handleRegionClick = useCallback((type: 'header' | 'footer', e: React.MouseEvent) => {
+      if (e.detail === 3) {
+          e.preventDefault();
+          e.stopPropagation();
+          dispatch({ type: 'SET_HEADER_FOOTER_TAB', payload: type });
+          toggleModal('headerFooter', true);
+      }
+  }, [toggleModal]);
 
   if (!editor) return <ViewLoader />;
 
@@ -128,13 +192,13 @@ export const DocEditor: React.FC<Props> = ({
                     <div className="flex flex-col">
                         <input value={fileHandler.currentName} onChange={e => fileHandler.setCurrentName(e.target.value)} onBlur={fileHandler.handleRename} className="bg-transparent text-text font-medium text-lg outline-none px-2 rounded -ml-2 focus:border-brand transition-colors" />
                         <TopMenuBar 
-                            editor={editor} fileName={fileHandler.currentName} onSave={() => fileHandler.handleSave(pageLayout.pageSettings, comments, references)}
+                            editor={editor} fileName={fileHandler.currentName} onSave={() => fileHandler.handleSave(pageLayout.pageSettings, state.comments, state.references)}
                             onShare={() => toggleModal('share', true)} onNew={onToggleMenu} onWordCount={() => toggleModal('wordCount', true)}
                             onDownload={fileHandler.handleDownload} onDownloadLect={fileHandler.handleDownloadLect} onExportPdf={() => window.print()}
                             onInsertImage={triggerImageUpload} onTrash={fileHandler.handleTrash} onPageSetup={() => toggleModal('pageSetup', true)}
                             onPageNumber={() => toggleModal('pageNumber', true)} 
-                            onHeader={() => { setActiveHeaderFooterTab('header'); toggleModal('headerFooter', true); }} 
-                            onFooter={() => { setActiveHeaderFooterTab('footer'); toggleModal('headerFooter', true); }} 
+                            onHeader={() => { dispatch({ type: 'SET_HEADER_FOOTER_TAB', payload: 'header' }); toggleModal('headerFooter', true); }} 
+                            onFooter={() => { dispatch({ type: 'SET_HEADER_FOOTER_TAB', payload: 'footer' }); toggleModal('headerFooter', true); }} 
                             onAddFootnote={() => (editor.chain().focus() as any).setFootnote().run()}
                             onAddCitation={() => toggleModal('citation', true)} onPrint={() => window.print()} onLanguage={() => toggleModal('language', true)}
                             onSpellCheck={() => setSpellCheck(!spellCheck)} onFindReplace={() => toggleModal('findReplace', true)}
@@ -169,23 +233,78 @@ export const DocEditor: React.FC<Props> = ({
              <FootnoteBubbleMenu editor={editor} />
 
              <div className="relative my-8 transition-transform origin-top" style={{ transform: `scale(${pageLayout.zoom})`, width: pageLayout.currentPaper.widthPx }}>
-                {/* Page Backgrounds */}
+                
+                {/* Horizontal Ruler (Global) */}
+                {pageLayout.showRuler && (
+                    <div className="absolute -top-6 left-0 right-0 z-[60]">
+                        <Ruler 
+                            editor={editor} 
+                            width={pageLayout.currentPaper.widthPx} 
+                            marginLeft={pageLayout.pageSettings.marginLeft}
+                            marginRight={pageLayout.pageSettings.marginRight}
+                        />
+                    </div>
+                )}
+
+                {/* Page Backgrounds & Vertical Rulers */}
                 <div className="absolute inset-0 pointer-events-none z-0">
                     {pageLayout.pages.map((page, i) => (
-                        <div key={i} className="bg-white shadow-lg w-full absolute left-0 border border-[#333] flex flex-col justify-between" style={{ top: i * (page.heightPx + 20), height: page.heightPx, backgroundColor: pageLayout.pageSettings.pageColor }}>
-                            {/* Header Visualization */}
-                            {pageLayout.pageSettings.headerText && (
-                                <div className="px-12 py-6 text-sm text-gray-500 text-center whitespace-pre-wrap opacity-60">
-                                    {pageLayout.pageSettings.headerText}
-                                </div>
-                            )}
+                        <div key={i} className="absolute left-0 w-full chromium-virtual-render" style={{ top: i * (page.heightPx + 20), height: page.heightPx }}>
                             
-                            {/* Footer Visualization */}
-                            {pageLayout.pageSettings.footerText && (
-                                <div className="px-12 py-6 text-sm text-gray-500 text-center whitespace-pre-wrap opacity-60 mt-auto">
-                                    {pageLayout.pageSettings.footerText}
+                            {/* Vertical Ruler per Page */}
+                            {pageLayout.showRuler && (
+                                <div className="absolute -left-6 top-0 bottom-0 h-full z-[50] pointer-events-auto">
+                                    <VerticalRuler 
+                                        heightPx={page.heightPx} 
+                                        marginTop={pageLayout.pageSettings.marginTop}
+                                        marginBottom={pageLayout.pageSettings.marginBottom}
+                                    />
                                 </div>
                             )}
+
+                            <div className="bg-white shadow-lg w-full h-full border border-[#333] flex flex-col justify-between relative" style={{ backgroundColor: pageLayout.pageSettings.pageColor }}>
+                                {/* Header Visualization */}
+                                {pageLayout.pageSettings.headerText ? (
+                                    <div 
+                                        className="px-12 py-6 text-sm text-gray-500 text-center whitespace-pre-wrap opacity-60 cursor-pointer pointer-events-auto hover:bg-black/5 transition-colors"
+                                        title="Clique 3 vezes para editar o Cabeçalho"
+                                        onClick={(e) => handleRegionClick('header', e)}
+                                    >
+                                        {pageLayout.pageSettings.headerText}
+                                    </div>
+                                ) : (
+                                    <div 
+                                        className="h-16 w-full cursor-pointer pointer-events-auto hover:bg-black/5 transition-colors group relative"
+                                        title="Clique 3 vezes para adicionar Cabeçalho"
+                                        onClick={(e) => handleRegionClick('header', e)}
+                                    >
+                                        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-30 text-xs text-gray-400">
+                                            Cabeçalho (Clique 3x)
+                                        </div>
+                                    </div>
+                                )}
+                                
+                                {/* Footer Visualization */}
+                                {pageLayout.pageSettings.footerText ? (
+                                    <div 
+                                        className="px-12 py-6 text-sm text-gray-500 text-center whitespace-pre-wrap opacity-60 mt-auto cursor-pointer pointer-events-auto hover:bg-black/5 transition-colors"
+                                        title="Clique 3 vezes para editar o Rodapé"
+                                        onClick={(e) => handleRegionClick('footer', e)}
+                                    >
+                                        {pageLayout.pageSettings.footerText}
+                                    </div>
+                                ) : (
+                                    <div 
+                                        className="h-16 w-full mt-auto cursor-pointer pointer-events-auto hover:bg-black/5 transition-colors group relative"
+                                        title="Clique 3 vezes para adicionar Rodapé"
+                                        onClick={(e) => handleRegionClick('footer', e)}
+                                    >
+                                        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-30 text-xs text-gray-400">
+                                            Rodapé (Clique 3x)
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     ))}
                 </div>
@@ -201,13 +320,13 @@ export const DocEditor: React.FC<Props> = ({
                 />
 
                 {/* Main Content */}
-                <div ref={contentRef} className="relative z-10 min-h-screen" style={{ paddingTop: `${pageLayout.pageSettings.marginTop}cm`, paddingLeft: `${pageLayout.pageSettings.marginLeft}cm`, paddingRight: `${pageLayout.pageSettings.marginRight}cm` }}><EditorContent editor={editor} /></div>
+                <div ref={contentRef} className="relative z-10 min-h-screen gpu-layer" style={{ paddingTop: `${pageLayout.pageSettings.marginTop}cm`, paddingLeft: `${pageLayout.pageSettings.marginLeft}cm`, paddingRight: `${pageLayout.pageSettings.marginRight}cm` }}><EditorContent editor={editor} /></div>
              </div>
           </div>
           
           {/* Sidebars */}
           <DocAiSidebar editor={editor} isOpen={sidebars.aiChat} onClose={() => toggleSidebar('aiChat', false)} documentName={fileHandler.currentName} />
-          <CommentsSidebar editor={editor} isOpen={sidebars.comments} onClose={() => toggleSidebar('comments', false)} comments={comments} onAddComment={handleAddComment} onResolveComment={() => {}} onDeleteComment={() => {}} activeCommentId={activeCommentId} setActiveCommentId={setActiveCommentId} />
+          <CommentsSidebar editor={editor} isOpen={sidebars.comments} onClose={() => toggleSidebar('comments', false)} comments={state.comments} onAddComment={handleAddComment} onResolveComment={() => {}} onDeleteComment={() => {}} activeCommentId={state.activeCommentId} setActiveCommentId={(id) => dispatch({ type: 'SET_ACTIVE_COMMENT', payload: id })} />
           <ImageOptionsSidebar editor={editor} isOpen={sidebars.imageOptions} onClose={() => toggleSidebar('imageOptions', false)} />
           <FindReplaceBar editor={editor} isOpen={modals.findReplace} onClose={() => toggleModal('findReplace', false)} />
        </div>
@@ -215,14 +334,14 @@ export const DocEditor: React.FC<Props> = ({
        {/* Modals */}
        <PageSetupModal isOpen={modals.pageSetup} initialSettings={pageLayout.pageSettings} initialViewMode={pageLayout.viewMode} onClose={() => toggleModal('pageSetup', false)} onApply={(s, v) => { pageLayout.setPageSettings(s); pageLayout.setViewMode(v); toggleModal('pageSetup', false); }} />
        <WordCountModal isOpen={modals.wordCount} onClose={() => toggleModal('wordCount', false)} stats={stats} />
-       <CitationModal isOpen={modals.citation} onClose={() => toggleModal('citation', false)} onInsert={ref => setReferences(prev => [...prev, ref])} references={references} />
+       <CitationModal isOpen={modals.citation} onClose={() => toggleModal('citation', false)} onInsert={ref => dispatch({ type: 'ADD_REFERENCE', payload: ref })} references={state.references} />
        <ShareModal isOpen={modals.share} onClose={() => toggleModal('share', false)} fileId={fileId} fileName={fileName} isLocal={isLocalFile} />
        <TablePropertiesModal isOpen={modals.tableProperties} onClose={() => toggleModal('tableProperties', false)} editor={editor} />
        
        <HeaderFooterModal 
           isOpen={modals.headerFooter}
           onClose={() => toggleModal('headerFooter', false)}
-          activeTab={activeHeaderFooterTab}
+          activeTab={state.activeHeaderFooterTab}
           initialHeader={pageLayout.pageSettings.headerText}
           initialFooter={pageLayout.pageSettings.footerText}
           onApply={(header, footer) => {
@@ -234,7 +353,7 @@ export const DocEditor: React.FC<Props> = ({
        <input 
          type="file" 
          ref={fileInputRef} 
-         onChange={handleImageUpload} 
+         onChange={handleInsertImage} 
          className="hidden" 
          accept="image/png, image/jpeg, image/gif, image/webp" 
        />

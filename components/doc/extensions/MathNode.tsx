@@ -150,19 +150,19 @@ export default (props: any) => {
   };
 
   return (
-    <NodeViewWrapper className="react-renderer my-6 flex justify-center select-none w-full">
+    <NodeViewWrapper className="react-renderer my-4 w-fit mx-auto select-none">
       <div 
-        className="relative group cursor-pointer p-4 rounded-xl hover:bg-brand/5 border border-transparent hover:border-brand/30 transition-all min-w-[100px] min-h-[60px] flex items-center justify-center"
+        className="relative group cursor-pointer px-4 py-2 rounded-xl bg-black border border-brand hover:shadow-[0_0_15px_rgba(74,222,128,0.2)] transition-all min-w-[40px] min-h-[40px] flex items-center justify-center shadow-lg"
         onClick={(e) => { e.stopPropagation(); setIsEditing(true); setBackdropClicks(0); }}
       >
         {!isEditing && (
-            <div className="absolute -top-3 right-0 opacity-0 group-hover:opacity-100 transition-all bg-surface text-brand text-xs font-bold px-2 py-1 rounded-full border border-brand shadow-sm flex items-center gap-1">
-                <Calculator size={10} /> Editar LaTeX
+            <div className="absolute -top-3 right-0 opacity-0 group-hover:opacity-100 transition-all bg-surface text-brand text-[10px] font-bold px-2 py-0.5 rounded-full border border-brand shadow-sm flex items-center gap-1 z-10 whitespace-nowrap">
+                <Calculator size={8} /> Editar
             </div>
         )}
         
-        {/* Renderização no Documento - FORÇADO PRETO PARA LEGIBILIDADE NO PAPEL BRANCO */}
-        <div ref={previewRef} className="pointer-events-none text-xl text-black" />
+        {/* Renderização no Documento - Estilo High Contrast (Fundo Preto/Texto Verde) */}
+        <div ref={previewRef} className="pointer-events-none text-xl text-brand" />
 
         {/* MODAL DE EDIÇÃO AVANÇADA */}
         {isEditing && (
