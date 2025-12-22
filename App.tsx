@@ -18,6 +18,7 @@ import { CookieConsent } from './components/CookieConsent';
 import { DriveFile, MIME_TYPES } from './types';
 import { Loader2, Wifi, AlertTriangle } from 'lucide-react';
 import ReauthToast from './components/ReauthToast';
+import { LegalModal, LegalTab } from './components/modals/LegalModal';
 
 const DriveBrowser = lazy(() => import('./components/DriveBrowser').then(m => ({ default: m.DriveBrowser })));
 const PdfViewer = lazy(() => import('./components/PdfViewer').then(m => ({ default: m.PdfViewer })));
@@ -54,6 +55,10 @@ export default function App() {
   const [localDirHandle, setLocalDirHandle] = useState<any>(null);
   const [savedLocalDirHandle, setSavedLocalDirHandle] = useState<any>(null);
   const [showReauthToast, setShowReauthToast] = useState(false);
+
+  // Legal Modal State
+  const [showLegalModal, setShowLegalModal] = useState(false);
+  const [legalModalTab, setLegalModalTab] = useState<LegalTab>('privacy');
 
   const handleAuthError = useCallback(() => {
       setAccessToken(null);
@@ -117,6 +122,17 @@ export default function App() {
         const storedHandle = await getLocalDirectoryHandle();
         if (storedHandle) {
             setSavedLocalDirHandle(storedHandle);
+        }
+
+        // Check URL parameters for Legal Modal (privacy/terms)
+        const params = new URLSearchParams(window.location.search);
+        const legalParam = params.get('legal');
+        if (legalParam === 'privacy') {
+            setLegalModalTab('privacy');
+            setShowLegalModal(true);
+        } else if (legalParam === 'terms') {
+            setLegalModalTab('terms');
+            setShowLegalModal(true);
         }
 
         // Pre-warming do OCR
@@ -328,7 +344,20 @@ export default function App() {
   return (
     <ErrorBoundary>
       <div className="flex h-screen w-full bg-bg overflow-hidden relative selection:bg-brand/30">
-        <Sidebar activeTab={activeTab} onSwitchTab={setActiveTab} openFiles={openFiles} onCloseFile={handleCloseFile} user={user} onLogout={logout} onLogin={handleLogin} isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} onToggle={toggleSidebar} driveActive={!!accessToken} />
+        <Sidebar 
+            activeTab={activeTab} 
+            onSwitchTab={setActiveTab} 
+            openFiles={openFiles} 
+            onCloseFile={handleCloseFile} 
+            user={user} 
+            onLogout={logout} 
+            onLogin={handleLogin} 
+            isOpen={isSidebarOpen} 
+            onClose={() => setIsSidebarOpen(false)} 
+            onToggle={toggleSidebar} 
+            driveActive={!!accessToken}
+            onOpenLegal={() => { setLegalModalTab('privacy'); setShowLegalModal(true); }}
+        />
         <main className="flex-1 relative flex flex-col bg-bg overflow-hidden transition-all duration-300">
           <Suspense fallback={<GlobalLoader />}>
               {syncStatus.message && (
@@ -340,6 +369,11 @@ export default function App() {
           </Suspense>
         </main>
         {showReauthToast && <ReauthToast onReauth={handleReauth} onClose={() => setShowReauthToast(false)} />}
+        <LegalModal 
+            isOpen={showLegalModal} 
+            onClose={() => setShowLegalModal(false)} 
+            initialTab={legalModalTab} 
+        />
       </div>
       <CookieConsent />
     </ErrorBoundary>

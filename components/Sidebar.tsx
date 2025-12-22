@@ -1,6 +1,6 @@
 
-import React, { useState, useEffect } from 'react';
-import { Home, FolderOpen, LogOut, User as UserIcon, X, Palette, ChevronDown, ChevronRight, FileText, Workflow, DownloadCloud, CheckCircle, Loader2, LayoutGrid, Cloud, CloudOff, LogIn, Wrench, Key } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Home, FolderOpen, LogOut, User as UserIcon, X, Palette, ChevronDown, ChevronRight, FileText, Workflow, DownloadCloud, CheckCircle, Loader2, LayoutGrid, Cloud, CloudOff, LogIn, Wrench, Key, Scale } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { ThemeSwitcher } from './ThemeSwitcher';
 import { DriveFile } from '../types';
@@ -23,6 +23,7 @@ interface SidebarProps {
   onToggle?: () => void;
   docked?: boolean;
   driveActive?: boolean;
+  onOpenLegal?: () => void; // New Prop
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ 
@@ -35,7 +36,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onLogin,
   isOpen, 
   onClose,
-  driveActive = false
+  driveActive = false,
+  onOpenLegal
 }) => {
   const [isThemesOpen, setIsThemesOpen] = useState(false);
   const [showOfflineModal, setShowOfflineModal] = useState(false);
@@ -46,6 +48,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [cacheProgress, setCacheProgress] = useState(0);
   const [downloadSize, setDownloadSize] = useState<string | null>(null);
   const [hasUserKey, setHasUserKey] = useState(false);
+
+  // Check debug mode
+  const isDebugMode = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    const params = new URLSearchParams(window.location.search);
+    return params.get('eruda') === 'true' || params.get('debug') === 'true';
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -325,13 +334,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
           )}
 
-          {/* Dev Tools Button */}
-          <button 
-            onClick={() => setShowDebugModal(true)}
-            className="w-full p-2 rounded-lg text-[10px] text-text-sec hover:text-text hover:bg-white/5 transition-colors flex items-center justify-center gap-2 border border-dashed border-white/10 opacity-60 hover:opacity-100"
-          >
-             <Wrench size={12} /> Ferramentas Técnicas
-          </button>
+          <div className="flex gap-2">
+             {/* Legal Button */}
+             <button 
+                onClick={onOpenLegal}
+                className="flex-1 p-2 rounded-lg text-[10px] text-text-sec hover:text-text hover:bg-white/5 transition-colors flex items-center justify-center gap-2 border border-transparent hover:border-white/10"
+             >
+                <Scale size={12} /> Sobre & Legal
+             </button>
+
+             {/* Dev Tools Button */}
+             {isDebugMode && (
+                <button 
+                  onClick={() => setShowDebugModal(true)}
+                  className="flex-1 p-2 rounded-lg text-[10px] text-text-sec hover:text-text hover:bg-white/5 transition-colors flex items-center justify-center gap-2 border border-dashed border-white/10 opacity-60 hover:opacity-100"
+                >
+                   <Wrench size={12} /> Debug
+                </button>
+             )}
+          </div>
         </div>
       </div>
 
