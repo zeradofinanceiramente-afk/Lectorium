@@ -1,30 +1,24 @@
 import { createWorker, Worker as TesseractWorker } from 'tesseract.js';
 
+/**
+ * CONFIGURAÇÃO DE RECURSOS TESSERACT 5.1.1
+ * Usamos caminhos fixos para garantir que o PWA possa cachear esses arquivos
+ * e evitar que o motor tente baixar versões incompatíveis em runtime.
+ */
 export const OCR_RESOURCES = {
   workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js',
   corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.0/tesseract-core.wasm.js',
-  corePathSimd: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.0/tesseract-core-simd.wasm.js',
-  wasmPath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.0/tesseract-core.wasm',
-  wasmPathSimd: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.0/tesseract-core-simd.wasm',
-  langPath: 'https://cdn.jsdelivr.net/gh/naptha/tessdata@gh-pages/4.0.0',
-};
-
-// Detecção de suporte a SIMD (Single Instruction, Multiple Data)
-// Isso permite que o processador execute operações vetoriais, acelerando o OCR em 30-50%.
-const isSimdSupported = async () => {
-  try {
-    return await WebAssembly.validate(new Uint8Array([
-      0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 10, 10, 
-      1, 8, 0, 65, 0, 253, 15, 253, 98, 11
-    ]));
-  } catch (e) {
-    return false;
-  }
+  langPath: 'https://cdn.jsdelivr.net/gh/naptha/tessdata@gh-pages/4.0.0', 
+  langFile: '/por.traineddata.gz'
 };
 
 let worker: TesseractWorker | null = null;
 let workerLoadingPromise: Promise<TesseractWorker> | null = null;
 
+/**
+ * Obtém ou inicializa o Worker do Tesseract.
+ * Implementa retentativa e cache para evitar múltiplos downloads de WASM.
+ */
 export const getOcrWorker = async (retryCount = 0): Promise<TesseractWorker> => {
   if (worker) return worker;
   if (workerLoadingPromise && retryCount === 0) return workerLoadingPromise;
@@ -33,30 +27,36 @@ export const getOcrWorker = async (retryCount = 0): Promise<TesseractWorker> => 
 
   workerLoadingPromise = (async () => {
     try {
-      const simd = await isSimdSupported();
-      const corePath = simd 
-        ? OCR_RESOURCES.corePathSimd
-        : OCR_RESOURCES.corePath;
-
-      console.log(`[OCR] Inicializando motor v5.1.1 (Tentativa ${retryCount + 1}). Modo SIMD: ${simd ? 'ATIVO 🚀' : 'INATIVO 🐢'}`);
+      console.log(`[OCR] Inicializando motor v5.1.1 (Tentativa ${retryCount + 1})...`);
       
+      // No Tesseract 5, os parâmetros de caminho são passados no createWorker
       const w = await createWorker('por', 1, {
         workerPath: OCR_RESOURCES.workerPath,
-        corePath: corePath,
+        corePath: OCR_RESOURCES.corePath,
         langPath: OCR_RESOURCES.langPath,
+        // Usamos cacheMethod 'none' para que o Service Worker gerencie a rede
+        // e 'fixed' para nomes de arquivos previsíveis
         cacheMethod: 'none',
         logger: (m) => {
-            // Logger silencioso para performance
+            if (m.status === 'recognizing text') {
+                // Progresso opcional
+            }
         },
         errorHandler: (err: any) => console.warn("[OCR] Worker warning:", err)
       });
 
+      /**
+       * OTIMIZAÇÕES ACADÊMICAS NATIVAS:
+       * - PSM 3: Segmentação automática (lida com colunas de jornais e artigos).
+       * - preserve_interword_spaces: Essencial para manter a geometria do PDF.
+       * - textord_heavy_nr: Ajuda em digitalizações ruidosas.
+       */
       await w.setParameters({
-        tessedit_pageseg_mode: '3' as any, // Auto segmentation
+        tessedit_pageseg_mode: '3' as any, 
         tessjs_create_hocr: '0',
         tessjs_create_tsv: '0',
         preserve_interword_spaces: '1',
-        textord_heavy_nr: '1', // Noise reduction agressivo
+        textord_heavy_nr: '1',
         tessedit_do_invert: '0', 
       });
 
@@ -78,6 +78,9 @@ export const getOcrWorker = async (retryCount = 0): Promise<TesseractWorker> => 
   return workerLoadingPromise;
 };
 
+/**
+ * Libera memória do Worker se necessário (ex: fechamento de documento pesado).
+ */
 export const terminateOcrWorker = async () => {
   if (worker) {
     try {

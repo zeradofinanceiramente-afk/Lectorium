@@ -66,9 +66,8 @@ export const AVAILABLE_RESOURCES: ResourceGroup[] = [
     urls: [
       OCR_RESOURCES.workerPath,
       OCR_RESOURCES.corePath,
-      OCR_RESOURCES.corePathSimd,
-      OCR_RESOURCES.wasmPath,
-      OCR_RESOURCES.wasmPathSimd,
+      // URL explicativa do binário WASM que o Tesseract baixa internamente
+      'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.0/tesseract-core.wasm',
       `${OCR_RESOURCES.langPath}/por.traineddata.gz`,
     ]
   }
