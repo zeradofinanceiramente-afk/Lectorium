@@ -1,3 +1,4 @@
+
 import { OCR_RESOURCES } from './ocrService';
 
 const CACHE_NAME = 'pdf-annotator-offline-manual-v4'; 
@@ -66,8 +67,9 @@ export const AVAILABLE_RESOURCES: ResourceGroup[] = [
     urls: [
       OCR_RESOURCES.workerPath,
       OCR_RESOURCES.corePath,
-      // URL explicativa do binário WASM que o Tesseract baixa internamente
-      'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.0/tesseract-core.wasm',
+      OCR_RESOURCES.corePathSimd,
+      `${OCR_RESOURCES.tesseractBase}/tesseract-core.wasm`,
+      `${OCR_RESOURCES.tesseractBase}/tesseract-core-simd.wasm`,
       `${OCR_RESOURCES.langPath}/por.traineddata.gz`,
     ]
   }
