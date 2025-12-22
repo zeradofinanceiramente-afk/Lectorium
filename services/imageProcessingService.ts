@@ -1,6 +1,4 @@
 
-import ImageProcessorWorker from '../workers/imageProcessor.worker?worker';
-
 /**
  * Otimizado para Jornais Históricos e Documentos Degradados.
  * Delega processamento pesado para Web Worker dedicado.
@@ -16,7 +14,11 @@ let sharedWorker: Worker | null = null;
 
 function getWorker() {
     if (!sharedWorker) {
-        sharedWorker = new ImageProcessorWorker();
+        // CORREÇÃO: Sintaxe nativa de Worker compatível com Vite/ESM
+        sharedWorker = new Worker(
+            new URL('../workers/imageProcessor.worker.ts', import.meta.url),
+            { type: 'module' }
+        );
     }
     return sharedWorker;
 }
@@ -38,7 +40,6 @@ export async function preprocessHistoricalNewspaper(source: Blob): Promise<Proce
   const { processedBitmap } = result;
   
   // Converte de volta para OffscreenCanvas ou Canvas para uso na UI/Exportação
-  // Nota: Em browsers modernos, podemos retornar o Bitmap e desenhá-lo, mas para manter assinatura:
   const canvas = new OffscreenCanvas(processedBitmap.width, processedBitmap.height);
   const ctx = canvas.getContext('2d');
   ctx?.drawImage(processedBitmap, 0, 0);
@@ -47,9 +48,7 @@ export async function preprocessHistoricalNewspaper(source: Blob): Promise<Proce
   return { canvas, scaleFactor: 1.0 };
 }
 
-// Deprecated local CPU functions removidas para garantir uso do worker.
 export async function preprocessImageForOcr(sourceCanvas: HTMLCanvasElement | OffscreenCanvas): Promise<ProcessedImageResult> {
-    // Pipeline legado redirecionado
     const bitmap = await createImageBitmap(sourceCanvas);
     const worker = getWorker();
     

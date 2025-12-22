@@ -1,6 +1,5 @@
 
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
-import PdfAnnotationWorker from '../workers/pdfAnnotationWorker?worker';
 import { Annotation } from '../types';
 
 /**
@@ -16,7 +15,11 @@ export async function burnAnnotationsToPdf(
     
     return new Promise((resolve, reject) => {
         try {
-            const worker = new PdfAnnotationWorker();
+            // CORREÇÃO: Sintaxe nativa de Worker compatível com Vite/ESM
+            const worker = new Worker(
+                new URL('../workers/pdfAnnotationWorker.ts', import.meta.url),
+                { type: 'module' }
+            );
 
             worker.onmessage = (e) => {
                 if (e.data.success) {
@@ -57,7 +60,11 @@ export async function burnPageOcrToPdf(
 
     return new Promise((resolve, reject) => {
         try {
-            const worker = new PdfAnnotationWorker();
+            // CORREÇÃO: Sintaxe nativa de Worker compatível com Vite/ESM
+            const worker = new Worker(
+                new URL('../workers/pdfAnnotationWorker.ts', import.meta.url),
+                { type: 'module' }
+            );
 
             worker.onmessage = (e) => {
                 if (e.data.success) {
