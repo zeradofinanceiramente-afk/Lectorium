@@ -1,4 +1,6 @@
 
+import ImageProcessorWorker from '../workers/imageProcessor.worker?worker';
+
 /**
  * Otimizado para Jornais Históricos e Documentos Degradados.
  * Delega processamento pesado para Web Worker dedicado.
@@ -14,7 +16,7 @@ let sharedWorker: Worker | null = null;
 
 function getWorker() {
     if (!sharedWorker) {
-        sharedWorker = new Worker(new URL('../workers/imageProcessor.worker.ts', import.meta.url), { type: 'module' });
+        sharedWorker = new ImageProcessorWorker();
     }
     return sharedWorker;
 }

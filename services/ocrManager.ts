@@ -1,6 +1,7 @@
 
 import { PDFDocumentProxy } from "pdfjs-dist";
 import { getOcrWorker } from "./ocrService";
+import ImageProcessorWorker from '../workers/imageProcessor.worker?worker';
 
 export type OcrStatus = 'idle' | 'queued' | 'processing' | 'done' | 'error';
 
@@ -52,7 +53,8 @@ export class OcrManager {
         console.log(`[OcrManager] Inicializando Pool com ${poolSize} workers.`);
 
         for (let i = 0; i < poolSize; i++) {
-            const worker = new Worker(new URL('../workers/imageProcessor.worker.ts', import.meta.url), { type: 'module' });
+            // CORREÇÃO: Uso de construtor importado pelo Vite
+            const worker = new ImageProcessorWorker();
             this.workerPool.push({ id: i, worker, busy: false });
         }
     }
@@ -90,6 +92,12 @@ export class OcrManager {
         this.onStatusChange(statusMap);
     }
 
+    private reportError(pageNumber: number) {
+        const statusMap: Record<number, OcrStatus> = {};
+        statusMap[pageNumber] = 'error';
+        this.onStatusChange(statusMap);
+    }
+
     private async processQueue() {
         // Encontra worker livre
         const idleWorker = this.workerPool.find(w => !w.busy);
@@ -117,6 +125,7 @@ export class OcrManager {
             this.processedPages.add(task.pageNumber);
         } catch (e) {
             console.error(`[OcrManager] Falha no Worker ${wrapper.id} p${task.pageNumber}:`, e);
+            this.reportError(task.pageNumber);
             // Opcional: Re-enfileirar com retry count se for erro transiente
         } finally {
             wrapper.busy = false;
@@ -133,13 +142,13 @@ export class OcrManager {
         const viewport = page.getViewport({ scale: this.ocrScale });
         
         // 1. Renderiza PDF na Main Thread (inevitável para PDF.js)
-        // Nota: Isso bloqueia a main thread brevemente. Com múltiplos workers, 
-        // a renderização ainda é serializada pela main thread, mas o processamento pesado é paralelo.
         const canvas = document.createElement('canvas');
         canvas.width = viewport.width;
         canvas.height = viewport.height;
         const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: true });
         
+        if (!ctx) throw new Error("Canvas Context Lost");
+
         await page.render({ canvasContext: ctx as any, viewport }).promise;
 
         // 2. Extrai Bitmap e Transfere para Worker do Pool
@@ -153,17 +162,24 @@ export class OcrManager {
                 // Remove listener para evitar memory leak em workers de longa duração
                 imageWorker.removeEventListener('message', handleMsg);
                 if (e.data.success) resolve(e.data.data);
-                else reject(new Error(e.data.error));
+                else reject(new Error(e.data.error || "Unknown worker error"));
             };
+            
+            const handleError = (e: ErrorEvent) => {
+                imageWorker.removeEventListener('message', handleMsg);
+                imageWorker.removeEventListener('error', handleError);
+                reject(new Error(e.message));
+            };
+
             imageWorker.addEventListener('message', handleMsg);
+            imageWorker.addEventListener('error', handleError);
+            
             imageWorker.postMessage({ type: 'processLayout', bitmap: sourceBitmap }, [sourceBitmap]);
         });
 
         const { processedBitmap, columnSplits } = layoutResult;
 
         // 3. OCR (Tesseract)
-        // Nota: O Tesseract.js gerencia sua própria fila interna se usarmos uma instância.
-        // Para máximo paralelismo, o ideal seria um Tesseract Scheduler, mas aqui focamos no Image Processing Pool.
         const worker = await getOcrWorker();
         const { data } = await worker.recognize(processedBitmap);
         
