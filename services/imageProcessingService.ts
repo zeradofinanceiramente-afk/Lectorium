@@ -3,6 +3,8 @@
  * Otimizado para Jornais Históricos e Documentos Degradados.
  * Delega processamento pesado para Web Worker dedicado.
  */
+// @ts-ignore
+import ImageProcessorWorker from '../workers/imageProcessor.worker.ts?worker';
 
 export interface ProcessedImageResult {
     canvas: HTMLCanvasElement | OffscreenCanvas;
@@ -14,11 +16,8 @@ let sharedWorker: Worker | null = null;
 
 function getWorker() {
     if (!sharedWorker) {
-        // CORREÇÃO: Sintaxe nativa de Worker compatível com Vite/ESM
-        sharedWorker = new Worker(
-            new URL('../workers/imageProcessor.worker.ts', import.meta.url),
-            { type: 'module' }
-        );
+        // Vite worker import
+        sharedWorker = new ImageProcessorWorker();
     }
     return sharedWorker;
 }

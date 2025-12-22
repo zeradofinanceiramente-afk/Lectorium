@@ -1,6 +1,8 @@
 
 import { PDFDocumentProxy } from "pdfjs-dist";
 import { getOcrWorker } from "./ocrService";
+// @ts-ignore
+import ImageProcessorWorker from '../workers/imageProcessor.worker.ts?worker';
 
 export type OcrStatus = 'idle' | 'queued' | 'processing' | 'done' | 'error';
 
@@ -53,11 +55,8 @@ export class OcrManager {
 
         for (let i = 0; i < poolSize; i++) {
             try {
-                // CORREÇÃO: Sintaxe nativa de Worker compatível com Vite/ESM
-                const worker = new Worker(
-                    new URL('../workers/imageProcessor.worker.ts', import.meta.url),
-                    { type: 'module' }
-                );
+                // Vite worker import handles URL resolution and bundling automatically
+                const worker = new ImageProcessorWorker();
                 this.workerPool.push({ id: i, worker, busy: false });
             } catch (e) {
                 console.error(`[OcrManager] Falha ao iniciar worker ${i}:`, e);
