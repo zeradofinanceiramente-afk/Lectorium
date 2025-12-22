@@ -1,46 +1,31 @@
-
 {
   "id": "/",
   "scope": "/",
   "name": "Lectorium",
   "short_name": "Lectorium",
-  "description": "Workspace Acadêmico nativo. Edição ABNT, Mapas Mentais e IA.",
+  "description": "Um Workspace Acadêmico PWA serverless para visualizar PDFs do Google Drive, fazer anotações e criar mapas mentais.",
   "lang": "pt-BR",
   "dir": "ltr",
-  "start_url": "/?utm_source=desktop_app",
+  "start_url": "/?utm_source=pwa",
   "display": "standalone",
   "display_override": [
     "window-controls-overlay",
     "standalone",
     "minimal-ui"
   ],
-  "background_color": "#000000",
-  "theme_color": "#000000",
+  "background_color": "#09090b",
+  "theme_color": "#09090b",
   "orientation": "any",
   "categories": [
     "productivity",
     "utilities",
     "education"
   ],
-  "file_handlers": [
-    {
-      "action": "/?source=file_handler",
-      "accept": {
-        "application/pdf": [".pdf"],
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],
-        "application/vnd.lectorium": [".lect"],
-        "application/json": [".mindmap"]
-      },
-      "icons": [
-        {
-          "src": "/icons/icon-512.png",
-          "sizes": "512x512",
-          "type": "image/png"
-        }
-      ],
-      "launch_type": "single-client"
-    }
-  ],
+  "iarc_rating_id": "",
+  "prefer_related_applications": false,
+  "launch_handler": {
+    "client_mode": "focus-existing"
+  },
   "icons": [
     {
       "src": "/icons/icon-192.png",
@@ -65,6 +50,103 @@
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any"
+    },
+    {
+      "src": "/icons/maskable-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Meus Arquivos",
+      "short_name": "Arquivos",
+      "description": "Abrir lista de arquivos do Drive",
+      "url": "/?mode=browser&utm_source=pwa",
+      "icons": [
+        {
+          "src": "/icons/shortcut-files.svg",
+          "sizes": "any",
+          "type": "image/svg+xml"
+        }
+      ]
+    },
+    {
+      "name": "Novo Mapa Mental",
+      "short_name": "Mapa Mental",
+      "description": "Criar um novo mapa mental",
+      "url": "/?mode=mindmaps&utm_source=pwa",
+      "icons": [
+        {
+          "src": "/icons/shortcut-mindmap.svg",
+          "sizes": "any",
+          "type": "image/svg+xml"
+        }
+      ]
+    }
+  ],
+  "protocol_handlers": [
+    {
+      "protocol": "web+pdf",
+      "url": "/?file=%s&utm_source=pwa"
+    }
+  ],
+  "file_handlers": [
+    {
+      "action": "/?source=filehandler",
+      "accept": {
+        "application/pdf": [
+          ".pdf"
+        ],
+        "application/json": [
+          ".mindmap",
+          ".json"
+        ]
+      },
+      "icons": [
+        {
+          "src": "/icons/file-pdf.svg",
+          "sizes": "512x512",
+          "type": "image/svg+xml"
+        }
+      ],
+      "launch_type": "single-client"
+    }
+  ],
+  "share_target": {
+    "action": "/?source=share",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "files": [
+        {
+          "name": "file",
+          "accept": [
+            "application/pdf",
+            ".pdf",
+            ".mindmap",
+            "application/json"
+          ]
+        }
+      ]
+    }
+  },
+  "screenshots": [
+    {
+      "src": "/screenshots/desktop.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Visualizador de PDF - Desktop"
+    },
+    {
+      "src": "/screenshots/mobile.png",
+      "sizes": "360x800",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Lista de arquivos - Mobile"
     }
   ]
 }

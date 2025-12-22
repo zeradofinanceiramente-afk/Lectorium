@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useMemo, Suspense, lazy } from 'react';
 import { auth } from './firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
@@ -269,6 +268,47 @@ export default function App() {
     const file: DriveFile = { id: `local-${Date.now()}`, name, mimeType, blob };
     handleOpenFile(file);
   }, [handleOpenFile]);
+
+  // --- LAUNCH HANDLER LOGIC (Share Target & Protocols) ---
+  useEffect(() => {
+    const handleLaunch = async () => {
+      const params = new URLSearchParams(window.location.search);
+      
+      // 1. Share Target (PWA Cache)
+      if (params.get('share_target') === 'true') {
+        const cache = await caches.open('share-target-cache');
+        const keys = await cache.keys();
+        if (keys.length > 0) {
+          const req = keys[0]; // Process first file
+          const res = await cache.match(req);
+          if (res) {
+            const blob = await res.blob();
+            const name = decodeURIComponent(req.url.split('/').pop() || 'shared-file');
+            handleCreateFileFromBlob(blob, name, blob.type);
+            await cache.delete(req);
+          }
+        }
+        window.history.replaceState({}, '', '/');
+      }
+
+      // 2. Protocol Handler (web+pdf)
+      const fileParam = params.get('file');
+      if (fileParam && fileParam.startsWith('web+pdf:')) {
+          const url = fileParam.replace('web+pdf:', '');
+          try {
+              const res = await fetch(url);
+              const blob = await res.blob();
+              const name = url.split('/').pop() || 'document.pdf';
+              handleCreateFileFromBlob(blob, name, blob.type);
+          } catch (e: any) {
+              alert("Erro ao abrir link do protocolo: " + e.message);
+          }
+          window.history.replaceState({}, '', '/');
+      }
+    };
+    
+    handleLaunch();
+  }, [handleCreateFileFromBlob]);
 
   const handleCloseFile = useCallback((id: string) => {
     setOpenFiles(prev => {

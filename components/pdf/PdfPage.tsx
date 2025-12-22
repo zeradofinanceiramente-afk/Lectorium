@@ -211,7 +211,7 @@ export const PdfPage: React.FC<PdfPageProps> = ({
 
   // PERFORMANCE: Injeção Assíncrona via Time-Slicing (Garantia de 60fps)
   useEffect(() => {
-    if (ocrData && ocrData.length > 0 && textLayerRef.current && rendered) {
+    if (ocrData && ocrData.length > 0 && textLayerRef.current && rendered && pageDimensions) {
         const sideKey = isSplitActive ? spreadSide : 'full';
         const dataHash = `ocr-v10-perf-${pageNumber}-${ocrData.length}-${scale}-${sideKey}-${isPageRefined ? 'r' : 'u'}`;
         
@@ -235,13 +235,21 @@ export const PdfPage: React.FC<PdfPageProps> = ({
             
             for (let i = currentIndex; i < end; i++) {
                 const word = visibleWords[i];
-                const span = document.createElement('span');
-                span.textContent = word.text + ' ';
                 
                 const x = word.bbox.x0 * scale;
                 const y = word.bbox.y0 * scale;
                 const w = (word.bbox.x1 - word.bbox.x0) * scale;
                 const h = (word.bbox.y1 - word.bbox.y0) * scale;
+
+                // HEURÍSTICA DE SEGURANÇA (GHOST BLOCK): 
+                // Se o bloco detectado pelo OCR for gigante (ex: mais de 80% da largura ou altura da página),
+                // é provável que seja um ruído de fundo interpretado como texto. Ignoramos para evitar manchas azuis.
+                if (w > pageDimensions.width * 0.8 || h > pageDimensions.height * 0.8) {
+                    continue; 
+                }
+
+                const span = document.createElement('span');
+                span.textContent = word.text + ' ';
 
                 span.style.left = `${Math.floor(x)}px`;
                 span.style.top = `${Math.floor(y)}px`;
@@ -277,7 +285,7 @@ export const PdfPage: React.FC<PdfPageProps> = ({
         frameId = requestAnimationFrame(injectBatch);
         return () => cancelAnimationFrame(frameId);
     }
-  }, [ocrData, rendered, scale, pageNumber, spreadSide, isSplitActive, isPageRefined]);
+  }, [ocrData, rendered, scale, pageNumber, spreadSide, isSplitActive, isPageRefined, pageDimensions]);
 
   const getRelativeCoords = (e: React.PointerEvent) => {
       const rect = pageContainerRef.current?.getBoundingClientRect();

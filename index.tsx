@@ -44,8 +44,8 @@ root.render(
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    // Alterado de '/sw.js' para './sw.js' para evitar problemas de origem em previews
-    navigator.serviceWorker.register('./sw.js')
+    // Uso de caminho absoluto '/sw.js' é mais robusto para scanners PWA
+    navigator.serviceWorker.register('/sw.js')
       .then(registration => {
         console.log('SW registered: ', registration);
       })

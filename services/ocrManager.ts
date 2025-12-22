@@ -359,6 +359,16 @@ export class OcrManager {
                     if (xCenter > columnSplits[0]) column = 1;
                 }
 
+                // Cálculo relativo para detectar blocos fantasmas
+                const bboxWidth = w.bbox.x1 - w.bbox.x0;
+                const bboxHeight = w.bbox.y1 - w.bbox.y0;
+                
+                // FILTER: Ignorar palavras que ocupam quase a página inteira (ruído de fundo/imagem)
+                // Se a largura for > 90% da página OU (largura > 50% e altura > 50%)
+                if (bboxWidth > width * 0.9 || (bboxWidth > width * 0.5 && bboxHeight > height * 0.5)) {
+                    return null;
+                }
+
                 return {
                     text: w.text,
                     confidence: w.confidence,
@@ -370,9 +380,10 @@ export class OcrManager {
                         y1: w.bbox.y1 / this.ocrScale
                     }
                 };
-            });
+            }).filter(Boolean); // Remove nulls
 
             cleanWords.sort((a, b) => {
+                if (!a || !b) return 0;
                 if (a.column !== b.column) return a.column - b.column;
                 const yDiff = a.bbox.y0 - b.bbox.y0;
                 if (Math.abs(yDiff) < 5) return a.bbox.x0 - b.bbox.x0;
