@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Annotation } from '../types';
 import { loadOcrData, saveOcrData, touchOfflineFile } from '../services/storageService';
@@ -57,6 +56,8 @@ interface PdfContextState {
   // Permite atualizar o blob principal (Single Source of Truth)
   updateSourceBlob: (newBlob: Blob) => void;
   currentBlobRef: React.MutableRefObject<Blob | null>;
+  // Novo: Retorna apenas OCR pendente para evitar duplicação no save
+  getUnburntOcrMap: () => Record<number, any[]>;
 }
 
 const PdfContext = createContext<PdfContextState | null>(null);
@@ -157,6 +158,22 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
       processBurnQueue();
   }, []);
 
+  const getUnburntOcrMap = useCallback(() => {
+      const fullMap = ocrMap || {};
+      // Ensure strictly typed Record to prevent assignment of incompatible types
+      const filteredMap: Record<number, any[]> = {};
+      
+      Object.entries(fullMap).forEach(([pageStr, words]) => {
+          const page = parseInt(pageStr);
+          // Só inclui se AINDA NÃO foi queimado no blob
+          if (!burnedPagesRef.current.has(page) && Array.isArray(words)) {
+              filteredMap[page] = words;
+          }
+      });
+      
+      return filteredMap;
+  }, [ocrMap]);
+
   const showOcrNotification = useCallback((message: string) => {
     if (notificationTimeoutRef.current) clearTimeout(notificationTimeoutRef.current);
     setOcrNotificationState(message);
@@ -169,10 +186,18 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
         if (data && Object.keys(data).length > 0) {
             setOcrMap(prev => ({ ...prev, ...data }));
             const statusUpdate: Record<number, OcrStatus> = {};
-            Object.keys(data).forEach(p => statusUpdate[parseInt(p)] = 'done');
+            
+            Object.keys(data).forEach(pStr => {
+                const p = parseInt(pStr);
+                statusUpdate[p] = 'done';
+                // CRÍTICO: Se carregamos do cache, assumimos que o arquivo salvo no disco
+                // já contém esse OCR (de um save anterior). Marcamos como queimado para não duplicar.
+                // Se o arquivo for novo/limpo mas tiver cache órfão, o usuário precisará reprocessar
+                // ou salvar uma vez (o que não gera duplicação pois o unburnt filtra)
+                burnedPagesRef.current.add(p);
+            });
+            
             setOcrStatusMap(prev => ({ ...prev, ...statusUpdate }));
-            // Não queimamos dados carregados do cache na inicialização para evitar boot lento.
-            // Eles serão queimados sob demanda ou no save final.
         }
     });
   }, [fileId]);
@@ -255,7 +280,7 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
         if (fileId) {
             saveOcrData(fileId, page, pageWords).catch(() => {});
             setHasUnsavedOcr(true);
-            // Re-queima para atualizar o texto invisível
+            // Re-queima para atualizar o texto invisível (remove do set para permitir reprocessamento)
             if (burnedPagesRef.current.has(page)) burnedPagesRef.current.delete(page);
             schedulePageBurn(page, pageWords);
         }
@@ -302,8 +327,8 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
     settings, updateSettings, annotations, addAnnotation: onAddAnnotation, removeAnnotation: onRemoveAnnotation,
     ocrMap, ocrStatusMap, setPageOcrData, updateOcrWord, triggerOcr, refinePageOcr, hasUnsavedOcr, setHasUnsavedOcr, ocrNotification,
     jumpToPage, accessToken, isSpread, setIsSpread, spreadSide, setSpreadSide, goNext, goPrev,
-    updateSourceBlob: onUpdateSourceBlob, currentBlobRef
-  }), [scale, currentPage, numPages, activeTool, settings, annotations, onAddAnnotation, onRemoveAnnotation, ocrMap, ocrStatusMap, setPageOcrData, updateOcrWord, triggerOcr, refinePageOcr, hasUnsavedOcr, setHasUnsavedOcr, ocrNotification, jumpToPage, accessToken, isSpread, spreadSide, goNext, goPrev, onUpdateSourceBlob]);
+    updateSourceBlob: onUpdateSourceBlob, currentBlobRef, getUnburntOcrMap
+  }), [scale, currentPage, numPages, activeTool, settings, annotations, onAddAnnotation, onRemoveAnnotation, ocrMap, ocrStatusMap, setPageOcrData, updateOcrWord, triggerOcr, refinePageOcr, hasUnsavedOcr, setHasUnsavedOcr, ocrNotification, jumpToPage, accessToken, isSpread, spreadSide, goNext, goPrev, onUpdateSourceBlob, getUnburntOcrMap]);
 
   return <PdfContext.Provider value={value}>{children}</PdfContext.Provider>;
 };

@@ -56,7 +56,8 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
     currentPage, setCurrentPage, numPages,
     ocrMap, setHasUnsavedOcr, ocrNotification,
     goNext, goPrev,
-    currentBlobRef // Acesso direto ao blob via ref do contexto
+    currentBlobRef, // Acesso direto ao blob via ref do contexto
+    getUnburntOcrMap // Acesso ao mapa filtrado para save
   } = usePdfContext();
   
   const containerRef = useRef<HTMLDivElement>(null);
@@ -154,9 +155,11 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
      const sourceBlob = currentBlobRef.current || originalBlob;
      if (!sourceBlob) return;
      
-     // Queima apenas as anotações VISUAIS restantes (o OCR já foi queimado incrementalmente)
-     // ou queima tudo se nada foi processado ainda.
-     const newBlob = await burnAnnotationsToPdf(sourceBlob, annotations, ocrMap);
+     // CRÍTICO: Usa getUnburntOcrMap para enviar apenas OCR que AINDA NÃO está no blob
+     // Isso evita queima dupla se já processamos progressivamente
+     const ocrToBurn = getUnburntOcrMap();
+     
+     const newBlob = await burnAnnotationsToPdf(sourceBlob, annotations, ocrToBurn);
      
      const url = URL.createObjectURL(newBlob);
      const a = document.createElement('a');
@@ -194,8 +197,10 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
             return;
         }
 
-        // Gera o PDF final com anotações visuais (OCR já deve estar no sourceBlob se foi processado)
-        const newBlob = await burnAnnotationsToPdf(sourceBlob, annotations, ocrMap);
+        // CRÍTICO: Usa getUnburntOcrMap
+        const ocrToBurn = getUnburntOcrMap();
+        const newBlob = await burnAnnotationsToPdf(sourceBlob, annotations, ocrToBurn);
+        
         const isLocal = fileId.startsWith('local-') || !accessToken;
 
         if (!isLocal && !navigator.onLine && accessToken) {
@@ -224,7 +229,7 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
                try {
                   await updateDriveFile(accessToken, fileId, newBlob);
                   
-                  // Atualiza o blob original (Single Source of Truth) para a nova versão "limpa" (anotações queimadas)
+                  // Atualiza o blob original (Single Source of Truth) para a nova versão "limpa"
                   setOriginalBlob(newBlob);
                   
                   if (isOfflineAvailable) {
