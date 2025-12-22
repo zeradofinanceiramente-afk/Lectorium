@@ -1,4 +1,3 @@
-
 import { OCR_RESOURCES } from './ocrService';
 
 const CACHE_NAME = 'pdf-annotator-offline-manual-v4'; 
@@ -68,8 +67,8 @@ export const AVAILABLE_RESOURCES: ResourceGroup[] = [
       OCR_RESOURCES.workerPath,
       OCR_RESOURCES.corePath,
       OCR_RESOURCES.corePathSimd,
-      `${OCR_RESOURCES.tesseractBase}/tesseract-core.wasm`,
-      `${OCR_RESOURCES.tesseractBase}/tesseract-core-simd.wasm`,
+      OCR_RESOURCES.wasmPath,
+      OCR_RESOURCES.wasmPathSimd,
       `${OCR_RESOURCES.langPath}/por.traineddata.gz`,
     ]
   }

@@ -1,8 +1,5 @@
-
 import { PDFDocumentProxy } from "pdfjs-dist";
 import { getOcrWorker } from "./ocrService";
-// @ts-ignore
-import ImageProcessorWorker from '../workers/imageProcessor.worker.ts?worker';
 
 export type OcrStatus = 'idle' | 'queued' | 'processing' | 'done' | 'error';
 
@@ -14,22 +11,17 @@ interface OcrTask {
     retries: number;
 }
 
-interface WorkerWrapper {
-    id: number;
-    worker: Worker;
-    busy: boolean;
-}
-
 export class OcrManager {
     private pdfDoc: PDFDocumentProxy;
     private queue: OcrTask[] = [];
-    private workerPool: WorkerWrapper[] = [];
+    private processing: boolean = false;
     private processedPages: Set<number> = new Set();
-    private activePages: Set<number> = new Set(); // Track multiple active pages
+    private activePage: number | null = null; 
     private onPageComplete: (page: number, words: any[]) => void;
     private onStatusChange: (statusMap: Record<number, OcrStatus>) => void;
     private onCheckpoint?: () => void;
-    private ocrScale: number = 3.0; 
+    private ocrScale: number = 2.5; // Scale balanceado para precisão vs performance
+    private imageWorker: Worker;
 
     constructor(
         pdfDoc: PDFDocumentProxy, 
@@ -42,41 +34,22 @@ export class OcrManager {
         this.onStatusChange = onStatusChange;
         this.onCheckpoint = onCheckpoint;
         
-        this.initWorkerPool();
-    }
-
-    private initWorkerPool() {
-        // Estratégia: Usar (Cores - 1) para deixar a UI thread livre
-        // Mínimo de 2 workers para garantir paralelismo
-        const logicalCores = navigator.hardwareConcurrency || 4;
-        const poolSize = Math.max(2, logicalCores - 1);
-        
-        console.log(`[OcrManager] Inicializando Pool com ${poolSize} workers.`);
-
-        for (let i = 0; i < poolSize; i++) {
-            try {
-                // Vite worker import handles URL resolution and bundling automatically
-                const worker = new ImageProcessorWorker();
-                this.workerPool.push({ id: i, worker, busy: false });
-            } catch (e) {
-                console.error(`[OcrManager] Falha ao iniciar worker ${i}:`, e);
-            }
-        }
+        // Inicializa o Worker de Imagem usando o padrão URL Constructor (Vite Safe)
+        // Isso corrige o erro "does not provide an export named 'default'"
+        this.imageWorker = new Worker(
+            new URL('../workers/imageProcessing.worker.ts', import.meta.url), 
+            { type: 'module' }
+        );
     }
 
     public schedule(pageNumber: number, priority: Priority = 'low') {
-        if (this.processedPages.has(pageNumber) || this.activePages.has(pageNumber)) return;
-        
-        // Remove duplicatas na fila
+        if (this.processedPages.has(pageNumber) || this.activePage === pageNumber) return;
         this.queue = this.queue.filter(t => t.pageNumber !== pageNumber);
-        
         const task: OcrTask = { pageNumber, priority, retries: 0 };
-        
         if (priority === 'high') this.queue.unshift(task);
         else this.queue.push(task);
-        
         this.emitStatus();
-        this.processQueue();
+        this.processNext();
     }
 
     public markAsProcessed(pageNumber: number) {
@@ -85,111 +58,76 @@ export class OcrManager {
     }
 
     public terminate() {
-        this.workerPool.forEach(w => w.worker.terminate());
-        this.workerPool = [];
+        this.imageWorker.terminate();
     }
 
     private emitStatus() {
         const statusMap: Record<number, OcrStatus> = {};
         this.processedPages.forEach(p => statusMap[p] = 'done');
         this.queue.forEach(t => statusMap[t.pageNumber] = 'queued');
-        this.activePages.forEach(p => statusMap[p] = 'processing');
+        if (this.activePage !== null) statusMap[this.activePage] = 'processing';
         this.onStatusChange(statusMap);
     }
 
-    private reportError(pageNumber: number) {
-        const statusMap: Record<number, OcrStatus> = {};
-        statusMap[pageNumber] = 'error';
-        this.onStatusChange(statusMap);
-    }
-
-    private async processQueue() {
-        // Encontra worker livre
-        const idleWorker = this.workerPool.find(w => !w.busy);
-        
-        if (!idleWorker || this.queue.length === 0) return;
-
+    private async processNext() {
+        if (this.processing || this.queue.length === 0) return;
+        this.processing = true;
         const task = this.queue.shift();
-        if (!task) return;
-
-        this.runWorker(idleWorker, task);
-        
-        // Tenta processar mais se houver outros workers livres
-        if (this.queue.length > 0 && this.workerPool.some(w => !w.busy)) {
-            this.processQueue();
-        }
-    }
-
-    private async runWorker(wrapper: WorkerWrapper, task: OcrTask) {
-        wrapper.busy = true;
-        this.activePages.add(task.pageNumber);
-        this.emitStatus();
+        if (!task) { this.processing = false; return; }
 
         try {
-            await this.executeTask(wrapper.worker, task);
-            this.processedPages.add(task.pageNumber);
-        } catch (e) {
-            console.error(`[OcrManager] Falha no Worker ${wrapper.id} p${task.pageNumber}:`, e);
-            this.reportError(task.pageNumber);
-            // Opcional: Re-enfileirar com retry count se for erro transiente
-        } finally {
-            wrapper.busy = false;
-            this.activePages.delete(task.pageNumber);
+            this.activePage = task.pageNumber;
             this.emitStatus();
-            
-            // Worker liberado, busca próxima tarefa
-            this.processQueue();
+            await this.executeTask(task);
+            this.activePage = null;
+            this.processedPages.add(task.pageNumber);
+            this.processing = false;
+            this.emitStatus();
+            if (this.queue.length > 0) setTimeout(() => this.processNext(), 50);
+        } catch (e) {
+            console.error(`[OcrManager] Falha p${task.pageNumber}:`, e);
+            this.activePage = null;
+            this.processing = false;
+            this.emitStatus();
+            // Retry logic simplificado: joga pro final da fila se tiver retries
+            if (task.retries < 2) {
+                task.retries++;
+                this.queue.push(task);
+            }
+            setTimeout(() => this.processNext(), 1000);
         }
     }
 
-    private async executeTask(imageWorker: Worker, task: OcrTask) {
+    private async executeTask(task: OcrTask) {
         const page = await this.pdfDoc.getPage(task.pageNumber);
         const viewport = page.getViewport({ scale: this.ocrScale });
         
-        // 1. Renderiza PDF na Main Thread (inevitável para PDF.js)
+        // Renderiza o PDF para um OffscreenCanvas (se suportado) ou Canvas normal
+        // PDF.js exige canvas na main thread ainda para renderização de fontes
         const canvas = document.createElement('canvas');
         canvas.width = viewport.width;
         canvas.height = viewport.height;
-        const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: true });
+        const ctx = canvas.getContext('2d', { willReadFrequently: true, alpha: false });
         
-        if (!ctx) throw new Error("Canvas Context Lost");
-
         await page.render({ canvasContext: ctx as any, viewport }).promise;
 
-        // 2. Extrai Bitmap e Transfere para Worker do Pool
-        const sourceBitmap = await createImageBitmap(canvas);
+        // Extrai ImageBitmap (Zero-Copy Transferable)
+        const bitmap = await createImageBitmap(canvas);
         
-        // Limpa canvas imediatamente para economizar RAM
+        // Limpa canvas da main thread imediatamente
         canvas.width = 0; canvas.height = 0;
 
-        const layoutResult: any = await new Promise((resolve, reject) => {
-            const handleMsg = (e: MessageEvent) => {
-                // Remove listener para evitar memory leak em workers de longa duração
-                imageWorker.removeEventListener('message', handleMsg);
-                if (e.data.success) resolve(e.data.data);
-                else reject(new Error(e.data.error || "Unknown worker error"));
-            };
-            
-            const handleError = (e: ErrorEvent) => {
-                imageWorker.removeEventListener('message', handleMsg);
-                imageWorker.removeEventListener('error', handleError);
-                reject(new Error(e.message));
-            };
+        // Processamento Off-Thread (Worker)
+        const { processedBitmap, columnSplits } = await this.processImageOffThread(bitmap, viewport.width, viewport.height);
 
-            imageWorker.addEventListener('message', handleMsg);
-            imageWorker.addEventListener('error', handleError);
-            
-            imageWorker.postMessage({ type: 'processLayout', bitmap: sourceBitmap }, [sourceBitmap]);
-        });
-
-        const { processedBitmap, columnSplits } = layoutResult;
-
-        // 3. OCR (Tesseract)
+        // OCR Engine (Worker separado do Tesseract)
         const worker = await getOcrWorker();
+        
+        // Tesseract.js aceita ImageBitmap diretamente! (Super rápido)
         const { data } = await worker.recognize(processedBitmap);
         
-        try { processedBitmap.close(); } catch(e){}
-
+        // Bitmap já foi consumido ou transferido, o GC cuida dele.
+        
         let cleanWords = [];
         if (data && data.words) {
             cleanWords = data.words.map(w => {
@@ -203,6 +141,7 @@ export class OcrManager {
                     text: w.text,
                     confidence: w.confidence,
                     column: column,
+                    // Normaliza coordenadas de volta para escala 1.0 (PDF Coordinates)
                     bbox: {
                         x0: w.bbox.x0 / this.ocrScale,
                         y0: w.bbox.y0 / this.ocrScale,
@@ -212,9 +151,11 @@ export class OcrManager {
                 };
             });
 
+            // Ordenação lógica de leitura (Topo-Baixo, Esquerda-Direita respeitando colunas)
             cleanWords.sort((a, b) => {
                 if (a.column !== b.column) return a.column - b.column;
                 const yDiff = a.bbox.y0 - b.bbox.y0;
+                // Tolerância de linha (5px)
                 if (Math.abs(yDiff) < 5) return a.bbox.x0 - b.bbox.x0;
                 return yDiff;
             });
@@ -222,5 +163,36 @@ export class OcrManager {
 
         this.onPageComplete(task.pageNumber, cleanWords);
         if (this.onCheckpoint) this.onCheckpoint();
+    }
+
+    // Wrapper promissificado para o ImageWorker
+    private processImageOffThread(bitmap: ImageBitmap, width: number, height: number): Promise<{ processedBitmap: ImageBitmap, columnSplits: number[] }> {
+        return new Promise((resolve, reject) => {
+            const operationId = Math.random().toString(36).substr(2, 9);
+            
+            const handler = (e: MessageEvent) => {
+                if (e.data.operationId === operationId) {
+                    this.imageWorker.removeEventListener('message', handler);
+                    if (e.data.success) {
+                        resolve({ 
+                            processedBitmap: e.data.processedBitmap, 
+                            columnSplits: e.data.columnSplits 
+                        });
+                    } else {
+                        reject(new Error(e.data.error));
+                    }
+                }
+            };
+
+            this.imageWorker.addEventListener('message', handler);
+            
+            // Envia para o worker com transferência de posse do bitmap (Zero Copy)
+            this.imageWorker.postMessage({
+                operationId,
+                bitmap,
+                width,
+                height
+            }, [bitmap]);
+        });
     }
 }

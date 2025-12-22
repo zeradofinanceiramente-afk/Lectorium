@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Home, FolderOpen, LogOut, User as UserIcon, X, Palette, ChevronDown, ChevronRight, FileText, Workflow, DownloadCloud, CheckCircle, Loader2, LayoutGrid, Cloud, CloudOff, LogIn, Wrench, Key, Terminal } from 'lucide-react';
+import { Home, FolderOpen, LogOut, User as UserIcon, X, Palette, ChevronDown, ChevronRight, FileText, Workflow, DownloadCloud, CheckCircle, Loader2, LayoutGrid, Cloud, CloudOff, LogIn, Wrench, Key } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { ThemeSwitcher } from './ThemeSwitcher';
 import { DriveFile } from '../types';
@@ -46,9 +46,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [cacheProgress, setCacheProgress] = useState(0);
   const [downloadSize, setDownloadSize] = useState<string | null>(null);
   const [hasUserKey, setHasUserKey] = useState(false);
-  
-  // Verifica se o modo debug está ativo via URL
-  const isDebugActive = new URLSearchParams(window.location.search).get('debug') === 'true';
 
   useEffect(() => {
     let active = true;
@@ -96,16 +93,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const handleNavigation = (tab: string) => {
     onSwitchTab(tab);
     onClose();
-  };
-
-  const toggleDebugMode = () => {
-      const url = new URL(window.location.href);
-      if (url.searchParams.get('debug') === 'true') {
-          url.searchParams.delete('debug');
-      } else {
-          url.searchParams.set('debug', 'true');
-      }
-      window.location.href = url.toString();
   };
 
   return (
@@ -339,23 +326,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           )}
 
           {/* Dev Tools Button */}
-          <div className="flex gap-2">
-              <button 
-                onClick={() => setShowDebugModal(true)}
-                className="flex-1 p-2 rounded-lg text-[10px] text-text-sec hover:text-text hover:bg-white/5 transition-colors flex items-center justify-center gap-2 border border-dashed border-white/10 opacity-60 hover:opacity-100"
-                title="Diagnóstico de Versões"
-              >
-                 <Wrench size={12} /> Diagnóstico
-              </button>
-              
-              <button 
-                onClick={toggleDebugMode}
-                className={`p-2 rounded-lg text-[10px] transition-colors flex items-center justify-center border border-dashed hover:opacity-100 ${isDebugActive ? 'bg-brand/10 text-brand border-brand font-bold opacity-100' : 'text-text-sec hover:text-text hover:bg-white/5 border-white/10 opacity-60'}`}
-                title={isDebugActive ? "Desativar Console Flutuante (Recarrega)" : "Ativar Console Flutuante (Recarrega)"}
-              >
-                 <Terminal size={12} />
-              </button>
-          </div>
+          <button 
+            onClick={() => setShowDebugModal(true)}
+            className="w-full p-2 rounded-lg text-[10px] text-text-sec hover:text-text hover:bg-white/5 transition-colors flex items-center justify-center gap-2 border border-dashed border-white/10 opacity-60 hover:opacity-100"
+          >
+             <Wrench size={12} /> Ferramentas Técnicas
+          </button>
         </div>
       </div>
 

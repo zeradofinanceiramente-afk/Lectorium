@@ -15,7 +15,6 @@ import { Sidebar } from './components/Sidebar';
 import { Dashboard } from './components/Dashboard';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { CookieConsent } from './components/CookieConsent';
-import { DebugConsole } from './components/DebugConsole';
 import { DriveFile, MIME_TYPES } from './types';
 import { Loader2, Wifi, AlertTriangle } from 'lucide-react';
 import ReauthToast from './components/ReauthToast';
@@ -328,7 +327,6 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      <DebugConsole />
       <div className="flex h-screen w-full bg-bg overflow-hidden relative selection:bg-brand/30">
         <Sidebar activeTab={activeTab} onSwitchTab={setActiveTab} openFiles={openFiles} onCloseFile={handleCloseFile} user={user} onLogout={logout} onLogin={handleLogin} isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} onToggle={toggleSidebar} driveActive={!!accessToken} />
         <main className="flex-1 relative flex flex-col bg-bg overflow-hidden transition-all duration-300">

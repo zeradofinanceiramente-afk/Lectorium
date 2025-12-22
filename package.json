@@ -61,8 +61,7 @@
     "uuid": "^13.0.0",
     "recharts": "^3.6.0",
     "@tiptap/extension-code-block-lowlight": "^2.11.5",
-    "lowlight": "^3.3.0",
-    "eruda": "^3.0.1"
+    "lowlight": "^3.3.0"
   },
   "overrides": {
     "@tiptap/extension-collaboration-cursor": {

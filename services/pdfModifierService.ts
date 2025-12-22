@@ -1,8 +1,5 @@
 
-import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { Annotation } from '../types';
-// @ts-ignore
-import PdfAnnotationWorker from '../workers/pdfAnnotationWorker.ts?worker';
 
 /**
  * Pega um Blob de PDF e uma lista de anotações, e retorna um novo Blob.
@@ -17,8 +14,10 @@ export async function burnAnnotationsToPdf(
     
     return new Promise((resolve, reject) => {
         try {
-            // Vite worker import
-            const worker = new PdfAnnotationWorker();
+            const worker = new Worker(
+              new URL('./../workers/pdfAnnotationWorker.ts', import.meta.url),
+              { type: 'module' }
+            );
 
             worker.onmessage = (e) => {
                 if (e.data.success) {
@@ -59,8 +58,10 @@ export async function burnPageOcrToPdf(
 
     return new Promise((resolve, reject) => {
         try {
-            // Vite worker import
-            const worker = new PdfAnnotationWorker();
+            const worker = new Worker(
+                new URL('./../workers/pdfAnnotationWorker.ts', import.meta.url),
+                { type: 'module' }
+            );
 
             worker.onmessage = (e) => {
                 if (e.data.success) {
