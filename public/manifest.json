@@ -1,0 +1,70 @@
+
+{
+  "id": "/",
+  "scope": "/",
+  "name": "Lectorium",
+  "short_name": "Lectorium",
+  "description": "Workspace Acadêmico nativo. Edição ABNT, Mapas Mentais e IA.",
+  "lang": "pt-BR",
+  "dir": "ltr",
+  "start_url": "/?utm_source=desktop_app",
+  "display": "standalone",
+  "display_override": [
+    "window-controls-overlay",
+    "standalone",
+    "minimal-ui"
+  ],
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "orientation": "any",
+  "categories": [
+    "productivity",
+    "utilities",
+    "education"
+  ],
+  "file_handlers": [
+    {
+      "action": "/?source=file_handler",
+      "accept": {
+        "application/pdf": [".pdf"],
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],
+        "application/vnd.lectorium": [".lect"],
+        "application/json": [".mindmap"]
+      },
+      "icons": [
+        {
+          "src": "/icons/icon-512.png",
+          "sizes": "512x512",
+          "type": "image/png"
+        }
+      ],
+      "launch_type": "single-client"
+    }
+  ],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/maskable-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+
+{
+  "build": {
+    "beforeBuildCommand": "npm run build",
+    "beforeDevCommand": "npm run dev",
+    "devPath": "http://localhost:3000",
+    "distDir": "dist"
+  },
+  "package": {
+    "productName": "Lectorium",
+    "version": "1.2.0"
+  },
+  "tauri": {
+    "allowlist": {
+      "all": true,
+      "fs": {
+        "all": true,
+        "scope": ["$HOME/*"]
+      },
+      "shell": {
+        "all": true,
+        "open": true
+      }
+    },
+    "bundle": {
+      "active": true,
+      "category": "Education",
+      "copyright": "",
+      "externalBin": [],
+      "icon": [
+        "public/icons/icon-512.png"
+      ],
+      "identifier": "dev.lectorium.app",
+      "longDescription": "Academic Workspace with AI and Smart Sync",
+      "resources": [],
+      "shortDescription": "Lectorium Desktop",
+      "targets": "all"
+    },
+    "security": {
+      "csp": null
+    },
+    "window": {
+      "title": "Lectorium",
+      "width": 1200,
+      "height": 800,
+      "resizable": true,
+      "fullscreen": false,
+      "decorations": true,
+      "transparent": false
+    }
+  }
+}
