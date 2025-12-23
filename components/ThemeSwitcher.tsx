@@ -11,6 +11,7 @@ const themes = [
   { id: 'synthwave', name: 'Synthwave' },
   { id: 'parchment', name: 'Parchment' },
   { id: 'high-contrast', name: 'Alto Contraste' },
+  { id: 'vergil', name: 'Son of Sparda' },
 ];
 
 interface Props {

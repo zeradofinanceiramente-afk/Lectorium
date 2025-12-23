@@ -79,6 +79,7 @@ html.dracula { --bg-main: #282a36; --bg-surface: #44475a; --bg-sidebar: #1e1f29;
 html.synthwave { --bg-main: #2b213a; --bg-surface: #241b2f; --bg-sidebar: #1a1625; --bg-paper: #241b2f; --text-main: #fff0f5; --text-sec: #b39db2; --brand: #ff71ce; --border-color: #4a3b5b; }
 html.parchment { --bg-main: #fdf6e3; --bg-surface: #eee8d5; --bg-sidebar: #fdf6e3; --bg-paper: #eee8d5; --text-main: #657b83; --text-sec: #93a1a1; --brand: #b58900; --border-color: #d3cbb7; }
 html.high-contrast { --bg-main: #000000; --bg-surface: #000000; --bg-sidebar: #000000; --bg-paper: #000000; --text-main: #ffffff; --text-sec: #ffffff; --brand: #ffff00; --border-color: #ffffff; }
+html.vergil { --bg-main: #050a14; --bg-surface: #0f172a; --bg-sidebar: #02040a; --bg-paper: #0f172a; --text-main: #e2e8f0; --text-sec: #94a3b8; --brand: #22d3ee; --border-color: #334155; }
 
 /* --- TIPTAP & TEXT LAYER STYLES --- */
 .ProseMirror {
