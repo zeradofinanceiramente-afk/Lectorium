@@ -209,6 +209,15 @@ export default function App() {
   useEffect(() => {
     const handleLaunch = async () => {
       const params = new URLSearchParams(window.location.search);
+      
+      // Handle Legal Params (for OAuth Compliance Links)
+      const legalParam = params.get('legal');
+      if (legalParam === 'terms' || legalParam === 'privacy') {
+        setLegalModalTab(legalParam as LegalTab);
+        setShowLegalModal(true);
+      }
+
+      // Handle PWA Share Target
       if (params.get('share_target') === 'true') {
         const cache = await caches.open('share-target-cache');
         const keys = await cache.keys();
