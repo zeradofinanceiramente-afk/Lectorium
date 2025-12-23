@@ -6,11 +6,11 @@
   "description": "Um Workspace Acadêmico PWA serverless para visualizar PDFs do Google Drive, fazer anotações e criar mapas mentais.",
   "lang": "pt-BR",
   "dir": "ltr",
-  "start_url": "/?utm_source=pwa",
-  "display": "standalone",
+  "start_url": "https://lectorium-6zn.pages.dev/?utm_source=pwa",
+  "display": "fullscreen",
   "display_override": [
     "window-controls-overlay",
-    "standalone",
+    "fullscreen",
     "minimal-ui"
   ],
   "background_color": "#09090b",
