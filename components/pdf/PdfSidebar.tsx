@@ -1,4 +1,3 @@
-
 import React, { useMemo } from 'react';
 import { X, Lock, FileText, Copy, Download, Sparkles, Loader2, Hash, PaintBucket, Eye, ImageOff, Columns, Highlighter, Pen, ScanLine, MessageSquare, Pipette, MoveHorizontal, MousePointer2, ScrollText, ScanFace, Cloud, CloudOff, AlertCircle, CheckCircle, Palette, Droplets, Binary } from 'lucide-react';
 import { Annotation } from '../../types';
@@ -14,8 +13,6 @@ interface Props {
   onTabChange: (tab: SidebarTab) => void;
   sidebarAnnotations: Annotation[]; 
   fichamentoText: string;
-  aiExplanation: string;
-  isAiLoading: boolean;
   onCopyFichamento: () => void;
   onDownloadFichamento: () => void;
 }
@@ -26,7 +23,7 @@ const PRESET_COLORS = [
 ];
 
 export const PdfSidebar: React.FC<Props> = ({
-  isOpen, onClose, activeTab, onTabChange, sidebarAnnotations, fichamentoText, aiExplanation, isAiLoading, onCopyFichamento, onDownloadFichamento,
+  isOpen, onClose, activeTab, onTabChange, sidebarAnnotations, fichamentoText, onCopyFichamento, onDownloadFichamento,
 }) => {
   const { settings, updateSettings, jumpToPage, removeAnnotation, triggerOcr, currentPage, ocrMap, hasUnsavedOcr } = usePdfContext();
 
@@ -79,7 +76,6 @@ export const PdfSidebar: React.FC<Props> = ({
                     { id: 'annotations', label: 'Notas', icon: FileText },
                     { id: 'fichamento', label: 'Resumo', icon: ScrollText },
                     { id: 'chat', label: 'Conversar', icon: MessageSquare },
-                    { id: 'ai', label: 'IA', icon: Sparkles },
                     { id: 'settings', label: 'Ajustes', icon: PaintBucket }
                 ].map(tab => (
                     <button key={tab.id} onClick={() => onTabChange(tab.id as SidebarTab)} className={`flex-1 min-w-[60px] py-3 text-[10px] font-bold uppercase transition-colors border-b-2 flex flex-col items-center gap-1 ${activeTab === tab.id ? 'border-brand text-brand bg-brand/5' : 'border-transparent text-text-sec hover:text-text'}`}><tab.icon size={16} />{tab.label}</button>
@@ -276,8 +272,6 @@ export const PdfSidebar: React.FC<Props> = ({
                     </div>
                 ) : (
                     <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
-                        <button onClick={() => triggerOcr(currentPage)} className="w-full flex items-center justify-center gap-2 bg-brand text-bg font-bold py-3 rounded-xl shadow-lg hover:brightness-110 transition-all mb-4 text-sm"><ScanLine size={18} /> Forçar Leitura OCR (Pág {currentPage})</button>
-                        <div className="bg-bg border border-border rounded-lg p-3 text-sm leading-relaxed whitespace-pre-wrap min-h-[100px]">{isAiLoading ? <Loader2 className="animate-spin mx-auto text-brand"/> : aiExplanation || "Selecione um texto para pedir uma explicação detalhada da IA."}</div>
                         <div className="p-3 bg-brand/5 border border-brand/20 rounded-lg">
                             <p className="text-[10px] text-brand font-bold uppercase mb-1">Status da IA</p>
                             <p className="text-[10px] text-text-sec leading-tight">O Gemini tem acesso a todas as páginas marcadas como "Leitura Concluída". Clique no selo verde na página para conferir o que ele está lendo.</p>

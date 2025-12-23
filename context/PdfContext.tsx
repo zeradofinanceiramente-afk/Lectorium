@@ -58,6 +58,9 @@ interface PdfContextState {
   currentBlobRef: React.MutableRefObject<Blob | null>;
   // Novo: Retorna apenas OCR pendente para evitar duplicação no save
   getUnburntOcrMap: () => Record<number, any[]>;
+  // Chat Bridge
+  chatRequest: string | null;
+  setChatRequest: (msg: string | null) => void;
 }
 
 const PdfContext = createContext<PdfContextState | null>(null);
@@ -99,6 +102,7 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
   const [isSpread, setIsSpread] = useState(false);
   const [spreadSide, setSpreadSide] = useState<'left' | 'right'>('left');
   const ocrManagerRef = useRef<OcrManager | null>(null);
+  const [chatRequest, setChatRequest] = useState<string | null>(null);
   
   // Ref para acessar o blob mais atual dentro das funções assíncronas/fila
   const currentBlobRef = useRef<Blob | null>(currentBlob);
@@ -327,8 +331,9 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
     settings, updateSettings, annotations, addAnnotation: onAddAnnotation, removeAnnotation: onRemoveAnnotation,
     ocrMap, ocrStatusMap, setPageOcrData, updateOcrWord, triggerOcr, refinePageOcr, hasUnsavedOcr, setHasUnsavedOcr, ocrNotification,
     jumpToPage, accessToken, isSpread, setIsSpread, spreadSide, setSpreadSide, goNext, goPrev,
-    updateSourceBlob: onUpdateSourceBlob, currentBlobRef, getUnburntOcrMap
-  }), [scale, currentPage, numPages, activeTool, settings, annotations, onAddAnnotation, onRemoveAnnotation, ocrMap, ocrStatusMap, setPageOcrData, updateOcrWord, triggerOcr, refinePageOcr, hasUnsavedOcr, setHasUnsavedOcr, ocrNotification, jumpToPage, accessToken, isSpread, spreadSide, goNext, goPrev, onUpdateSourceBlob, getUnburntOcrMap]);
+    updateSourceBlob: onUpdateSourceBlob, currentBlobRef, getUnburntOcrMap,
+    chatRequest, setChatRequest
+  }), [scale, currentPage, numPages, activeTool, settings, annotations, onAddAnnotation, onRemoveAnnotation, ocrMap, ocrStatusMap, setPageOcrData, updateOcrWord, triggerOcr, refinePageOcr, hasUnsavedOcr, setHasUnsavedOcr, ocrNotification, jumpToPage, accessToken, isSpread, spreadSide, goNext, goPrev, onUpdateSourceBlob, getUnburntOcrMap, chatRequest]);
 
   return <PdfContext.Provider value={value}>{children}</PdfContext.Provider>;
 };

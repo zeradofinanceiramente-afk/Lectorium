@@ -1,8 +1,8 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Sparkles, Loader2, User, Bot, Trash2, MessageSquare, FileSearch } from 'lucide-react';
 import { ChatMessage } from '../../types';
 import { chatWithDocumentStream } from '../../services/aiService';
+import { usePdfContext } from '../../context/PdfContext';
 
 interface Props {
   contextText: string;
@@ -15,6 +15,9 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  
+  // Consume context to check for incoming "Explain" requests
+  const { chatRequest, setChatRequest } = usePdfContext();
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -22,10 +25,13 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
     }
   }, [messages]);
 
-  const handleSend = async () => {
-    if (!input.trim() || isLoading || !contextText) return;
+  // Main sending logic
+  const handleSend = async (textOverride?: string) => {
+    const textToSend = textOverride || input;
+    
+    if (!textToSend.trim() || isLoading || !contextText) return;
 
-    const userMessage = input.trim();
+    const userMessage = textToSend.trim();
     setInput("");
     setMessages(prev => [...prev, { role: 'user', text: userMessage }]);
     setIsLoading(true);
@@ -51,6 +57,14 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
         setIsLoading(false);
     }
   };
+
+  // Watch for external chat requests (from selection menu "Explain")
+  useEffect(() => {
+    if (chatRequest) {
+        handleSend(chatRequest);
+        setChatRequest(null); // Clear request after processing
+    }
+  }, [chatRequest]);
 
   const clearChat = () => {
     if (confirm("Limpar histórico do chat?")) setMessages([]);
@@ -131,7 +145,7 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
                 className="w-full bg-bg border border-border rounded-xl py-3 pl-4 pr-12 text-sm text-text focus:border-brand focus:ring-1 focus:ring-brand outline-none transition-all resize-none max-h-32"
               />
               <button 
-                onClick={handleSend}
+                onClick={() => handleSend()}
                 disabled={!input.trim() || isLoading}
                 className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-brand text-bg rounded-lg hover:brightness-110 disabled:opacity-30 transition-all"
               >

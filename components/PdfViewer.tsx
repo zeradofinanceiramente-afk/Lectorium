@@ -1,7 +1,5 @@
-
 import React, { useRef, useState, useMemo, useCallback, useEffect } from 'react';
-import { Loader2, ArrowLeft, Menu, Save, Copy, Lock, AlertTriangle, X, Download, CloudOff, ChevronLeft, ChevronRight, Cloud, ScanLine } from 'lucide-react';
-import { GoogleGenAI } from "@google/genai";
+import { Loader2, ArrowLeft, Menu, Save, Copy, Lock, AlertTriangle, X, Download, CloudOff, Cloud, ScanLine } from 'lucide-react';
 import { PDFDocumentProxy } from 'pdfjs-dist';
 
 // Hooks & Context
@@ -57,7 +55,8 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
     ocrMap, setHasUnsavedOcr, ocrNotification,
     goNext, goPrev,
     currentBlobRef, // Acesso direto ao blob via ref do contexto
-    getUnburntOcrMap // Acesso ao mapa filtrado para save
+    getUnburntOcrMap, // Acesso ao mapa filtrado para save
+    setChatRequest
   } = usePdfContext();
   
   const containerRef = useRef<HTMLDivElement>(null);
@@ -86,8 +85,6 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
   
   const [isOfflineAvailable, setIsOfflineAvailable] = useState(false);
 
-  const [aiExplanation, setAiExplanation] = useState("");
-  const [isAiLoading, setIsAiLoading] = useState(false);
   const [showDefinitionModal, setShowDefinitionModal] = useState(false);
   const [definition, setDefinition] = useState<any>(null);
   
@@ -112,7 +109,16 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
   const handleTouchStart = (e: React.TouchEvent) => {
     if (activeTool === 'ink' || activeTool === 'eraser') return;
     if (scale <= 1.2) {
-      touchStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      const x = e.touches[0].clientX;
+      const width = window.innerWidth;
+      const threshold = 50; // Zona de ativação nas bordas
+
+      // Permite o gesto apenas se começar nas beiradas
+      if (x < threshold || x > width - threshold) {
+        touchStartRef.current = { x, y: e.touches[0].clientY };
+      } else {
+        touchStartRef.current = null;
+      }
     }
   };
 
@@ -126,9 +132,19 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
     const touchEnd = { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY };
     const diffX = touchStartRef.current.x - touchEnd.x;
     const diffY = touchStartRef.current.y - touchEnd.y;
+    const startX = touchStartRef.current.x;
+    const width = window.innerWidth;
+    const threshold = 50;
+
     if (Math.abs(diffX) > 50 && Math.abs(diffY) < 100) {
-      if (diffX > 0) goNext();
-      else goPrev();
+      // Gesto para Esquerda (Avançar) - Só funciona se começou na borda direita
+      if (diffX > 0 && startX > width - threshold) {
+        goNext();
+      }
+      // Gesto para Direita (Voltar) - Só funciona se começou na borda esquerda
+      else if (diffX < 0 && startX < threshold) {
+        goPrev();
+      }
     }
     touchStartRef.current = null;
   };
@@ -274,29 +290,16 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
     setScale(newScale);
   };
 
-  const handleExplainAi = async () => {
+  const handleExplainAi = () => {
     if (!selection) return;
     const text = selection.text;
-    setSelection(null);
-    setSidebarTab('ai');
-    setShowSidebar(true);
-    setIsAiLoading(true);
-    setAiExplanation("");
-
-    const prompt = `Você é meu assistente de leitura. Explique o seguinte trecho:\n"${text}"`;
+    const prompt = `Explique este trecho: "${text}"`;
     
-    try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-        const res = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: prompt
-        });
-        setAiExplanation(res.text || "Sem resposta.");
-    } catch (e: any) {
-        setAiExplanation("Erro ao consultar IA: " + e.message);
-    } finally {
-        setIsAiLoading(false);
-    }
+    setSelection(null);
+    // Envia o pedido para o Chat Context
+    setChatRequest(prompt);
+    setSidebarTab('chat');
+    setShowSidebar(true);
   };
 
   const handleDefine = async () => {
@@ -412,7 +415,7 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
       {/* Header Container deslizante */}
       <div 
         ref={headerRef}
-        className={`fixed top-0 left-0 right-0 z-30 transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] will-change-transform ${isHeaderVisible ? 'translate-y-0' : '-translate-y-full'}`}
+        className={`fixed top-0 left-0 right-0 z-[50] transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] will-change-transform ${isHeaderVisible ? 'translate-y-0' : '-translate-y-full'}`}
       >
          {/* Barra Principal */}
          <div className="bg-black border-b border-border flex flex-wrap items-center justify-between px-4 py-2 relative z-20 shadow-2xl">
@@ -436,7 +439,7 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
             onClick={() => setIsHeaderVisible(!isHeaderVisible)}
             className={`absolute -bottom-6 left-1/2 -translate-x-1/2 z-10
                        bg-black border-b-2 border-l-2 border-r-2 border-brand
-                       rounded-b-2xl px-10 py-2 cursor-pointer
+                       rounded-b-2xl px-10 py-2 cursor-pointer pointer-events-auto
                        hover:bg-brand/10 transition-all duration-300 group
                        flex flex-col items-center gap-1
                        ${isHeaderVisible ? 'shadow-[0_10px_30px_-10px_rgba(74,222,128,0.4)]' : 'shadow-[0_4px_15px_rgba(0,0,0,0.5)]'}
@@ -452,7 +455,7 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
       </div>
 
       <div className="flex-1 flex overflow-hidden relative">
-        <PdfSidebar isOpen={showSidebar} onClose={() => setShowSidebar(false)} activeTab={sidebarTab} onTabChange={setSidebarTab} sidebarAnnotations={sidebarAnnotations} fichamentoText={fichamentoText} aiExplanation={aiExplanation} isAiLoading={isAiLoading} onCopyFichamento={() => navigator.clipboard.writeText(fichamentoText)} onDownloadFichamento={handleDownloadFichamento} />
+        <PdfSidebar isOpen={showSidebar} onClose={() => setShowSidebar(false)} activeTab={sidebarTab} onTabChange={setSidebarTab} sidebarAnnotations={sidebarAnnotations} fichamentoText={fichamentoText} onCopyFichamento={() => navigator.clipboard.writeText(fichamentoText)} onDownloadFichamento={handleDownloadFichamento} />
         
         {/* Main Content Area com Padding de Respiro Superior para evitar conflitos com a UI */}
         <div 
@@ -468,9 +471,7 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
             <PdfToolbar onFitWidth={handleFitWidth} />
             {selection && <SelectionMenu selection={selection} onHighlight={createHighlight} onExplainAi={handleExplainAi} onDefine={handleDefine} onCopy={() => navigator.clipboard.writeText(selection.text)} onClose={() => setSelection(null)} />}
             
-            {/* Botões de Navegação */}
-            <button onClick={goPrev} className="fixed left-4 top-1/2 -translate-x-1/2 z-20 p-4 bg-black/50 text-white rounded-full hover:bg-brand hover:text-black transition-all hidden md:flex items-center justify-center shadow-2xl backdrop-blur-sm"><ChevronLeft size={32} /></button>
-            <button onClick={goNext} className="fixed right-4 top-1/2 -translate-y-1/2 z-20 p-4 bg-black/50 text-white rounded-full hover:bg-brand hover:text-black transition-all hidden md:flex items-center justify-center shadow-2xl backdrop-blur-sm"><ChevronRight size={32} /></button>
+            {/* Navigation buttons removed as requested */}
             
             <div className="transition-shadow duration-200 ease-out shadow-2xl" style={{ boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)' }}>
                 <PdfPage pageNumber={currentPage} filterValues={filterValues} pdfDoc={pdfDoc} />
