@@ -18,32 +18,41 @@
   "orientation": "any",
   "categories": [
     "productivity",
-    "utilities"
+    "utilities",
+    "education"
   ],
+  "iarc_rating_id": "",
+  "prefer_related_applications": false,
   "launch_handler": {
     "client_mode": "focus-existing"
   },
   "icons": [
     {
-      "src": "icons/icon-192.png",
+      "src": "/icons/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "icons/icon-512.png",
+      "src": "/icons/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "icons/maskable-icon-512.png",
+      "src": "/icons/maskable-icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
     },
     {
-      "src": "icons/maskable-icon.svg",
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/maskable-icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "maskable"
@@ -57,7 +66,7 @@
       "url": "/?mode=browser&utm_source=pwa",
       "icons": [
         {
-          "src": "icons/shortcut-files.svg",
+          "src": "/icons/shortcut-files.svg",
           "sizes": "any",
           "type": "image/svg+xml"
         }
@@ -70,28 +79,74 @@
       "url": "/?mode=mindmaps&utm_source=pwa",
       "icons": [
         {
-          "src": "icons/shortcut-mindmap.svg",
+          "src": "/icons/shortcut-mindmap.svg",
           "sizes": "any",
           "type": "image/svg+xml"
         }
       ]
     }
   ],
+  "protocol_handlers": [
+    {
+      "protocol": "web+pdf",
+      "url": "/?file=%s&utm_source=pwa"
+    }
+  ],
   "file_handlers": [
     {
       "action": "/?source=filehandler",
       "accept": {
-        "application/pdf": [".pdf"],
-        "application/json": [".mindmap", ".json"]
+        "application/pdf": [
+          ".pdf"
+        ],
+        "application/json": [
+          ".mindmap",
+          ".json"
+        ]
       },
       "icons": [
         {
-          "src": "icons/file-pdf.svg",
+          "src": "/icons/file-pdf.svg",
           "sizes": "512x512",
           "type": "image/svg+xml"
         }
       ],
       "launch_type": "single-client"
+    }
+  ],
+  "share_target": {
+    "action": "/?source=share",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "files": [
+        {
+          "name": "file",
+          "accept": [
+            "application/pdf",
+            ".pdf",
+            ".mindmap",
+            "application/json"
+          ]
+        }
+      ]
+    }
+  },
+  "screenshots": [
+    {
+      "src": "/screenshots/desktop.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Visualizador de PDF - Desktop"
+    },
+    {
+      "src": "/screenshots/mobile.png",
+      "sizes": "360x800",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Lista de arquivos - Mobile"
     }
   ]
 }

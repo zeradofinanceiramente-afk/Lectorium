@@ -2,7 +2,7 @@
       "relation": ["delegate_permission/common.handle_all_urls"],
       "target": {
         "namespace": "android_app",
-        "package_name": "dev.pages.lectorium.twa",
-        "sha256_cert_fingerprints": ["EF:E5:82:27:CF:D5:F4:45:A8:05:12:1A:3F:17:03:92:6C:5F:0F:29:04:3B:A9:15:1D:B0:81:A1:3E:26:11:0E"]
+        "package_name": "dev.pages.lectorium_6zn.twa",
+        "sha256_cert_fingerprints": ["14:7D:23:D7:1C:95:CD:7B:4A:25:75:C0:46:9E:5A:87:D7:7C:E0:F3:D3:6B:45:9A:D9:A3:16:23:64:67:A6:52"]
       }
     }]
