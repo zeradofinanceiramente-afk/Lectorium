@@ -90,7 +90,8 @@ export const PdfPage: React.FC<PdfPageProps> = ({
   const { 
     scale, activeTool, setActiveTool, settings, 
     annotations, addAnnotation, removeAnnotation,
-    setIsSpread, spreadSide, ocrMap, updateOcrWord, refinePageOcr
+    setIsSpread, spreadSide, ocrMap, updateOcrWord, refinePageOcr,
+    setShowOcrModal
   } = usePdfContext();
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -381,7 +382,7 @@ export const PdfPage: React.FC<PdfPageProps> = ({
                       <div className="flex items-center gap-3">
                           <span className="text-brand/80 font-medium hidden group-hover:inline">OCR Disponível</span>
                           <div className="h-4 w-px bg-white/20 hidden group-hover:block"></div>
-                          <button onClick={(e) => { e.stopPropagation(); requestOcr(); }} className="flex items-center gap-2 hover:text-white transition-colors text-brand font-bold">
+                          <button onClick={(e) => { e.stopPropagation(); setShowOcrModal(true); }} className="flex items-center gap-2 hover:text-white transition-colors text-brand font-bold">
                             <ScanLine size={18} />
                             <span>Extrair Texto</span>
                           </button>

@@ -1,3 +1,4 @@
+
 import React, { useRef, useState, useMemo, useCallback, useEffect } from 'react';
 import { Loader2, ArrowLeft, Menu, Save, Copy, Lock, AlertTriangle, X, Download, CloudOff, Cloud, ScanLine } from 'lucide-react';
 import { PDFDocumentProxy } from 'pdfjs-dist';
@@ -13,6 +14,7 @@ import { PdfPage } from './pdf/PdfPage';
 import { PdfToolbar } from './pdf/PdfToolbar';
 import { PdfSidebar, SidebarTab } from './pdf/PdfSidebar';
 import { SelectionMenu } from './pdf/SelectionMenu';
+import { OcrRangeModal } from './pdf/modals/OcrRangeModal';
 
 // Services
 import { burnAnnotationsToPdf } from '../services/pdfModifierService';
@@ -56,7 +58,8 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
     goNext, goPrev,
     currentBlobRef, // Acesso direto ao blob via ref do contexto
     getUnburntOcrMap, // Acesso ao mapa filtrado para save
-    setChatRequest
+    setChatRequest,
+    showOcrModal, setShowOcrModal, triggerBatchOcr
   } = usePdfContext();
   
   const containerRef = useRef<HTMLDivElement>(null);
@@ -538,6 +541,14 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
               </div>
           </div>
       )}
+
+      <OcrRangeModal 
+        isOpen={showOcrModal}
+        onClose={() => setShowOcrModal(false)}
+        numPages={numPages}
+        currentPage={currentPage}
+        onConfirm={triggerBatchOcr}
+      />
     </div>
   );
 };

@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Annotation } from '../types';
 import { loadOcrData, saveOcrData, touchOfflineFile } from '../services/storageService';
@@ -47,6 +48,9 @@ interface PdfContextState {
   setPageOcrData: (page: number, words: any[]) => void;
   updateOcrWord: (page: number, wordIndex: number, newText: string) => void;
   triggerOcr: (page: number) => void;
+  triggerBatchOcr: (start: number, end: number) => void;
+  showOcrModal: boolean;
+  setShowOcrModal: (v: boolean) => void;
   refinePageOcr: (page: number) => Promise<void>;
   hasUnsavedOcr: boolean;
   setHasUnsavedOcr: (val: boolean) => void;
@@ -103,6 +107,7 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
   const [spreadSide, setSpreadSide] = useState<'left' | 'right'>('left');
   const ocrManagerRef = useRef<OcrManager | null>(null);
   const [chatRequest, setChatRequest] = useState<string | null>(null);
+  const [showOcrModal, setShowOcrModal] = useState(false);
   
   // Ref para acessar o blob mais atual dentro das funções assíncronas/fila
   const currentBlobRef = useRef<Blob | null>(currentBlob);
@@ -299,6 +304,17 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
     }
   }, [showOcrNotification]);
 
+  const triggerBatchOcr = useCallback((start: number, end: number) => {
+    if (ocrManagerRef.current) {
+        showOcrNotification(`Iniciando leitura das páginas ${start} a ${end}...`);
+        for (let i = start; i <= end; i++) {
+            // O OcrManager usa uma fila interna, então chamar schedule em loop
+            // garante processamento sequencial (1 por vez)
+            ocrManagerRef.current.schedule(i, 'low');
+        }
+    }
+  }, [showOcrNotification]);
+
   const refinePageOcr = useCallback(async (page: number) => {
     const rawWords = ocrMap[page];
     if (!rawWords || rawWords.length === 0) return;
@@ -329,11 +345,13 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
   const value = useMemo(() => ({
     scale, setScale, currentPage, setCurrentPage, numPages, activeTool, setActiveTool,
     settings, updateSettings, annotations, addAnnotation: onAddAnnotation, removeAnnotation: onRemoveAnnotation,
-    ocrMap, ocrStatusMap, setPageOcrData, updateOcrWord, triggerOcr, refinePageOcr, hasUnsavedOcr, setHasUnsavedOcr, ocrNotification,
+    ocrMap, ocrStatusMap, setPageOcrData, updateOcrWord, 
+    triggerOcr, triggerBatchOcr, showOcrModal, setShowOcrModal,
+    refinePageOcr, hasUnsavedOcr, setHasUnsavedOcr, ocrNotification,
     jumpToPage, accessToken, isSpread, setIsSpread, spreadSide, setSpreadSide, goNext, goPrev,
     updateSourceBlob: onUpdateSourceBlob, currentBlobRef, getUnburntOcrMap,
     chatRequest, setChatRequest
-  }), [scale, currentPage, numPages, activeTool, settings, annotations, onAddAnnotation, onRemoveAnnotation, ocrMap, ocrStatusMap, setPageOcrData, updateOcrWord, triggerOcr, refinePageOcr, hasUnsavedOcr, setHasUnsavedOcr, ocrNotification, jumpToPage, accessToken, isSpread, spreadSide, goNext, goPrev, onUpdateSourceBlob, getUnburntOcrMap, chatRequest]);
+  }), [scale, currentPage, numPages, activeTool, settings, annotations, onAddAnnotation, onRemoveAnnotation, ocrMap, ocrStatusMap, setPageOcrData, updateOcrWord, triggerOcr, triggerBatchOcr, showOcrModal, refinePageOcr, hasUnsavedOcr, setHasUnsavedOcr, ocrNotification, jumpToPage, accessToken, isSpread, spreadSide, goNext, goPrev, onUpdateSourceBlob, getUnburntOcrMap, chatRequest]);
 
   return <PdfContext.Provider value={value}>{children}</PdfContext.Provider>;
 };
