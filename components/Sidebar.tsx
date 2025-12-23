@@ -5,7 +5,7 @@ import { Home, FolderOpen, LogOut, User as UserIcon, X, Palette, ChevronDown, Ch
 import { User } from 'firebase/auth';
 import { ThemeSwitcher } from './ThemeSwitcher';
 import { DriveFile } from '../types';
-import { cacheAppResources, getOfflineCacheSize, ResourceCategory } from '../services/offlineService';
+import { cacheAppResources, getOfflineCacheSize, ResourceCategory, deleteOfflineResources } from '../services/offlineService';
 import { OfflineDownloadModal } from './OfflineDownloadModal';
 import { VersionDebugModal } from './VersionDebugModal';
 import { ApiKeyModal } from './ApiKeyModal';
@@ -105,6 +105,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   };
 
+  const handleClearCache = async () => {
+    try {
+      await deleteOfflineResources();
+      setDownloadSize(null);
+      setCachingStatus('idle');
+      setCacheProgress(0);
+    } catch (e) {
+      alert("Erro ao limpar cache.");
+    }
+  };
+
   const handleNavigation = (tab: string) => { onSwitchTab(tab); onClose(); };
 
   return (
@@ -147,6 +158,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )}
           </div>
 
+          <div className="pt-2 px-3 border-t border-border">
+             <button onClick={() => setShowOfflineModal(true)} className="w-full group p-3 rounded-xl transition-all duration-200 flex items-center px-4 text-text-sec hover:bg-white/5 hover:text-text">
+                <div className="relative">
+                  {cachingStatus === 'caching' ? (
+                    <Loader2 size={24} className="animate-spin text-brand shrink-0" />
+                  ) : (
+                    <DownloadCloud size={24} className={`shrink-0 ${cachingStatus === 'done' ? 'text-brand' : ''}`} />
+                  )}
+                </div>
+                <div className="flex flex-col items-start ml-4">
+                  <span className="text-sm">Modo Offline</span>
+                  {cachingStatus === 'done' && downloadSize && (
+                    <span className="text-[10px] text-brand font-bold opacity-80">{downloadSize}</span>
+                  )}
+                  {cachingStatus === 'caching' && (
+                    <span className="text-[10px] text-text-sec">{cacheProgress}% Baixando...</span>
+                  )}
+                </div>
+             </button>
+             <button onClick={() => setShowKeyModal(true)} className="w-full group p-3 rounded-xl transition-all duration-200 flex items-center px-4 text-text-sec hover:bg-white/5 hover:text-text">
+                <Key size={24} className={`shrink-0 ${hasUserKey ? "text-brand" : ""}`} />
+                <span className="ml-4 text-sm">Chave Gemini AI</span>
+             </button>
+          </div>
+
           {openFiles.length > 0 && (
             <div className="animate-in fade-in slide-in-from-left-2 border-t border-border pt-4 px-3">
               <div className="px-2 mb-2 text-xs font-bold text-text-sec uppercase tracking-wider">Abertos</div>
@@ -178,7 +214,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </div>
 
-      <OfflineDownloadModal isOpen={showOfflineModal} onClose={() => setShowOfflineModal(false)} onConfirm={handleStartDownload} />
+      <OfflineDownloadModal 
+        isOpen={showOfflineModal} 
+        onClose={() => setShowOfflineModal(false)} 
+        onConfirm={handleStartDownload} 
+        onClear={handleClearCache}
+        currentSize={downloadSize}
+        isDownloading={cachingStatus === 'caching'}
+        progress={cacheProgress}
+      />
       <VersionDebugModal isOpen={showDebugModal} onClose={() => setShowDebugModal(false)} />
       <ApiKeyModal isOpen={showKeyModal} onClose={() => setShowKeyModal(false)} />
 

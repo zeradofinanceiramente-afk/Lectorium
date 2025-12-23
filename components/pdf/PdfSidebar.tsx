@@ -59,7 +59,7 @@ export const PdfSidebar: React.FC<Props> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="absolute inset-0 z-[60] flex justify-end">
+    <div className="fixed inset-0 z-[60] flex justify-end">
         <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
         <div className="relative w-80 md:w-96 bg-surface h-full shadow-2xl flex flex-col animate-in slide-in-from-right-10 duration-200">
             <div className="flex items-center justify-between p-4 border-b border-border">

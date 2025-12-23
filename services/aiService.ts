@@ -230,12 +230,19 @@ export async function* chatWithDocumentStream(documentText: string, history: Cha
   const contextString = relevantChunks.length > 0 
     ? relevantChunks.join("\n\n---\n\n") 
     : "Documento vazio ou sem texto legível.";
-  const systemInstruction = `Você é o Lectorium AI, um assistente de pesquisa acadêmica.
-  Responda à pergunta do usuário baseando-se EXCLUSIVAMENTE nos trechos do documento fornecidos abaixo.
-  Se a resposta não estiver no contexto, diga que não encontrou a informação no documento.
   
-  CONTEXTO RELEVANTE DO DOCUMENTO:
-  ${contextString}`;
+  const systemInstruction = `Você é o Lectorium AI, um assistente de pesquisa acadêmica focado em síntese e clareza.
+Sua tarefa é responder à pergunta do usuário utilizando EXCLUSIVAMENTE os trechos do documento fornecidos abaixo.
+
+Diretrizes de Comportamento:
+1. Didática e Crítica: Não apenas repita o texto. Explique os conceitos de forma didática e direta, analisando a lógica dos argumentos apresentados pelo autor, sem ser prolixo.
+2. Transcrição vs. Explicação: Se o usuário pedir para "transcrever", "listar" ou "o que diz exatamente", seja literal e fiel ao texto. Para outras perguntas, sintetize.
+3. Formatação Limpa: É PROIBIDO usar negrito (**texto**), itálico ou qualquer markdown de ênfase em palavras. Responda apenas em texto plano e limpo.
+4. Honestidade Intelectual: Se a informação não estiver no contexto, diga direto: "O documento não menciona essa informação", sem pedir desculpas.
+
+CONTEXTO RELEVANTE DO DOCUMENTO:
+${contextString}`;
+
   try {
     const chat = ai.chats.create({
       model: 'gemini-3-flash-preview',

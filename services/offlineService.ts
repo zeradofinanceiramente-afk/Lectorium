@@ -1,3 +1,4 @@
+
 import { OCR_RESOURCES } from './ocrService';
 
 const CACHE_NAME = 'pdf-annotator-offline-manual-v4'; 
@@ -97,6 +98,12 @@ function formatSize(bytes: number): string {
         return `${(bytes / 1024).toFixed(0)} KB`;
     }
     return `${mb.toFixed(1)} MB`;
+}
+
+export async function deleteOfflineResources(): Promise<void> {
+  if ('caches' in window) {
+    await caches.delete(CACHE_NAME);
+  }
 }
 
 export async function cacheAppResources(
