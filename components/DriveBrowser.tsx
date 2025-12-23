@@ -4,7 +4,7 @@ import {
   Folder, FileText, MoreVertical, Trash2, Edit2, Download, 
   Share2, ArrowLeft, Loader2, WifiOff, RefreshCw, Menu,
   X, Image as ImageIcon, Activity, CheckCircle, CloudOff, Package, Pin, PinOff,
-  Workflow, Zap, Plus, HardDrive, BookOpen, FolderInput, Cloud
+  Workflow, Zap, Plus, HardDrive, BookOpen, FolderInput, Cloud, Sparkles
 } from 'lucide-react';
 import { DriveFile, MIME_TYPES } from '../types';
 import { 
@@ -27,20 +27,15 @@ if (!GlobalWorkerOptions.workerSrc) {
 // --- Thumbnail Generator Helper ---
 async function generateLocalThumbnail(file: DriveFile): Promise<string | null> {
     if (!file.blob) return null;
-
     try {
-        // 1. PDF: Renderizar Página 1 via Canvas
         if (file.mimeType === MIME_TYPES.PDF) {
             const arrayBuffer = await file.blob.arrayBuffer();
             const loadingTask = getDocument({ data: arrayBuffer });
             const pdf = await loadingTask.promise;
-            const page = await pdf.getPage(1); // Capa
-            
-            // Scale baixo para thumbnail (aprox 300px width)
+            const page = await pdf.getPage(1);
             const viewport = page.getViewport({ scale: 0.5 }); 
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
-            
             if (ctx) {
                 canvas.width = viewport.width;
                 canvas.height = viewport.height;
@@ -48,21 +43,15 @@ async function generateLocalThumbnail(file: DriveFile): Promise<string | null> {
                 return canvas.toDataURL('image/jpeg', 0.8);
             }
         }
-        
-        // 2. DOCX: Extrair thumbnail.jpeg do ZIP
         if (file.mimeType === MIME_TYPES.DOCX) {
             const zip = await JSZip.loadAsync(file.blob);
-            // O Word geralmente salva a thumbnail aqui
             const thumbFile = zip.file("docProps/thumbnail.jpeg") || zip.file("docProps/thumbnail.emf");
-            
             if (thumbFile) {
                 const blob = await thumbFile.async("blob");
                 return URL.createObjectURL(blob);
             }
         }
-    } catch (e) {
-        console.warn("Falha ao gerar thumbnail local para", file.name, e);
-    }
+    } catch (e) { console.warn("Falha ao gerar thumbnail local para", file.name, e); }
     return null;
 }
 
@@ -78,87 +67,43 @@ interface FileItemProps {
     isActiveMenu: boolean;
     setActiveMenu: (id: string | null) => void;
     isLocalMode: boolean;
-    accessToken?: string; // Novo: Necessário para thumbnails privadas
+    accessToken?: string;
 }
 
 const FileItem = React.memo(({ file, onSelect, onTogglePin, onDelete, onShare, onMove, isOffline, isPinned, isActiveMenu, setActiveMenu, isLocalMode, accessToken }: FileItemProps) => {
     const isFolder = file.mimeType === MIME_TYPES.FOLDER;
-    const isDoc = file.mimeType === MIME_TYPES.PDF || 
-                  file.mimeType === MIME_TYPES.DOCX || 
-                  file.mimeType === MIME_TYPES.GOOGLE_DOC ||
-                  file.name.endsWith('.lect') ||
-                  file.name.endsWith('.cbz') ||
-                  file.name.endsWith('.cbr');
-
+    const isDoc = file.mimeType === MIME_TYPES.PDF || file.mimeType === MIME_TYPES.DOCX || file.mimeType === MIME_TYPES.GOOGLE_DOC || file.name.endsWith('.lect') || file.name.endsWith('.cbz') || file.name.endsWith('.cbr');
     const [imgError, setImgError] = useState(false);
     const [localThumbnail, setLocalThumbnail] = useState<string | null>(null);
 
     useEffect(() => {
         let active = true;
         let generatedUrl: string | null = null;
-
-        // Reset error state when file changes or blob becomes available
         setImgError(false);
-
         const loadThumbnail = async () => {
-            // Prioridade 1: Imagens Nativas (Já existente)
             if (file.blob && file.mimeType.startsWith('image/')) {
                 generatedUrl = URL.createObjectURL(file.blob);
-                if (active) {
-                    setLocalThumbnail(generatedUrl);
-                    setImgError(false);
-                }
+                if (active) { setLocalThumbnail(generatedUrl); setImgError(false); }
                 return;
             }
-
-            // Prioridade 2: Gerar Capa de PDF/DOCX se tivermos o blob (Mesmo se houver link remoto)
-            // Isso garante que arquivos abertos/offline usem a versão local de alta qualidade
             if (file.blob && (file.mimeType === MIME_TYPES.PDF || file.mimeType === MIME_TYPES.DOCX)) {
                 const url = await generateLocalThumbnail(file);
-                if (active && url) {
-                    generatedUrl = url;
-                    setLocalThumbnail(url);
-                    setImgError(false);
-                }
+                if (active && url) { generatedUrl = url; setLocalThumbnail(url); setImgError(false); }
             }
         };
-
-        // Carrega thumbnail local se tivermos o arquivo (blob) OU se não houver link remoto
-        if (file.blob || !file.thumbnailLink) {
-            loadThumbnail();
-        } else {
-            setLocalThumbnail(null);
-        }
-
-        return () => { 
-            active = false;
-            if (generatedUrl && !generatedUrl.startsWith('data:')) {
-                URL.revokeObjectURL(generatedUrl);
-            }
-        };
+        if (file.blob || !file.thumbnailLink) loadThumbnail(); else setLocalThumbnail(null);
+        return () => { active = false; if (generatedUrl && !generatedUrl.startsWith('data:')) URL.revokeObjectURL(generatedUrl); };
     }, [file.id, file.blob, file.mimeType, file.thumbnailLink]);
 
     const thumbnailSrc = useMemo(() => {
-        // Preferência absoluta para a thumbnail gerada localmente (mais confiável)
         if (localThumbnail) return localThumbnail;
-        
         if (!file.thumbnailLink) return null;
-        
         let url = file.thumbnailLink;
-
-        // 1. Melhora a qualidade da thumbnail do Google Drive (padrão costuma ser s220)
-        // Solicita s400 para melhor qualidade em telas de alta densidade
-        if (url.includes('googleusercontent.com') || url.includes('=s')) {
-             url = url.replace(/=s\d+/, '=s400');
-        }
-
-        // 2. Anexa Token para Arquivos Privados
-        // Se temos um token e não estamos em modo local, anexamos para autenticar a requisição da imagem
+        if (url.includes('googleusercontent.com') || url.includes('=s')) url = url.replace(/=s\d+/, '=s400');
         if (accessToken && !isLocalMode) {
             const separator = url.includes('?') ? '&' : '?';
             url = `${url}${separator}access_token=${accessToken}`;
         }
-
         return url;
     }, [file.thumbnailLink, localThumbnail, accessToken, isLocalMode]);
     
@@ -173,7 +118,6 @@ const FileItem = React.memo(({ file, onSelect, onTogglePin, onDelete, onShare, o
       return <FileText size={size} className="text-text-sec" />;
     };
 
-    // Use portrait aspect ratio for documents/books, landscape/square for others
     const aspectRatioClass = isFolder ? "aspect-[4/3]" : (isDoc ? "aspect-[3/4]" : "aspect-[4/3]");
 
     return (
@@ -181,49 +125,18 @@ const FileItem = React.memo(({ file, onSelect, onTogglePin, onDelete, onShare, o
             <div className={`w-full ${aspectRatioClass} bg-black/20 rounded-xl mb-3 relative flex items-center justify-center overflow-hidden`}>
                 {isPinned && <div className="absolute top-2 left-2 text-brand bg-bg/60 p-1 rounded-full z-10"><Pin size={12} fill="currentColor"/></div>}
                 {isOffline && !isPinned && !isLocalMode && <div className="absolute top-2 right-2 text-green-500 z-10"><CheckCircle size={12}/></div>}
-                
-                {thumbnailSrc && !imgError && !isFolder ? (
-                    <img 
-                        src={thumbnailSrc} 
-                        alt={file.name}
-                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110 opacity-90 group-hover:opacity-100"
-                        onError={() => setImgError(true)}
-                        loading="lazy"
-                        referrerPolicy="no-referrer"
-                        crossOrigin="anonymous"
-                    />
-                ) : (
-                    <div className="transition-transform duration-300 group-hover:scale-110">
-                        {getIcon(file, isFolder ? 32 : 48)}
-                    </div>
-                )}
+                {thumbnailSrc && !imgError && !isFolder ? <img src={thumbnailSrc} alt={file.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110 opacity-90 group-hover:opacity-100" onError={() => setImgError(true)} loading="lazy" referrerPolicy="no-referrer" crossOrigin="anonymous" /> : <div className="transition-transform duration-300 group-hover:scale-110">{getIcon(file, isFolder ? 32 : 48)}</div>}
             </div>
             <div className="flex items-start justify-between gap-2 mt-auto">
-                <div className="min-w-0 flex-1">
-                    <h3 className="font-medium truncate text-text text-xs mb-1">{file.name}</h3>
-                    <p className="text-[9px] text-text-sec uppercase font-bold opacity-60">{isFolder ? 'Pasta' : file.mimeType.split('/').pop()?.split('.').pop() || 'Arquivo'}</p>
-                </div>
-                {!isLocalMode && (
-                    <button onClick={(e) => { e.stopPropagation(); setActiveMenu(isActiveMenu ? null : file.id); }} className="p-1 text-text-sec hover:text-text"><MoreVertical size={14} /></button>
-                )}
+                <div className="min-w-0 flex-1"><h3 className="font-medium truncate text-text text-xs mb-1">{file.name}</h3><p className="text-[9px] text-text-sec uppercase font-bold opacity-60">{isFolder ? 'Pasta' : file.mimeType.split('/').pop()?.split('.').pop() || 'Arquivo'}</p></div>
+                {!isLocalMode && <button onClick={(e) => { e.stopPropagation(); setActiveMenu(isActiveMenu ? null : file.id); }} className="p-1 text-text-sec hover:text-text"><MoreVertical size={14} /></button>}
             </div>
-
             {isActiveMenu && !isLocalMode && (
                 <div className="absolute top-10 right-2 w-48 bg-bg border border-border shadow-2xl rounded-xl overflow-hidden z-30 animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
-                    {!isFolder && (
-                        <button onClick={() => onTogglePin(file)} className="w-full text-left px-4 py-3 hover:bg-white/5 text-xs flex items-center gap-2">
-                            {isPinned ? <><PinOff size={14} /> Soltar do disco</> : <><Pin size={14} /> Manter Offline</>}
-                        </button>
-                    )}
-                    <button onClick={() => onMove(file)} className="w-full text-left px-4 py-3 hover:bg-white/5 text-xs flex items-center gap-2">
-                        <FolderInput size={14} /> Mover para...
-                    </button>
-                    <button onClick={() => onShare(file)} className="w-full text-left px-4 py-3 hover:bg-white/5 text-xs flex items-center gap-2">
-                        <Share2 size={14} /> Compartilhar
-                    </button>
-                    <button onClick={() => onDelete(file)} className="w-full text-left px-4 py-3 hover:bg-red-500/10 text-red-500 text-xs flex items-center gap-2 border-t border-border">
-                        <Trash2 size={14} /> Excluir
-                    </button>
+                    {!isFolder && <button onClick={() => onTogglePin(file)} className="w-full text-left px-4 py-3 hover:bg-white/5 text-xs flex items-center gap-2">{isPinned ? <><PinOff size={14} /> Soltar do disco</> : <><Pin size={14} /> Manter Offline</>}</button>}
+                    <button onClick={() => onMove(file)} className="w-full text-left px-4 py-3 hover:bg-white/5 text-xs flex items-center gap-2"><FolderInput size={14} /> Mover para...</button>
+                    <button onClick={() => onShare(file)} className="w-full text-left px-4 py-3 hover:bg-white/5 text-xs flex items-center gap-2"><Share2 size={14} /> Compartilhar</button>
+                    <button onClick={() => onDelete(file)} className="w-full text-left px-4 py-3 hover:bg-red-500/10 text-red-500 text-xs flex items-center gap-2 border-t border-border"><Trash2 size={14} /> Excluir</button>
                 </div>
             )}
         </div>
@@ -238,27 +151,23 @@ interface Props {
   onToggleMenu: () => void;
   mode?: 'default' | 'mindmaps' | 'offline' | 'local';
   onCreateMindMap?: (parentId?: string) => void; 
+  onGenerateMindMapWithAi?: (topic: string) => void;
   localDirectoryHandle?: any;
 }
 
 export const DriveBrowser: React.FC<Props> = ({ 
   accessToken, onSelectFile, onLogout, onAuthError, 
-  onToggleMenu, mode = 'default', onCreateMindMap, localDirectoryHandle
+  onToggleMenu, mode = 'default', onCreateMindMap, onGenerateMindMapWithAi, localDirectoryHandle
 }) => {
   const [files, setFiles] = useState<DriveFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentFolder, setCurrentFolder] = useState<string>('root');
   const [folderHistory, setFolderHistory] = useState<{id: string, name: string}[]>([{id: 'root', name: 'Meu Drive'}]);
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
-  
-  // States for actions
   const [actionLoading, setActionLoading] = useState(false);
   const [openingFileId, setOpeningFileId] = useState<string | null>(null);
-  
   const [offlineFileIds, setOfflineFileIds] = useState<Set<string>>(new Set());
   const [pinnedFileIds, setPinnedFileIds] = useState<Set<string>>(new Set());
-
-  // Move File State
   const [moveFileModalOpen, setMoveFileModalOpen] = useState(false);
   const [fileToMove, setFileToMove] = useState<DriveFile | null>(null);
 
@@ -279,20 +188,10 @@ export const DriveBrowser: React.FC<Props> = ({
       else if (mode === 'local' && localDirectoryHandle) fetchedFiles = await listLocalFiles(localDirectoryHandle);
       else fetchedFiles = await listDriveContents(accessToken, currentFolder);
       setFiles(fetchedFiles);
-    } catch (e: any) {
-      if (e.message.includes('401')) onAuthError();
-      else if (mode === 'local') {
-          console.error("Local file error:", e);
-      }
-    } finally {
-      setLoading(false);
-    }
+    } catch (e: any) { if (e.message.includes('401')) onAuthError(); } finally { setLoading(false); }
   }, [accessToken, currentFolder, mode, onAuthError, localDirectoryHandle]);
 
-  useEffect(() => {
-    loadFiles();
-    updateCacheStatus();
-  }, [loadFiles, updateCacheStatus]);
+  useEffect(() => { loadFiles(); updateCacheStatus(); }, [loadFiles, updateCacheStatus]);
 
   const handleTogglePin = useCallback(async (file: DriveFile) => {
       const isPinned = pinnedFileIds.has(file.id);
@@ -302,13 +201,9 @@ export const DriveBrowser: React.FC<Props> = ({
               setActionLoading(true);
               const blob = await downloadDriveFile(accessToken, file.id, file.mimeType);
               await saveOfflineFile(file, blob, true);
-          } else {
-              await toggleFilePin(file.id, !isPinned);
-          }
+          } else await toggleFilePin(file.id, !isPinned);
           updateCacheStatus();
-      } catch (e) {
-          alert("Erro ao fixar.");
-      } finally { setActionLoading(false); }
+      } catch (e) { alert("Erro ao fixar."); } finally { setActionLoading(false); }
   }, [accessToken, offlineFileIds, pinnedFileIds, updateCacheStatus]);
 
   const handleFolderClick = useCallback((folder: DriveFile) => {
@@ -324,50 +219,23 @@ export const DriveBrowser: React.FC<Props> = ({
     setFolderHistory(newHistory);
   }, [folderHistory]);
 
-  const handleDelete = useCallback((file: DriveFile) => {
-    if (confirm(`Tem certeza que deseja excluir "${file.name}"?`)) {
-        deleteDriveFile(accessToken, file.id).then(loadFiles);
-    }
-  }, [accessToken, loadFiles]);
-
-  const handleShare = useCallback((file: DriveFile) => {
-      setActiveMenuId(null);
-      // Abre a interface nativa de compartilhamento do Drive
-      window.open(`https://drive.google.com/file/d/${file.id}/share`, '_blank');
-  }, []);
-
-  const handleMove = useCallback((file: DriveFile) => {
-      setActiveMenuId(null);
-      setFileToMove(file);
-      setMoveFileModalOpen(true);
-  }, []);
+  const handleDelete = useCallback((file: DriveFile) => { if (confirm(`Tem certeza que deseja excluir "${file.name}"?`)) deleteDriveFile(accessToken, file.id).then(loadFiles); }, [accessToken, loadFiles]);
+  const handleShare = useCallback((file: DriveFile) => { setActiveMenuId(null); window.open(`https://drive.google.com/file/d/${file.id}/share`, '_blank'); }, []);
+  const handleMove = useCallback((file: DriveFile) => { setActiveMenuId(null); setFileToMove(file); setMoveFileModalOpen(true); }, []);
 
   const handleSelect = useCallback(async (file: DriveFile) => {
-      // Bloqueia se já estiver abrindo um arquivo
       if (openingFileId) return;
-
-      if (file.mimeType === MIME_TYPES.FOLDER) {
-          handleFolderClick(file);
-      } else {
+      if (file.mimeType === MIME_TYPES.FOLDER) handleFolderClick(file); else {
           setOpeningFileId(file.id);
-          try {
-              // Aguarda o processamento do App.tsx (download/setup)
-              // Se ocorrer erro, entra no catch. Se sucesso, o componente será desmontado ou o estado resetado.
-              await onSelectFile(file);
-          } catch (e) {
-              console.error("Erro ao abrir arquivo:", e);
-          } finally {
-              // Garante que o loader suma se a tela não mudar (ex: erro)
-              setOpeningFileId(null);
-          }
+          try { await onSelectFile(file); } catch (e) { console.error(e); } finally { setOpeningFileId(null); }
       }
   }, [handleFolderClick, onSelectFile, openingFileId]);
 
-  const handleCreateNew = () => {
-      if (onCreateMindMap) {
-          const parentId = currentFolder === 'root' ? undefined : currentFolder;
-          onCreateMindMap(parentId);
-      }
+  const handleCreateNew = () => { if (onCreateMindMap) { const parentId = currentFolder === 'root' ? undefined : currentFolder; onCreateMindMap(parentId); } };
+
+  const handleAiGenerate = () => {
+    const topic = window.prompt("Sobre qual assunto você deseja gerar um mapa mental?");
+    if (topic && onGenerateMindMapWithAi) onGenerateMindMapWithAi(topic);
   };
 
   const headerTitle = useMemo(() => {
@@ -377,119 +245,36 @@ export const DriveBrowser: React.FC<Props> = ({
       return folderHistory[folderHistory.length - 1].name;
   }, [mode, folderHistory, localDirectoryHandle]);
 
-  // Encontra o nome do arquivo sendo aberto para exibir no loader
-  const openingFileName = useMemo(() => {
-      if (!openingFileId) return null;
-      return files.find(f => f.id === openingFileId)?.name || "arquivo";
-  }, [openingFileId, files]);
+  const openingFileName = useMemo(() => { if (!openingFileId) return null; return files.find(f => f.id === openingFileId)?.name || "arquivo"; }, [openingFileId, files]);
 
   return (
     <div className="flex flex-col h-full bg-bg text-text relative">
       <div className="p-4 md:p-6 border-b border-border flex items-center justify-between sticky top-0 bg-bg/80 backdrop-blur z-20">
          <div className="flex items-center gap-3 overflow-hidden">
              <button onClick={onToggleMenu} className="p-2 -ml-2 text-text-sec hover:text-text rounded-full hover:bg-white/5"><Menu size={24} /></button>
-             {folderHistory.length > 1 && mode === 'default' && (
-                 <button onClick={handleNavigateUp} className="p-2 -ml-2 text-text-sec hover:text-text rounded-full hover:bg-white/5"><ArrowLeft size={24} /></button>
-             )}
-             <div className="flex flex-col min-w-0">
-                 <div className="flex items-center gap-2">
-                    {mode === 'local' && <HardDrive size={16} className="text-orange-400" />}
-                    <h1 className="text-xl font-bold truncate">{headerTitle}</h1>
-                 </div>
-                 <span className="text-[10px] text-text-sec flex items-center gap-1">
-                    {mode === 'local' ? 'Armazenamento do Dispositivo' : <><Zap size={10} /> Smart Sync Ativo</>}
-                 </span>
-             </div>
+             {folderHistory.length > 1 && mode === 'default' && <button onClick={handleNavigateUp} className="p-2 -ml-2 text-text-sec hover:text-text rounded-full hover:bg-white/5"><ArrowLeft size={24} /></button>}
+             <div className="flex flex-col min-w-0"><div className="flex items-center gap-2">{mode === 'local' && <HardDrive size={16} className="text-orange-400" />}<h1 className="text-xl font-bold truncate">{headerTitle}</h1></div><span className="text-[10px] text-text-sec flex items-center gap-1">{mode === 'local' ? 'Armazenamento do Dispositivo' : <><Zap size={10} /> Smart Sync Ativo</>}</span></div>
          </div>
-         
          <div className="flex items-center gap-2">
-             {mode === 'mindmaps' && onCreateMindMap && (
-                 <button onClick={handleCreateNew} className="flex items-center gap-2 bg-brand text-bg px-3 py-2 rounded-lg font-bold text-xs hover:brightness-110 shadow-lg transition-all animate-in fade-in">
-                     <Plus size={16} />
-                     <span className="hidden sm:inline">Novo Mapa</span>
+             {mode === 'mindmaps' && onGenerateMindMapWithAi && (
+                 <button onClick={handleAiGenerate} className="flex items-center gap-2 bg-purple-600 text-white px-3 py-2 rounded-lg font-bold text-xs hover:brightness-110 shadow-lg transition-all animate-in fade-in">
+                     <Sparkles size={16} /><span className="hidden sm:inline">Gerar com IA</span>
                  </button>
              )}
-             {mode === 'default' && onCreateMindMap && (
+             {(mode === 'mindmaps' || mode === 'default') && onCreateMindMap && (
                  <button onClick={handleCreateNew} className="flex items-center gap-2 bg-brand text-bg px-3 py-2 rounded-lg font-bold text-xs hover:brightness-110 shadow-lg transition-all animate-in fade-in">
-                     <Plus size={16} />
-                     <span className="hidden sm:inline">Novo</span>
+                     <Plus size={16} /><span className="hidden sm:inline">Novo</span>
                  </button>
              )}
              <button onClick={loadFiles} className="p-2 text-text-sec hover:text-text rounded-full hover:bg-white/5"><RefreshCw size={20} className={loading ? "animate-spin" : ""} /></button>
          </div>
       </div>
-
       <div className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar relative">
-         {loading && files.length === 0 ? (
-             <div className="flex items-center justify-center h-64"><Loader2 size={32} className="animate-spin text-brand" /></div>
-         ) : (
-             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                 {files.map(file => (
-                     <FileItem 
-                        key={file.id} 
-                        file={file}
-                        onSelect={handleSelect}
-                        onTogglePin={handleTogglePin}
-                        onDelete={handleDelete}
-                        onShare={handleShare}
-                        onMove={handleMove}
-                        isOffline={offlineFileIds.has(file.id)}
-                        isPinned={pinnedFileIds.has(file.id)}
-                        isActiveMenu={activeMenuId === file.id}
-                        setActiveMenu={setActiveMenuId}
-                        isLocalMode={mode === 'local'}
-                        accessToken={accessToken}
-                     />
-                 ))}
-                 {files.length === 0 && !loading && (
-                     <div className="col-span-full text-center py-12 text-text-sec opacity-50">
-                         {mode === 'mindmaps' ? 'Nenhum mapa mental encontrado.' : 'Esta pasta está vazia.'}
-                     </div>
-                 )}
-             </div>
-         )}
+         {loading && files.length === 0 ? <div className="flex items-center justify-center h-64"><Loader2 size={32} className="animate-spin text-brand" /></div> : <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">{files.map(file => <FileItem key={file.id} file={file} onSelect={handleSelect} onTogglePin={handleTogglePin} onDelete={handleDelete} onShare={handleShare} onMove={handleMove} isOffline={offlineFileIds.has(file.id)} isPinned={pinnedFileIds.has(file.id)} isActiveMenu={activeMenuId === file.id} setActiveMenu={setActiveMenuId} isLocalMode={mode === 'local'} accessToken={accessToken} />)}{files.length === 0 && !loading && <div className="col-span-full text-center py-12 text-text-sec opacity-50">{mode === 'mindmaps' ? 'Nenhum mapa mental encontrado.' : 'Esta pasta está vazia.'}</div>}</div>}
       </div>
-      
-      {/* Action Loading (Pinning/Background) */}
-      {actionLoading && !openingFileId && (
-          <div className="absolute inset-0 z-50 bg-bg/50 backdrop-blur-sm flex items-center justify-center">
-              <Loader2 size={40} className="animate-spin text-brand" />
-          </div>
-      )}
-
-      {/* File Opening Loader Overlay (Global Blocking) */}
-      {openingFileId && (
-          <div className="absolute inset-0 z-[60] bg-bg/90 backdrop-blur-md flex flex-col items-center justify-center animate-in fade-in duration-300">
-              <div className="relative mb-6">
-                  <div className="absolute inset-0 bg-brand/20 rounded-full blur-xl animate-pulse"></div>
-                  <div className="relative bg-surface p-4 rounded-full border border-brand/30 shadow-2xl">
-                      <Cloud size={40} className="text-brand animate-pulse" />
-                  </div>
-                  <div className="absolute -bottom-2 -right-2 bg-bg rounded-full p-1 border border-border">
-                      <Loader2 size={20} className="animate-spin text-white" />
-                  </div>
-              </div>
-              
-              <h3 className="text-xl font-bold text-white mb-2">Abrindo Arquivo</h3>
-              <p className="text-sm text-text-sec max-w-xs text-center truncate px-4">
-                  {openingFileName || "Carregando..."}
-              </p>
-              
-              <div className="mt-8 flex gap-2">
-                  <div className="w-2 h-2 rounded-full bg-brand animate-bounce [animation-delay:-0.3s]"></div>
-                  <div className="w-2 h-2 rounded-full bg-brand animate-bounce [animation-delay:-0.15s]"></div>
-                  <div className="w-2 h-2 rounded-full bg-brand animate-bounce"></div>
-              </div>
-          </div>
-      )}
-      
-      <MoveFileModal 
-        isOpen={moveFileModalOpen} 
-        onClose={() => setMoveFileModalOpen(false)} 
-        fileToMove={fileToMove}
-        accessToken={accessToken}
-        onMoveSuccess={() => { loadFiles(); setFileToMove(null); }}
-      />
+      {actionLoading && !openingFileId && <div className="absolute inset-0 z-50 bg-bg/50 backdrop-blur-sm flex items-center justify-center"><Loader2 size={40} className="animate-spin text-brand" /></div>}
+      {openingFileId && <div className="absolute inset-0 z-[60] bg-bg/90 backdrop-blur-md flex flex-col items-center justify-center animate-in fade-in duration-300"><div className="relative mb-6"><div className="absolute inset-0 bg-brand/20 rounded-full blur-xl animate-pulse"></div><div className="relative bg-surface p-4 rounded-full border border-brand/30 shadow-2xl"><Cloud size={40} className="text-brand animate-pulse" /></div><div className="absolute -bottom-2 -right-2 bg-bg rounded-full p-1 border border-border"><Loader2 size={20} className="animate-spin text-white" /></div></div><h3 className="text-xl font-bold text-white mb-2">Abrindo Arquivo</h3><p className="text-sm text-text-sec max-w-xs text-center truncate px-4">{openingFileName || "Carregando..."}</p><div className="mt-8 flex gap-2"><div className="w-2 h-2 rounded-full bg-brand animate-bounce [animation-delay:-0.3s]"></div><div className="w-2 h-2 rounded-full bg-brand animate-bounce [animation-delay:-0.15s]"></div><div className="w-2 h-2 rounded-full bg-brand animate-bounce"></div></div></div>}
+      <MoveFileModal isOpen={moveFileModalOpen} onClose={() => setMoveFileModalOpen(false)} fileToMove={fileToMove} accessToken={accessToken} onMoveSuccess={() => { loadFiles(); setFileToMove(null); }} />
     </div>
   );
 };

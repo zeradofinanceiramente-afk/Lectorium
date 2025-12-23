@@ -1,4 +1,3 @@
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -72,14 +71,23 @@ body.is-native textarea {
   --border-color: #27272a;
 }
 
-html.midnight { --bg-main: #020617; --bg-surface: #0f172a; --bg-sidebar: #020617; --bg-paper: #0f172a; --text-main: #f1f5f9; --text-sec: #94a3b8; --brand: #38bdf8; --border-color: #1e293b; }
 html.nordic { --bg-main: #2e3440; --bg-surface: #3b4252; --bg-sidebar: #242933; --bg-paper: #3b4252; --text-main: #eceff4; --text-sec: #d8dee9; --brand: #88c0d0; --border-color: #4c566a; }
 html.gruvbox { --bg-main: #282828; --bg-surface: #3c3836; --bg-sidebar: #1d2021; --bg-paper: #3c3836; --text-main: #ebdbb2; --text-sec: #a89984; --brand: #fabd2f; --border-color: #504945; }
 html.dracula { --bg-main: #282a36; --bg-surface: #44475a; --bg-sidebar: #1e1f29; --bg-paper: #44475a; --text-main: #f8f8f2; --text-sec: #6272a4; --brand: #ff79c6; --border-color: #6272a4; }
-html.synthwave { --bg-main: #2b213a; --bg-surface: #241b2f; --bg-sidebar: #1a1625; --bg-paper: #241b2f; --text-main: #fff0f5; --text-sec: #b39db2; --brand: #ff71ce; --border-color: #4a3b5b; }
-html.parchment { --bg-main: #fdf6e3; --bg-surface: #eee8d5; --bg-sidebar: #fdf6e3; --bg-paper: #eee8d5; --text-main: #657b83; --text-sec: #93a1a1; --brand: #b58900; --border-color: #d3cbb7; }
 html.high-contrast { --bg-main: #000000; --bg-surface: #000000; --bg-sidebar: #000000; --bg-paper: #000000; --text-main: #ffffff; --text-sec: #ffffff; --brand: #ffff00; --border-color: #ffffff; }
-html.vergil { --bg-main: #050a14; --bg-surface: #0f172a; --bg-sidebar: #02040a; --bg-paper: #0f172a; --text-main: #e2e8f0; --text-sec: #94a3b8; --brand: #22d3ee; --border-color: #334155; }
+html.azul { --bg-main: #000000; --bg-surface: #000000; --bg-sidebar: #000000; --bg-paper: #000000; --text-main: #ffffff; --text-sec: #ffffff; --brand: #009DFF; --border-color: #ffffff; }
+
+/* Tema Personalizado: Base Amoled + Cor Variável */
+html.custom { 
+  --bg-main: #000000; 
+  --bg-surface: #000000; 
+  --bg-sidebar: #000000; 
+  --bg-paper: #000000; 
+  --text-main: #ffffff; 
+  --text-sec: #ffffff; 
+  --brand: var(--custom-brand, #ffffff); 
+  --border-color: #ffffff; 
+}
 
 /* --- TIPTAP & TEXT LAYER STYLES --- */
 .ProseMirror {

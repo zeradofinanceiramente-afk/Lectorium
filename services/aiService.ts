@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { ChatMessage } from "../types";
+import { ChatMessage, MindMapData } from "../types";
 import { getStoredApiKey } from "../utils/apiKeyUtils";
 
 // --- CONFIG ---
@@ -27,19 +27,13 @@ const STOP_WORDS = new Set([
 
 // Divide o texto em blocos lógicos (parágrafos)
 function chunkText(fullText: string, maxChunkSize = 1000): string[] {
-  // Normaliza quebras de linha
   const cleanText = fullText.replace(/\r\n/g, '\n');
-  // Divide por parágrafos duplos ou simples dependendo da densidade
   let rawChunks = cleanText.split(/\n\s*\n/);
-  
   const finalChunks: string[] = [];
-  
   for (const chunk of rawChunks) {
     if (chunk.length > maxChunkSize) {
-      // Se o parágrafo for gigante, quebra por frases
       const sentences = chunk.match(/[^.!?]+[.!?]+[\])'"]*/g) || [chunk];
       let currentChunk = "";
-      
       for (const sentence of sentences) {
         if (currentChunk.length + sentence.length > maxChunkSize) {
           finalChunks.push(currentChunk.trim());
@@ -50,26 +44,19 @@ function chunkText(fullText: string, maxChunkSize = 1000): string[] {
       }
       if (currentChunk) finalChunks.push(currentChunk.trim());
     } else if (chunk.trim().length > 30) {
-      // Ignora pedaços muito pequenos (ruído de OCR)
       finalChunks.push(chunk.trim());
     }
   }
-  
   return finalChunks;
 }
 
-// Calcula pontuação de relevância simples (Keyword Overlap / TF simplificado)
 function scoreChunk(chunk: string, queryTerms: string[]): number {
   const normalizedChunk = chunk.toLowerCase();
   let score = 0;
-  
-  // Pontuações
   const EXACT_MATCH_BONUS = 3;
   const PARTIAL_MATCH_BONUS = 1;
-
   for (const term of queryTerms) {
     if (normalizedChunk.includes(term)) {
-      // Regex para contar ocorrências exatas da palavra
       const regex = new RegExp(`\\b${term}\\b`, 'gi');
       const matches = normalizedChunk.match(regex);
       if (matches) {
@@ -84,31 +71,19 @@ function scoreChunk(chunk: string, queryTerms: string[]): number {
 
 function findRelevantChunks(documentText: string, query: string, topK = 4): string[] {
   if (!documentText) return [];
-
-  // 1. Prepara a query
   const queryTerms = query.toLowerCase()
-    .replace(/[^\w\sà-ú]/g, '') // Remove pontuação
+    .replace(/[^\w\sà-ú]/g, '')
     .split(/\s+/)
     .filter(w => w.length > 2 && !STOP_WORDS.has(w));
-
-  if (queryTerms.length === 0) return [documentText.slice(0, 2000)]; // Fallback se query for vazia/stop words
-
-  // 2. Chunking
+  if (queryTerms.length === 0) return [documentText.slice(0, 2000)];
   const chunks = chunkText(documentText);
-
-  // 3. Scoring
   const scoredChunks = chunks.map(chunk => ({
     text: chunk,
     score: scoreChunk(chunk, queryTerms)
   }));
-
-  // 4. Sort & Slice
   scoredChunks.sort((a, b) => b.score - a.score);
-
-  // Filtra chunks com score 0 se tivermos chunks com score > 0
   const hasMatches = scoredChunks.some(c => c.score > 0);
   const relevant = hasMatches ? scoredChunks.filter(c => c.score > 0) : scoredChunks;
-
   return relevant.slice(0, topK).map(c => c.text);
 }
 
@@ -116,7 +91,6 @@ function findRelevantChunks(documentText: string, query: string, topK = 4): stri
 
 export async function extractNewspaperContent(base64Image: string, mimeType: string) {
   const ai = getAiClient();
-  
   const prompt = `Você é um arquivista digital. Analise esta página de jornal histórico.
   O documento foi pré-processado para destacar a estrutura visual.
   1. Identifique as notícias seguindo a hierarquia de colunas (da esquerda para a direita).
@@ -159,7 +133,6 @@ export async function extractNewspaperContent(base64Image: string, mimeType: str
         }
       }
     });
-
     return JSON.parse(response.text || "{}");
   } catch (e) {
     console.error("Historical extraction failed", e);
@@ -195,14 +168,9 @@ export async function refineOcrWords(words: string[]): Promise<string[]> {
         }
       }
     });
-
     const result = JSON.parse(response.text || '{"correctedWords": []}');
     const corrected = result.correctedWords || [];
-    
-    if (corrected.length === words.length) {
-        return corrected;
-    }
-    
+    if (corrected.length === words.length) return corrected;
     return words;
   } catch (e) {
     return words;
@@ -224,32 +192,55 @@ export async function expandNodeWithAi(nodeText: string, context: string): Promi
   }
 }
 
+export async function generateMindMapAi(topic: string): Promise<MindMapData> {
+    const ai = getAiClient();
+    const prompt = `Crie uma estrutura inicial de mapa mental para o assunto: "${topic}".
+    Retorne um JSON seguindo exatamente esta interface:
+    interface MindMapNode {
+      id: string; text: string; x: number; y: number; width: number; height: number; color: string; parentId?: string; isRoot?: boolean; shape?: 'rectangle' | 'circle' | 'pill';
+    }
+    interface MindMapEdge { id: string; from: string; to: string; }
+    interface MindMapData { nodes: MindMapNode[]; edges: MindMapEdge[]; viewport: {x: number, y: number, zoom: number}; }
+    
+    Regras:
+    1. O nó raiz (isRoot: true) deve estar em x:0, y:0.
+    2. Crie de 4 a 7 sub-nós distribuídos ao redor.
+    3. Use cores vibrantes acadêmicas.
+    4. O JSON deve ser o único retorno.`;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-3-pro-preview',
+            contents: prompt,
+            config: { responseMimeType: "application/json" }
+        });
+        return JSON.parse(response.text || "{}");
+    } catch (e) {
+        console.error("AI MindMap generation failed", e);
+        throw new Error("Falha ao gerar mapa com IA.");
+    }
+}
+
 /**
  * Chat Stream with Local RAG Strategy
  */
 export async function* chatWithDocumentStream(documentText: string, history: ChatMessage[], message: string) {
   const ai = getAiClient();
-  
-  // 1. Local RAG: Encontrar partes relevantes do texto
   const relevantChunks = findRelevantChunks(documentText, message);
   const contextString = relevantChunks.length > 0 
     ? relevantChunks.join("\n\n---\n\n") 
     : "Documento vazio ou sem texto legível.";
-
-  // 2. Construir System Instruction com o Contexto Reduzido
   const systemInstruction = `Você é o Lectorium AI, um assistente de pesquisa acadêmica.
   Responda à pergunta do usuário baseando-se EXCLUSIVAMENTE nos trechos do documento fornecidos abaixo.
   Se a resposta não estiver no contexto, diga que não encontrou a informação no documento.
   
   CONTEXTO RELEVANTE DO DOCUMENTO:
   ${contextString}`;
-
   try {
     const chat = ai.chats.create({
       model: 'gemini-3-flash-preview',
       config: { systemInstruction, temperature: 0.2 }
     });
-
     const responseStream = await chat.sendMessageStream({ message });
     for await (const chunk of responseStream) {
       yield chunk.text || "";

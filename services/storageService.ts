@@ -49,12 +49,26 @@ const dbPromise = openDB("pwa-drive-annotator", 12, {
       const store = db.createObjectStore("ocrCache", { keyPath: "id" });
       store.createIndex("fileId", "fileId", { unique: false });
     }
-    // New Settings Store for persisting folder handles
     if (!db.objectStoreNames.contains("settings")) {
       db.createObjectStore("settings");
     }
   }
 });
+
+export async function saveWallpaper(orientation: 'landscape' | 'portrait', blob: Blob): Promise<void> {
+  const idb = await dbPromise;
+  await idb.put("settings", blob, `wallpaper_${orientation}`);
+}
+
+export async function getWallpaper(orientation: 'landscape' | 'portrait'): Promise<Blob | undefined> {
+  const idb = await dbPromise;
+  return await idb.get("settings", `wallpaper_${orientation}`);
+}
+
+export async function removeWallpaper(orientation: 'landscape' | 'portrait'): Promise<void> {
+  const idb = await dbPromise;
+  await idb.delete("settings", `wallpaper_${orientation}`);
+}
 
 export async function saveLocalDirectoryHandle(handle: any): Promise<void> {
   const idb = await dbPromise;
