@@ -67,6 +67,9 @@ export default function App() {
   const [showLegalModal, setShowLegalModal] = useState(false);
   const [legalModalTab, setLegalModalTab] = useState<LegalTab>('privacy');
   const [aiLoadingMessage, setAiLoadingMessage] = useState<string | null>(null);
+  
+  // Immersive Mode State
+  const [isImmersive, setIsImmersive] = useState(false);
 
   const handleAuthError = useCallback(() => setAccessToken(null), []);
   const handleToggleSyncStrategy = useCallback((strategy: 'smart' | 'online') => { setSyncStrategy(strategy); localStorage.setItem('sync_strategy', strategy); }, []);
@@ -89,6 +92,43 @@ export default function App() {
   }, []);
 
   const { syncStatus } = useSync({ accessToken, onAuthError: handleAuthError });
+
+  // Immersive Mode Logic
+  useEffect(() => {
+    // 1. Check preference on load
+    const storedPref = localStorage.getItem('app-immersive-mode');
+    if (storedPref === 'true') {
+        // We can't force fullscreen on load due to browser security,
+        // but we update state so the button reflects the intent.
+        setIsImmersive(false); // Button will show "Expand" but logic will know intent
+    }
+
+    // 2. Sync state with actual browser event (e.g. user presses ESC)
+    const handleFullscreenChange = () => {
+        const isFull = !!document.fullscreenElement;
+        setIsImmersive(isFull);
+        localStorage.setItem('app-immersive-mode', String(isFull));
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  const toggleImmersive = useCallback(async () => {
+    try {
+        if (!document.fullscreenElement) {
+            await document.documentElement.requestFullscreen();
+            setIsImmersive(true);
+        } else {
+            if (document.exitFullscreen) {
+                await document.exitFullscreen();
+                setIsImmersive(false);
+            }
+        }
+    } catch (err) {
+        console.error("Error toggling fullscreen:", err);
+    }
+  }, []);
 
   useEffect(() => {
     const init = async () => {
@@ -206,7 +246,21 @@ export default function App() {
   return (
     <ErrorBoundary>
       <div className="flex h-screen w-full bg-bg overflow-hidden relative selection:bg-brand/30">
-        <Sidebar activeTab={activeTab} onSwitchTab={setActiveTab} openFiles={openFiles} onCloseFile={handleCloseFile} user={user} onLogout={logout} onLogin={handleLogin} isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} driveActive={!!accessToken} onOpenLegal={() => { setLegalModalTab('privacy'); setShowLegalModal(true); }} />
+        <Sidebar 
+            activeTab={activeTab} 
+            onSwitchTab={setActiveTab} 
+            openFiles={openFiles} 
+            onCloseFile={handleCloseFile} 
+            user={user} 
+            onLogout={logout} 
+            onLogin={handleLogin} 
+            isOpen={isSidebarOpen} 
+            onClose={() => setIsSidebarOpen(false)} 
+            driveActive={!!accessToken} 
+            onOpenLegal={() => { setLegalModalTab('privacy'); setShowLegalModal(true); }}
+            isImmersive={isImmersive}
+            onToggleImmersive={toggleImmersive}
+        />
         <main className="flex-1 relative flex flex-col bg-bg overflow-hidden transition-all duration-300">
           <Suspense fallback={<GlobalLoader />}>
               {syncStatus.message && <div className="absolute top-6 left-1/2 -translate-x-1/2 z-50 bg-brand text-bg px-6 py-2 rounded-full font-bold shadow-2xl flex items-center gap-2 animate-in slide-in-from-top-6 duration-300 pointer-events-none"><Wifi size={18} className="animate-pulse" /> {syncStatus.message}</div>}

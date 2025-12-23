@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 // Added FileText icon to the imports below to fix "Cannot find name 'FileText'" error on line 155
-import { Home, FolderOpen, LogOut, User as UserIcon, X, Palette, ChevronDown, ChevronRight, Workflow, DownloadCloud, CheckCircle, Loader2, LayoutGrid, Cloud, CloudOff, LogIn, Wrench, Key, Scale, Monitor, Smartphone, Upload, Trash2, RefreshCw, FileText } from 'lucide-react';
+import { Home, FolderOpen, LogOut, User as UserIcon, X, Palette, ChevronDown, ChevronRight, Workflow, DownloadCloud, CheckCircle, Loader2, LayoutGrid, Cloud, CloudOff, LogIn, Wrench, Key, Scale, Monitor, Smartphone, Upload, Trash2, RefreshCw, FileText, Maximize, Minimize } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { ThemeSwitcher } from './ThemeSwitcher';
 import { DriveFile } from '../types';
@@ -27,10 +27,13 @@ interface SidebarProps {
   docked?: boolean;
   driveActive?: boolean;
   onOpenLegal?: () => void;
+  isImmersive?: boolean;
+  onToggleImmersive?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ 
-  activeTab, onSwitchTab, openFiles, onCloseFile, user, onLogout, onLogin, isOpen, onClose, driveActive = false, onOpenLegal
+  activeTab, onSwitchTab, openFiles, onCloseFile, user, onLogout, onLogin, isOpen, onClose, driveActive = false, onOpenLegal,
+  isImmersive, onToggleImmersive
 }) => {
   const [isThemesOpen, setIsThemesOpen] = useState(false);
   const [showOfflineModal, setShowOfflineModal] = useState(false);
@@ -207,10 +210,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <button onClick={onLogout} className="p-2 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors" title="Sair"><LogOut size={18} /></button>
             </div>
           ) : <button onClick={onLogin} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-surface hover:bg-brand/10 hover:border-brand/30 border border-border transition-all group"><div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center group-hover:bg-brand group-hover:text-black transition-colors shrink-0"><LogIn size={16} /></div><div className="flex flex-col items-start"><span className="font-bold text-xs">Entrar</span></div></button>}
-          <div className="flex gap-2">
-             <button onClick={onOpenLegal} className="flex-1 p-2 rounded-lg text-[10px] text-text-sec hover:text-text hover:bg-white/5 transition-colors flex items-center justify-center gap-2 border border-transparent hover:border-white/10"><Scale size={12} /> Sobre & Legal</button>
-             {isDebugMode && <button onClick={() => setShowDebugModal(true)} className="flex-1 p-2 rounded-lg text-[10px] text-text-sec hover:text-text hover:bg-white/5 transition-colors flex items-center justify-center gap-2 border border-dashed border-white/10 opacity-60 hover:opacity-100"><Wrench size={12} /> Debug</button>}
+          
+          <div className="grid grid-cols-2 gap-2">
+             <button onClick={onOpenLegal} className="p-2 rounded-lg text-[10px] text-text-sec hover:text-text hover:bg-white/5 transition-colors flex items-center justify-center gap-2 border border-transparent hover:border-white/10"><Scale size={12} /> Sobre & Legal</button>
+             {onToggleImmersive && (
+                 <button onClick={onToggleImmersive} className={`p-2 rounded-lg text-[10px] hover:text-text transition-colors flex items-center justify-center gap-2 border ${isImmersive ? 'bg-brand/10 text-brand border-brand/20' : 'text-text-sec hover:bg-white/5 border-transparent hover:border-white/10'}`}>
+                     {isImmersive ? <Minimize size={12} /> : <Maximize size={12} />}
+                     {isImmersive ? 'Sair' : 'Imersivo'}
+                 </button>
+             )}
           </div>
+          {isDebugMode && <button onClick={() => setShowDebugModal(true)} className="w-full p-2 rounded-lg text-[10px] text-text-sec hover:text-text hover:bg-white/5 transition-colors flex items-center justify-center gap-2 border border-dashed border-white/10 opacity-60 hover:opacity-100"><Wrench size={12} /> Debug</button>}
         </div>
       </div>
 
