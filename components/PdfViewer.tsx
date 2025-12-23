@@ -58,6 +58,7 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
     goNext, goPrev,
     currentBlobRef, // Acesso direto ao blob via ref do contexto
     getUnburntOcrMap, // Acesso ao mapa filtrado para save
+    markOcrAsSaved, // Confirmação de consolidação
     setChatRequest,
     showOcrModal, setShowOcrModal, triggerBatchOcr
   } = usePdfContext();
@@ -174,8 +175,7 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
      const sourceBlob = currentBlobRef.current || originalBlob;
      if (!sourceBlob) return;
      
-     // CRÍTICO: Usa getUnburntOcrMap para enviar apenas OCR que AINDA NÃO está no blob
-     // Isso evita queima dupla se já processamos progressivamente
+     // Usa getUnburntOcrMap para enviar apenas OCR que AINDA NÃO está no blob
      const ocrToBurn = getUnburntOcrMap();
      
      const newBlob = await burnAnnotationsToPdf(sourceBlob, annotations, ocrToBurn);
@@ -188,7 +188,7 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
      a.click();
      document.body.removeChild(a);
      URL.revokeObjectURL(url);
-     setHasUnsavedOcr(false);
+     // Não atualizamos o hasUnsavedOcr aqui pois o download não altera o estado persistente do app
   };
 
   const handleSave = async (mode: 'local' | 'overwrite' | 'copy') => {
@@ -216,8 +216,9 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
             return;
         }
 
-        // CRÍTICO: Usa getUnburntOcrMap
+        // 1. Obtém apenas o OCR novo (delta)
         const ocrToBurn = getUnburntOcrMap();
+        // 2. Queima anotações e o novo OCR no PDF
         const newBlob = await burnAnnotationsToPdf(sourceBlob, annotations, ocrToBurn);
         
         const isLocal = fileId.startsWith('local-') || !accessToken;
@@ -239,6 +240,12 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
             
             alert("Sem internet. Arquivo atualizado offline e salvo na fila de sincronização.");
             setHasUnsavedOcr(false);
+            
+            // Marca OCR como salvo no contexto para evitar re-processamento
+            if (mode === 'overwrite') {
+                markOcrAsSaved(Object.keys(ocrToBurn).map(Number));
+                setOriginalBlob(newBlob);
+            }
             return;
         }
 
@@ -248,8 +255,11 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
                try {
                   await updateDriveFile(accessToken, fileId, newBlob);
                   
-                  // Atualiza o blob original (Single Source of Truth) para a nova versão "limpa"
+                  // Atualiza o blob original (Single Source of Truth)
                   setOriginalBlob(newBlob);
+                  
+                  // CRÍTICO: Informa ao contexto que essas páginas agora fazem parte do Blob
+                  markOcrAsSaved(Object.keys(ocrToBurn).map(Number));
                   
                   if (isOfflineAvailable) {
                       const fileMeta = { id: fileId, name: fileName, mimeType: 'application/pdf', parents: fileParents };
@@ -271,7 +281,7 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
                const name = fileName.replace('.pdf', '') + ' (Anotado).pdf';
                await uploadFileToDrive(accessToken, newBlob, name, fileParents);
                alert("Cópia salva com sucesso!");
-               setHasUnsavedOcr(false);
+               // Nota: No modo cópia, não atualizamos o originalBlob nem marcamos OCR como salvo no original
             }
         }
     } catch (e: any) {
@@ -473,8 +483,6 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
         >
             <PdfToolbar onFitWidth={handleFitWidth} />
             {selection && <SelectionMenu selection={selection} onHighlight={createHighlight} onExplainAi={handleExplainAi} onDefine={handleDefine} onCopy={() => navigator.clipboard.writeText(selection.text)} onClose={() => setSelection(null)} />}
-            
-            {/* Navigation buttons removed as requested */}
             
             <div className="transition-shadow duration-200 ease-out shadow-2xl" style={{ boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)' }}>
                 <PdfPage pageNumber={currentPage} filterValues={filterValues} pdfDoc={pdfDoc} />
