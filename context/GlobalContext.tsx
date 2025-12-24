@@ -9,6 +9,9 @@ interface GlobalContextType {
   notifications: Array<{ id: string; message: string; type: 'info' | 'success' | 'error' }>;
   addNotification: (message: string, type?: 'info' | 'success' | 'error') => void;
   removeNotification: (id: string) => void;
+  // OCR Completion Modal State
+  ocrCompletion: { fileId: string; filename: string; sourceBlob: Blob } | null;
+  clearOcrCompletion: () => void;
 }
 
 const GlobalContext = createContext<GlobalContextType | null>(null);
@@ -23,6 +26,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [isOcrRunning, setIsOcrRunning] = useState(false);
   const [ocrProgress, setOcrProgress] = useState<{ current: number; total: number; filename: string } | null>(null);
   const [notifications, setNotifications] = useState<Array<{ id: string; message: string; type: 'info' | 'success' | 'error' }>>([]);
+  const [ocrCompletion, setOcrCompletion] = useState<{ fileId: string; filename: string; sourceBlob: Blob } | null>(null);
 
   const addNotification = useCallback((message: string, type: 'info' | 'success' | 'error' = 'info') => {
     const id = Date.now().toString() + Math.random();
@@ -36,6 +40,10 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
   const removeNotification = useCallback((id: string) => {
     setNotifications(prev => prev.filter(n => n.id !== id));
+  }, []);
+
+  const clearOcrCompletion = useCallback(() => {
+    setOcrCompletion(null);
   }, []);
 
   const startGlobalOcr = useCallback((fileId: string, filename: string, blob: Blob, start: number, end: number) => {
@@ -55,12 +63,13 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         endPage: end,
         onProgress: (page) => {
             setOcrProgress(prev => prev ? { ...prev, current: prev.current + 1 } : null);
-            addNotification(`OCR: Página ${page} concluída.`, 'success');
+            // Opcional: Não notificar cada página para não poluir, apenas progresso visual
         },
         onComplete: () => {
             setIsOcrRunning(false);
             setOcrProgress(null);
-            addNotification(`Processamento de "${filename}" finalizado!`, 'success');
+            // Trigger Modal instead of just a toast
+            setOcrCompletion({ fileId, filename, sourceBlob: blob });
         },
         onError: (err) => {
             setIsOcrRunning(false);
@@ -77,7 +86,9 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         startGlobalOcr, 
         notifications, 
         addNotification,
-        removeNotification 
+        removeNotification,
+        ocrCompletion,
+        clearOcrCompletion
     }}>
       {children}
     </GlobalContext.Provider>

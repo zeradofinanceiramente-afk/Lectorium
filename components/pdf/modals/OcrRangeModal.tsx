@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect } from 'react';
-import { ScanLine, Check, AlertTriangle, Layers } from 'lucide-react';
+import { ScanLine, Check, AlertTriangle, Layers, Info } from 'lucide-react';
 import { BaseModal } from '../../shared/BaseModal';
 import { useGlobalContext } from '../../../context/GlobalContext';
 import { usePdfContext } from '../../../context/PdfContext';
@@ -39,8 +38,8 @@ export const OcrRangeModal: React.FC<Props> = ({
     // Obter o blob atual (Single Source)
     const blob = currentBlobRef.current;
     
-    if (blob) {
-        // Dispara o OCR Global
+    if (blob && fileId) {
+        // Dispara o OCR Global - fileId?.slice(-4) protege contra strings vazias ou nulas
         startGlobalOcr(fileId, `Documento (${fileId.slice(-4)})`, blob, s, e);
         
         // Direciona o usuário para o dashboard (a lógica de navegação está no PdfViewer que recebe um callback, 
@@ -88,6 +87,13 @@ export const OcrRangeModal: React.FC<Props> = ({
             <AlertTriangle size={16} className="text-yellow-500 shrink-0 mt-0.5" />
             <p className="text-[11px] text-yellow-500/90 leading-tight">
                 Para garantir performance máxima, mantenha apenas este documento sendo processado. Se tiver outros PDFs abertos, feche-os.
+            </p>
+        </div>
+
+        <div className="bg-blue-500/10 border border-blue-500/20 p-3 rounded-lg flex gap-3 items-start">
+            <Info size={16} className="text-blue-400 shrink-0 mt-0.5" />
+            <p className="text-[11px] text-blue-300 leading-tight">
+                Dica: Após o término do OCR, <strong>salve o PDF</strong> e abra-o novamente. Isso consolida a camada de texto e melhora a experiência.
             </p>
         </div>
 

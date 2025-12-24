@@ -60,7 +60,7 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
     getUnburntOcrMap, // Acesso ao mapa filtrado para save
     markOcrAsSaved, // Confirmação de consolidação
     setChatRequest,
-    showOcrModal, setShowOcrModal, triggerBatchOcr
+    showOcrModal, setShowOcrModal
   } = usePdfContext();
   
   const containerRef = useRef<HTMLDivElement>(null);

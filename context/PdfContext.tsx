@@ -47,7 +47,6 @@ interface PdfContextState {
   setPageOcrData: (page: number, words: any[]) => void;
   updateOcrWord: (page: number, wordIndex: number, newText: string) => void;
   triggerOcr: (page: number) => void;
-  triggerBatchOcr: (start: number, end: number) => void;
   showOcrModal: boolean;
   setShowOcrModal: (v: boolean) => void;
   refinePageOcr: (page: number) => Promise<void>;
@@ -56,6 +55,7 @@ interface PdfContextState {
   ocrNotification: string | null;
   jumpToPage: (page: number) => void;
   accessToken?: string | null;
+  fileId: string;
   // Permite atualizar o blob principal (Single Source of Truth)
   updateSourceBlob: (newBlob: Blob) => void;
   currentBlobRef: React.MutableRefObject<Blob | null>;
@@ -236,8 +236,6 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
     if (fileId) {
         saveOcrData(fileId, page, words).catch(e => console.error("OCR Save Failed", e));
         setHasUnsavedOcr(true);
-        // REMOVIDO: Agendamento automático de queima (schedulePageBurn)
-        // O OCR fica apenas em memória/IDB até o usuário salvar manualmente.
     }
   }, [fileId]);
 
@@ -265,15 +263,6 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
     if (ocrManagerRef.current) {
         ocrManagerRef.current.schedule(page, 'high');
         showOcrNotification(`Lendo Página ${page}...`);
-    }
-  }, [showOcrNotification]);
-
-  const triggerBatchOcr = useCallback((start: number, end: number) => {
-    if (ocrManagerRef.current) {
-        showOcrNotification(`Iniciando leitura das páginas ${start} a ${end}...`);
-        for (let i = start; i <= end; i++) {
-            ocrManagerRef.current.schedule(i, 'low');
-        }
     }
   }, [showOcrNotification]);
 
@@ -308,13 +297,13 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
     scale, setScale, currentPage, setCurrentPage, numPages, activeTool, setActiveTool,
     settings, updateSettings, annotations, addAnnotation: onAddAnnotation, removeAnnotation: onRemoveAnnotation,
     ocrMap, ocrStatusMap, setPageOcrData, updateOcrWord, 
-    triggerOcr, triggerBatchOcr, showOcrModal, setShowOcrModal,
+    triggerOcr, showOcrModal, setShowOcrModal,
     refinePageOcr, hasUnsavedOcr, setHasUnsavedOcr, ocrNotification,
-    jumpToPage, accessToken, isSpread, setIsSpread, spreadSide, setSpreadSide, goNext, goPrev,
+    jumpToPage, accessToken, fileId, isSpread, setIsSpread, spreadSide, setSpreadSide, goNext, goPrev,
     updateSourceBlob: onUpdateSourceBlob, currentBlobRef, 
     getUnburntOcrMap, markOcrAsSaved,
     chatRequest, setChatRequest
-  }), [scale, currentPage, numPages, activeTool, settings, annotations, onAddAnnotation, onRemoveAnnotation, ocrMap, ocrStatusMap, setPageOcrData, updateOcrWord, triggerOcr, triggerBatchOcr, showOcrModal, refinePageOcr, hasUnsavedOcr, setHasUnsavedOcr, ocrNotification, jumpToPage, accessToken, isSpread, spreadSide, goNext, goPrev, onUpdateSourceBlob, getUnburntOcrMap, markOcrAsSaved, chatRequest]);
+  }), [scale, currentPage, numPages, activeTool, settings, annotations, onAddAnnotation, onRemoveAnnotation, ocrMap, ocrStatusMap, setPageOcrData, updateOcrWord, triggerOcr, showOcrModal, refinePageOcr, hasUnsavedOcr, setHasUnsavedOcr, ocrNotification, jumpToPage, accessToken, fileId, isSpread, spreadSide, goNext, goPrev, onUpdateSourceBlob, getUnburntOcrMap, markOcrAsSaved, chatRequest]);
 
   return <PdfContext.Provider value={value}>{children}</PdfContext.Provider>;
 };

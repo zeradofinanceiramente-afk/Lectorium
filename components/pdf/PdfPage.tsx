@@ -296,7 +296,7 @@ export const PdfPage: React.FC<PdfPageProps> = ({
       if (!rect) return { x: 0, y: 0 };
       let x = (e.clientX - rect.left) / scale;
       let y = (e.clientY - rect.top) / scale;
-      if (isSplitActive && spreadSide === 'right') x += (pageDimensions?.width || 0) / 2 / scale;
+      // Removido: O offset manual estava duplicando o ajuste que a transformação CSS já faz visualmente no getBoundingClientRect
       return { x, y };
   };
 

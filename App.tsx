@@ -21,6 +21,7 @@ import ReauthToast from './components/ReauthToast';
 import { LegalModal, LegalTab } from './components/modals/LegalModal';
 import { generateMindMapAi } from './services/aiService';
 import { GlobalProvider, useGlobalContext } from './context/GlobalContext';
+import { OcrCompletionModal } from './components/modals/OcrCompletionModal';
 
 const DriveBrowser = lazy(() => import('./components/DriveBrowser').then(m => ({ default: m.DriveBrowser })));
 const PdfViewer = lazy(() => import('./components/PdfViewer').then(m => ({ default: m.PdfViewer })));
@@ -180,9 +181,10 @@ const AppContent = () => {
 
   // CONSTRAINT: Check if OCR is running before opening new heavy files
   const handleOpenFile = useCallback(async (file: DriveFile) => {
+    // RESTRIÇÃO RÍGIDA: Se OCR está rodando e já existe pelo menos 1 arquivo aberto, BLOQUEAR.
     if (isOcrRunning && openFiles.length >= 1) {
-        addNotification("Atenção: OCR em andamento. Mantenha apenas 1 documento aberto para garantir performance.", "error");
-        // Não impedimos, mas avisamos. Se for PDF, o usuário pode sentir lentidão.
+        addNotification("Limite de performance: Apenas 1 documento para leitura é permitido enquanto o OCR processa em segundo plano.", "error");
+        return; // Impede a abertura
     }
 
     if (!file.blob && !file.id.startsWith('local-') && !file.id.startsWith('native-')) {
@@ -261,6 +263,7 @@ const AppContent = () => {
   return (
     <>
       <GlobalToastContainer />
+      <OcrCompletionModal />
       <div className="flex h-screen w-full bg-bg overflow-hidden relative selection:bg-brand/30">
         <Sidebar 
             activeTab={activeTab} 
