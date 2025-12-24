@@ -359,13 +359,17 @@ export class OcrManager {
                     if (xCenter > columnSplits[0]) column = 1;
                 }
 
-                // Cálculo relativo para detectar blocos fantasmas
+                // Cálculo relativo para detectar blocos fantasmas (ruído)
                 const bboxWidth = w.bbox.x1 - w.bbox.x0;
                 const bboxHeight = w.bbox.y1 - w.bbox.y0;
                 
-                // FILTER: Ignorar palavras que ocupam quase a página inteira (ruído de fundo/imagem)
-                // Se a largura for > 90% da página OU (largura > 50% e altura > 50%)
-                if (bboxWidth > width * 0.9 || (bboxWidth > width * 0.5 && bboxHeight > height * 0.5)) {
+                // NOISE FILTER: Ignorar palavras que ocupam quase a página inteira ou blocos gigantes
+                // 1. Se a largura for > 80% da página (provavelmente cabeçalho, borda ou artefato)
+                // 2. Se for um bloco grande (largura > 40% E altura > 30% da página)
+                // Refinamento para colunas: Se houver split, largura max é ~50%
+                const maxAllowedWidth = columnSplits.length > 0 ? width * 0.48 : width * 0.8;
+
+                if (bboxWidth > maxAllowedWidth || (bboxWidth > width * 0.4 && bboxHeight > height * 0.3)) {
                     return null;
                 }
 

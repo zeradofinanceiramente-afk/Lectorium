@@ -294,13 +294,23 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
     }
   };
 
-  const handleFitWidth = () => {
-    if (!pageDimensions || !containerRef.current) return;
-    const containerWidth = containerRef.current.clientWidth;
-    const isMobile = window.innerWidth < 768;
-    const padding = isMobile ? 20 : 100;
-    const newScale = (containerWidth - padding) / pageDimensions.width;
-    setScale(newScale);
+  const handleFitWidth = async () => {
+    if (!pdfDoc || !containerRef.current) return;
+    try {
+        // Busca o viewport da página ATUAL, não da primeira
+        const page = await pdfDoc.getPage(currentPage);
+        const viewport = page.getViewport({ scale: 1 });
+        
+        const containerWidth = containerRef.current.clientWidth;
+        const isMobile = window.innerWidth < 768;
+        const padding = isMobile ? 20 : 100;
+        
+        // Calcula escala baseada na página atual
+        const newScale = (containerWidth - padding) / viewport.width;
+        setScale(newScale);
+    } catch (e) {
+        console.error("Erro ao ajustar largura:", e);
+    }
   };
 
   const handleExplainAi = () => {

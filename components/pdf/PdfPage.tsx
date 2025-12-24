@@ -219,6 +219,10 @@ export const PdfPage: React.FC<PdfPageProps> = ({
         if (lastInjectedOcrRef.current === dataHash) return;
 
         const container = textLayerRef.current;
+        
+        // OPTIMIZATION 1: Ocultar container durante injeção para evitar repaints intermediários
+        // Isso é seguro pois o texto é transparente
+        container.style.visibility = 'hidden';
         container.innerHTML = ''; 
         
         const visibleWords = isSplitActive 
@@ -226,7 +230,8 @@ export const PdfPage: React.FC<PdfPageProps> = ({
             : ocrData;
 
         // Inicia Hydration por lotes
-        const CHUNK_SIZE = 150;
+        // Aumentado para 500 pois visibility:hidden remove o custo de paint
+        const CHUNK_SIZE = 500; 
         let currentIndex = 0;
         let frameId: number;
 
@@ -237,38 +242,34 @@ export const PdfPage: React.FC<PdfPageProps> = ({
             for (let i = currentIndex; i < end; i++) {
                 const word = visibleWords[i];
                 
-                const x = word.bbox.x0 * scale;
-                const y = word.bbox.y0 * scale;
-                const w = (word.bbox.x1 - word.bbox.x0) * scale;
-                const h = (word.bbox.y1 - word.bbox.y0) * scale;
+                const x = Math.floor(word.bbox.x0 * scale);
+                const y = Math.floor(word.bbox.y0 * scale);
+                const w = Math.ceil((word.bbox.x1 - word.bbox.x0) * scale);
+                const h = Math.ceil((word.bbox.y1 - word.bbox.y0) * scale);
 
-                // HEURÍSTICA DE SEGURANÇA (GHOST BLOCK): 
-                // Se o bloco detectado pelo OCR for gigante (ex: mais de 80% da largura ou altura da página),
-                // é provável que seja um ruído de fundo interpretado como texto. Ignoramos para evitar manchas azuis.
-                if (w > pageDimensions.width * 0.8 || h > pageDimensions.height * 0.8) {
+                // HEURÍSTICA DE SEGURANÇA (GHOST BLOCK)
+                // OTIMIZAÇÃO PARA PÁGINAS DUPLAS:
+                // Se houver split (páginas duplas), um bloco não deve ter ~50% da largura total (ocuparia a coluna inteira).
+                // Isso filtra sombras de lombada ou artefatos que o Tesseract pega como "palavras gigantes".
+                const maxAllowedW = isSplitActive ? pageDimensions.width * 0.48 : pageDimensions.width * 0.8;
+
+                if (w > maxAllowedW || (w > pageDimensions.width * 0.4 && h > pageDimensions.height * 0.3)) {
                     continue; 
                 }
 
                 const span = document.createElement('span');
                 span.textContent = word.text + ' ';
-
-                span.style.left = `${Math.floor(x)}px`;
-                span.style.top = `${Math.floor(y)}px`;
-                span.style.width = `${Math.ceil(w)}px`;
-                span.style.height = `${Math.ceil(h)}px`;
-                span.style.fontSize = `${h * 0.95}px`; 
-                span.style.position = 'absolute';
-                span.style.color = 'transparent'; 
-                span.style.cursor = 'text';
-                span.style.lineHeight = '1';
-                span.style.whiteSpace = 'pre';
                 span.className = 'ocr-word-span';
-                span.style.textRendering = 'geometricPrecision';
                 
-                span.dataset.pdfX = x.toString();
-                span.dataset.pdfTop = y.toString();
-                span.dataset.pdfWidth = w.toString();
-                span.dataset.pdfHeight = h.toString();
+                // OPTIMIZATION 2: Usar cssText para definir múltiplos estilos de uma vez
+                // Muito mais rápido que acessar .style.property repetidamente
+                span.style.cssText = `left:${x}px;top:${y}px;width:${w}px;height:${h}px;font-size:${h*0.95}px;position:absolute;color:transparent;cursor:text;line-height:1;white-space:pre;text-rendering:optimizeSpeed;`;
+                
+                // Dataset é menos custoso que style, mas ainda tem overhead. Mantemos para lógica de seleção.
+                span.dataset.pdfX = String(x);
+                span.dataset.pdfTop = String(y);
+                span.dataset.pdfWidth = String(w);
+                span.dataset.pdfHeight = String(h);
                 
                 fragment.appendChild(span);
             }
@@ -280,6 +281,8 @@ export const PdfPage: React.FC<PdfPageProps> = ({
                 frameId = requestAnimationFrame(injectBatch);
             } else {
                 lastInjectedOcrRef.current = dataHash;
+                // Restaurar visibilidade no final
+                container.style.visibility = 'visible';
             }
         };
 

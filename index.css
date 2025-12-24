@@ -122,7 +122,8 @@ html.custom {
   line-height: 1;
   text-rendering: geometricPrecision;
   /* PERFORMANCE CRITICAL: Isolamento de renderização para milhares de spans */
-  contain: layout paint; 
+  /* 'strict' remove a camada do fluxo de layout global, evitando recálculos pesados */
+  contain: strict; 
 }
 
 /* Estilo para spans de OCR */
