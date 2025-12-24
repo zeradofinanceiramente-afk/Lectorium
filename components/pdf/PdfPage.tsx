@@ -7,6 +7,7 @@ import { NoteMarker } from './NoteMarker';
 import { usePdfContext } from '../../context/PdfContext';
 import { PDFDocumentProxy } from 'pdfjs-dist';
 import { BaseModal } from '../shared/BaseModal';
+import { scheduleWork, cancelWork } from '../../utils/scheduler';
 
 interface PdfPageProps {
   pageNumber: number;
@@ -221,7 +222,6 @@ export const PdfPage: React.FC<PdfPageProps> = ({
         const container = textLayerRef.current;
         
         // OPTIMIZATION 1: Ocultar container durante injeção para evitar repaints intermediários
-        // Isso é seguro pois o texto é transparente
         container.style.visibility = 'hidden';
         container.innerHTML = ''; 
         
@@ -229,30 +229,24 @@ export const PdfPage: React.FC<PdfPageProps> = ({
             ? ocrData.filter(w => w.column === (spreadSide === 'right' ? 1 : 0))
             : ocrData;
 
-        // Inicia Hydration por lotes
-        // Aumentado para 500 pois visibility:hidden remove o custo de paint
-        const CHUNK_SIZE = 500; 
+        // --- SCHEDULER ENGINE (The 60fps Guarantee) ---
         let currentIndex = 0;
-        let frameId: number;
+        let workId: number;
 
-        const injectBatch = () => {
+        const injectWork = (deadline: { timeRemaining: () => number, didTimeout: boolean }) => {
             const fragment = document.createDocumentFragment();
-            const end = Math.min(currentIndex + CHUNK_SIZE, visibleWords.length);
-            
-            for (let i = currentIndex; i < end; i++) {
-                const word = visibleWords[i];
-                
+            // Processa enquanto houver tempo (1ms buffer)
+            while (currentIndex < visibleWords.length && (deadline.timeRemaining() > 1 || deadline.didTimeout)) {
+                const word = visibleWords[currentIndex];
+                currentIndex++;
+
                 const x = Math.floor(word.bbox.x0 * scale);
                 const y = Math.floor(word.bbox.y0 * scale);
                 const w = Math.ceil((word.bbox.x1 - word.bbox.x0) * scale);
                 const h = Math.ceil((word.bbox.y1 - word.bbox.y0) * scale);
 
-                // HEURÍSTICA DE SEGURANÇA (GHOST BLOCK)
-                // OTIMIZAÇÃO PARA PÁGINAS DUPLAS:
-                // Se houver split (páginas duplas), um bloco não deve ter ~50% da largura total (ocuparia a coluna inteira).
-                // Isso filtra sombras de lombada ou artefatos que o Tesseract pega como "palavras gigantes".
+                // GHOST BLOCK FILTER (Otimização para páginas duplas e artefatos)
                 const maxAllowedW = isSplitActive ? pageDimensions.width * 0.48 : pageDimensions.width * 0.8;
-
                 if (w > maxAllowedW || (w > pageDimensions.width * 0.4 && h > pageDimensions.height * 0.3)) {
                     continue; 
                 }
@@ -261,11 +255,9 @@ export const PdfPage: React.FC<PdfPageProps> = ({
                 span.textContent = word.text + ' ';
                 span.className = 'ocr-word-span';
                 
-                // OPTIMIZATION 2: Usar cssText para definir múltiplos estilos de uma vez
-                // Muito mais rápido que acessar .style.property repetidamente
+                // CSS Batching
                 span.style.cssText = `left:${x}px;top:${y}px;width:${w}px;height:${h}px;font-size:${h*0.95}px;position:absolute;color:transparent;cursor:text;line-height:1;white-space:pre;text-rendering:optimizeSpeed;`;
                 
-                // Dataset é menos custoso que style, mas ainda tem overhead. Mantemos para lógica de seleção.
                 span.dataset.pdfX = String(x);
                 span.dataset.pdfTop = String(y);
                 span.dataset.pdfWidth = String(w);
@@ -275,10 +267,9 @@ export const PdfPage: React.FC<PdfPageProps> = ({
             }
             
             container.appendChild(fragment);
-            currentIndex = end;
 
             if (currentIndex < visibleWords.length) {
-                frameId = requestAnimationFrame(injectBatch);
+                workId = scheduleWork(injectWork);
             } else {
                 lastInjectedOcrRef.current = dataHash;
                 // Restaurar visibilidade no final
@@ -286,8 +277,8 @@ export const PdfPage: React.FC<PdfPageProps> = ({
             }
         };
 
-        frameId = requestAnimationFrame(injectBatch);
-        return () => cancelAnimationFrame(frameId);
+        workId = scheduleWork(injectWork);
+        return () => cancelWork(workId);
     }
   }, [ocrData, rendered, scale, pageNumber, spreadSide, isSplitActive, isPageRefined, pageDimensions]);
 
@@ -296,7 +287,6 @@ export const PdfPage: React.FC<PdfPageProps> = ({
       if (!rect) return { x: 0, y: 0 };
       let x = (e.clientX - rect.left) / scale;
       let y = (e.clientY - rect.top) / scale;
-      // Removido: O offset manual estava duplicando o ajuste que a transformação CSS já faz visualmente no getBoundingClientRect
       return { x, y };
   };
 
@@ -396,7 +386,7 @@ export const PdfPage: React.FC<PdfPageProps> = ({
 
             <canvas ref={canvasRef} className="select-none absolute top-0 left-0" style={{ filter: settings.disableColorFilter ? 'none' : 'url(#pdf-recolor)', display: 'block', visibility: isVisible ? 'visible' : 'hidden', zIndex: 5 }} />
             
-            {/* Confidence Mapping Layer (Optimized for performance: Rendered only if manageable or zoom is high) */}
+            {/* Confidence Mapping Layer */}
             {settings.showConfidenceOverlay && ocrData && ocrData.length > 0 && rendered && ocrData.length < 1500 && (
                 <div className="absolute inset-0 z-20 pointer-events-none overflow-hidden">
                     {ocrData
@@ -413,8 +403,7 @@ export const PdfPage: React.FC<PdfPageProps> = ({
                 </div>
             )}
 
-            {/* ANNOTATIONS LAYER - zIndex boosted to 40 to stay ABOVE textLayer (30) so Note Markers are clickable */}
-            {/* Using pointer-events-none on parent, but auto on children to allow text selection below */}
+            {/* ANNOTATIONS LAYER */}
             <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 40 }}>
                 <svg className="absolute inset-0 w-full h-full">
                     <g transform={`scale(${scale})`}>
@@ -489,7 +478,7 @@ export const PdfPage: React.FC<PdfPageProps> = ({
                                     }); 
                                 }
                                 setDraftNote(null);
-                                setActiveTool('cursor'); // Auto-switch to prevent multiple note creations
+                                setActiveTool('cursor'); 
                             } 
                             if (e.key === 'Escape') setDraftNote(null); 
                         }} 

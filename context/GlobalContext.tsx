@@ -1,5 +1,5 @@
 
-import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, ReactNode, useEffect } from 'react';
 import { runBackgroundOcr } from '../services/backgroundOcrService';
 
 interface GlobalContextType {
@@ -12,6 +12,9 @@ interface GlobalContextType {
   // OCR Completion Modal State
   ocrCompletion: { fileId: string; filename: string; sourceBlob: Blob } | null;
   clearOcrCompletion: () => void;
+  // Dashboard Layout Config
+  dashboardScale: number;
+  setDashboardScale: (scale: number) => void;
 }
 
 const GlobalContext = createContext<GlobalContextType | null>(null);
@@ -27,6 +30,24 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [ocrProgress, setOcrProgress] = useState<{ current: number; total: number; filename: string } | null>(null);
   const [notifications, setNotifications] = useState<Array<{ id: string; message: string; type: 'info' | 'success' | 'error' }>>([]);
   const [ocrCompletion, setOcrCompletion] = useState<{ fileId: string; filename: string; sourceBlob: Blob } | null>(null);
+  
+  // Dashboard Scale State (1-5, Default 3)
+  const [dashboardScale, setDashboardScaleState] = useState(3);
+
+  useEffect(() => {
+    const savedScale = localStorage.getItem('dashboard_scale');
+    if (savedScale) {
+        const parsed = parseInt(savedScale);
+        if (!isNaN(parsed) && parsed >= 1 && parsed <= 5) {
+            setDashboardScaleState(parsed);
+        }
+    }
+  }, []);
+
+  const setDashboardScale = useCallback((scale: number) => {
+      setDashboardScaleState(scale);
+      localStorage.setItem('dashboard_scale', scale.toString());
+  }, []);
 
   const addNotification = useCallback((message: string, type: 'info' | 'success' | 'error' = 'info') => {
     const id = Date.now().toString() + Math.random();
@@ -88,7 +109,9 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         addNotification,
         removeNotification,
         ocrCompletion,
-        clearOcrCompletion
+        clearOcrCompletion,
+        dashboardScale,
+        setDashboardScale
     }}>
       {children}
     </GlobalContext.Provider>

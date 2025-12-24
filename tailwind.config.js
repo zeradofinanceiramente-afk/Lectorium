@@ -8,6 +8,7 @@ export default {
     extend: {
       colors: {
         brand: 'var(--brand)',
+        'brand-to': 'var(--brand-to)', // Cor secundária para degradês
         bg: 'var(--bg-main)',
         surface: 'var(--bg-surface)',
         sidebar: 'var(--bg-sidebar)',

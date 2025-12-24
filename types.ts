@@ -60,6 +60,49 @@ export interface Annotation {
   isBurned?: boolean;
 }
 
+export interface PdfMetadataV2 {
+  lectorium_v: string;
+  last_sync: string;
+  pageCount: number;
+  annotations: Annotation[];
+}
+
+export type ConflictType = 'external_edit' | 'metadata_mismatch' | 'version_mismatch';
+
+export interface AuditRecord {
+  fileId: string;
+  contentHash: string;
+  lastModified: number;
+  annotationCount: number;
+}
+
+// --- RAG & VECTORS TYPES ---
+
+export interface EmbeddingChunk {
+  text: string;
+  vector: Float32Array; // High Performance Binary Storage
+  page?: number;
+  startIndex?: number;
+  endIndex?: number;
+}
+
+export interface VectorIndex {
+  fileId: string;
+  contentHash: string; // Vínculo de integridade física
+  textHash?: string; // Vínculo de integridade semântica (Otimização)
+  model: string; // 'text-embedding-004'
+  updatedAt: number;
+  chunks: EmbeddingChunk[];
+}
+
+export interface SearchResult {
+  text: string;
+  score: number;
+  page?: number;
+}
+
+// ---------------------------
+
 export interface ChatMessage {
   role: 'user' | 'model';
   text: string;
@@ -146,6 +189,7 @@ export interface MindMapData {
   edges: MindMapEdge[];
   viewport: MindMapViewport;
   updatedAt?: string;
+  contentHash?: string; // Para integridade
 }
 
 export interface SyncQueueItem {

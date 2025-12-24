@@ -106,7 +106,6 @@ declare module 'jszip' {
 declare module '@google/genai' {
   /**
    * OpenAPI Types for responseSchema as per @google/genai coding guidelines.
-   * Fix: Added missing Type enum export.
    */
   export enum Type {
     TYPE_UNSPECIFIED = 'TYPE_UNSPECIFIED',
@@ -134,6 +133,7 @@ declare module '@google/genai' {
     models: {
       generateContent: (params: any) => Promise<GenerateContentResponse>;
       generateContentStream: (params: any) => AsyncIterable<GenerateContentResponse>;
+      embedContent: (params: any) => Promise<EmbedContentResponse>;
     };
     chats: {
       create: (config: any) => any;
@@ -147,6 +147,12 @@ declare module '@google/genai' {
     text: string;
     candidates?: any[];
     functionCalls?: any[];
+  }
+
+  export interface EmbedContentResponse {
+    embedding?: {
+      values: number[];
+    };
   }
 }
 

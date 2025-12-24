@@ -6,6 +6,7 @@ import { useSync } from '../hooks/useSync';
 import { SyncStatusModal } from './SyncStatusModal';
 import { FileText, Menu, Workflow, WifiOff, FilePlus, Database, X, Zap, RefreshCw, Pin, Info, Cloud, AlertCircle, CheckCircle, FileUp, FolderTree, ArrowRight, Clock, LayoutGrid } from 'lucide-react';
 import { GlobalHelpModal } from './GlobalHelpModal';
+import { useGlobalContext } from '../context/GlobalContext';
 
 interface DashboardProps {
   userName?: string | null;
@@ -26,6 +27,75 @@ interface DashboardProps {
   onToggleSyncStrategy?: (strategy: 'smart' | 'online') => void;
 }
 
+// Configuração de Escala (The "Neural Core" Layout Engine)
+// Mapeia o nível 1-5 para classes Tailwind específicas
+// Lógica: Aproxima (menos gap) e Aumenta (maior padding/icon) conforme escala sobe.
+const getScaleStyles = (scale: number) => {
+    const config: Record<number, any> = {
+        1: { 
+            gap: 'gap-8', // Distante
+            p: 'p-4', // Pequeno
+            iconWrap: 'w-10 h-10', 
+            iconSize: 20, 
+            title: 'text-sm', 
+            desc: 'text-[10px]',
+            recentP: 'p-3',
+            recentGap: 'gap-3',
+            recentIconWrap: 'w-10 h-10',
+            recentIconSize: 20
+        },
+        2: { 
+            gap: 'gap-6', 
+            p: 'p-5', 
+            iconWrap: 'w-12 h-12', 
+            iconSize: 24, 
+            title: 'text-sm', 
+            desc: 'text-xs',
+            recentP: 'p-3.5',
+            recentGap: 'gap-4',
+            recentIconWrap: 'w-12 h-12',
+            recentIconSize: 22
+        },
+        3: { // Default
+            gap: 'gap-5', 
+            p: 'p-6', 
+            iconWrap: 'w-14 h-14', 
+            iconSize: 28, 
+            title: 'text-base', 
+            desc: 'text-xs',
+            recentP: 'p-4',
+            recentGap: 'gap-5',
+            recentIconWrap: 'w-14 h-14',
+            recentIconSize: 24
+        },
+        4: { 
+            gap: 'gap-4', 
+            p: 'p-8', 
+            iconWrap: 'w-16 h-16', 
+            iconSize: 32, 
+            title: 'text-lg', 
+            desc: 'text-sm',
+            recentP: 'p-5',
+            recentGap: 'gap-5',
+            recentIconWrap: 'w-16 h-16',
+            recentIconSize: 28
+        },
+        5: { 
+            gap: 'gap-3', // Próximo
+            p: 'p-10', // Grande (Imersivo)
+            iconWrap: 'w-20 h-20', 
+            iconSize: 40, 
+            title: 'text-xl', 
+            desc: 'text-base',
+            recentP: 'p-6',
+            recentGap: 'gap-6',
+            recentIconWrap: 'w-20 h-20',
+            recentIconSize: 32
+        },
+    };
+    return config[scale] || config[3];
+};
+
 export const Dashboard: React.FC<DashboardProps> = ({ 
     userName, onOpenFile, onUploadLocal, onCreateMindMap, onCreateDocument, 
     onCreateFileFromBlob, onChangeView, onToggleMenu, storageMode, onToggleStorageMode,
@@ -43,6 +113,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   const hasNativeFS = 'showDirectoryPicker' in window;
   const isEmbedded = window.self !== window.top;
+
+  const { dashboardScale } = useGlobalContext();
+  const styles = getScaleStyles(dashboardScale);
 
   const { syncStatus, queue, triggerSync, removeItem, clearQueue } = useSync({ 
       accessToken: localStorage.getItem('drive_access_token'), 
@@ -170,7 +243,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </div>
             <h1 className="text-5xl md:text-6xl font-light text-white mb-4 tracking-tight leading-tight">
               {new Date().getHours() < 12 ? 'Bom dia' : new Date().getHours() < 18 ? 'Boa tarde' : 'Boa noite'}, <br/>
-              <span className="text-brand font-bold bg-clip-text text-transparent bg-gradient-to-r from-brand to-emerald-400">
+              <span className="text-brand font-bold bg-clip-text text-transparent bg-gradient-to-r from-brand to-brand-to">
                   {userName?.split(' ')[0] || 'Visitante'}
               </span>
             </h1>
@@ -190,51 +263,51 @@ export const Dashboard: React.FC<DashboardProps> = ({
           {/* Desktop Grid Layout */}
           <div className="flex flex-col lg:flex-row gap-12 lg:justify-between items-start mb-20">
             
-            {/* Quick Actions - "Control Pads" */}
+            {/* Quick Actions - "Control Pads" - Dynamic Scaling */}
             <div className="w-full lg:max-w-2xl">
               <h2 className="text-xs font-bold text-white/40 uppercase tracking-[0.2em] mb-6 px-1 flex items-center gap-2">
                 <div className="w-1.5 h-1.5 rounded-full bg-brand"></div> Ações de Workflow
               </h2>
-              <div className="grid grid-cols-2 gap-5">
-                <button onClick={() => onChangeView('browser')} className="p-6 rounded-[2rem] bg-black/40 backdrop-blur-[8px] hover:bg-black/60 transition-all group text-left border border-brand/30 hover:border-brand/60 flex flex-col items-start gap-6 shadow-2xl hover:scale-[1.02] active:scale-[0.98]">
-                  <div className="w-14 h-14 rounded-2xl bg-brand/10 text-brand flex items-center justify-center group-hover:scale-110 transition-transform border border-brand/20 shadow-inner">
-                    {isOnline ? <FileText size={28} /> : <WifiOff size={28} />}
+              <div className={`grid grid-cols-2 ${styles.gap}`}>
+                <button onClick={() => onChangeView('browser')} className={`${styles.p} rounded-[2rem] bg-black/40 backdrop-blur-[8px] hover:bg-black/60 transition-all group text-left border border-brand/30 hover:border-brand/60 flex flex-col items-start gap-6 shadow-2xl hover:scale-[1.02] active:scale-[0.98]`}>
+                  <div className={`${styles.iconWrap} rounded-2xl bg-brand/10 text-brand flex items-center justify-center group-hover:scale-110 transition-transform border border-brand/20 shadow-inner`}>
+                    {isOnline ? <FileText size={styles.iconSize} /> : <WifiOff size={styles.iconSize} />}
                   </div>
                   <div>
-                    <h3 className="text-base font-bold mb-1 text-white">Meus Arquivos</h3>
-                    <p className="text-xs text-white/40 leading-relaxed">Navegar pelo acervo unificado da nuvem e local.</p>
+                    <h3 className={`${styles.title} font-bold mb-1 text-white`}>Meus Arquivos</h3>
+                    <p className={`${styles.desc} text-white/40 leading-relaxed`}>Navegar pelo acervo unificado da nuvem e local.</p>
                   </div>
                 </button>
 
                 {(!hasNativeFS || isEmbedded) ? (
-                    <label className="p-6 rounded-[2rem] bg-black/40 backdrop-blur-[8px] hover:bg-black/60 transition-all group text-left border border-brand/30 hover:border-brand/60 cursor-pointer flex flex-col items-start gap-6 shadow-2xl hover:scale-[1.02] active:scale-[0.98]">
-                        <div className="w-14 h-14 rounded-2xl bg-orange-500/10 text-orange-400 flex items-center justify-center group-hover:scale-110 transition-transform border border-orange-500/20">
-                            <FileUp size={28} />
+                    <label className={`${styles.p} rounded-[2rem] bg-black/40 backdrop-blur-[8px] hover:bg-black/60 transition-all group text-left border border-brand/30 hover:border-brand/60 cursor-pointer flex flex-col items-start gap-6 shadow-2xl hover:scale-[1.02] active:scale-[0.98]`}>
+                        <div className={`${styles.iconWrap} rounded-2xl bg-orange-500/10 text-orange-400 flex items-center justify-center group-hover:scale-110 transition-transform border border-orange-500/20`}>
+                            <FileUp size={styles.iconSize} />
                         </div>
-                        <div><h3 className="text-base font-bold mb-1 text-white">Abrir Local</h3><p className="text-xs text-white/40 leading-relaxed">Carregar arquivo único para edição rápida.</p></div>
+                        <div><h3 className={`${styles.title} font-bold mb-1 text-white`}>Abrir Local</h3><p className={`${styles.desc} text-white/40 leading-relaxed`}>Carregar arquivo único para edição rápida.</p></div>
                         <input type="file" className="hidden" onChange={onUploadLocal} />
                     </label>
                 ) : (
-                    <button onClick={savedLocalDirHandle ? onReconnectLocalFolder : onOpenLocalFolder} className="p-6 rounded-[2rem] bg-black/40 backdrop-blur-[8px] hover:bg-black/60 transition-all group text-left border border-brand/30 hover:border-brand/60 flex flex-col items-start gap-6 shadow-2xl relative overflow-hidden hover:scale-[1.02] active:scale-[0.98]">
-                        <div className="w-14 h-14 rounded-2xl bg-orange-500/10 text-orange-400 flex items-center justify-center group-hover:scale-110 transition-transform border border-orange-500/20"><FolderTree size={28} /></div>
-                        <div><h3 className="text-base font-bold mb-1 text-white">{savedLocalDirHandle ? 'Reconectar' : 'Pasta Local'}</h3><p className="text-xs text-white/40 leading-relaxed truncate max-w-full">{savedLocalDirHandle ? savedLocalDirHandle.name : 'Vincular pasta do sistema.'}</p></div>
+                    <button onClick={savedLocalDirHandle ? onReconnectLocalFolder : onOpenLocalFolder} className={`${styles.p} rounded-[2rem] bg-black/40 backdrop-blur-[8px] hover:bg-black/60 transition-all group text-left border border-brand/30 hover:border-brand/60 flex flex-col items-start gap-6 shadow-2xl relative overflow-hidden hover:scale-[1.02] active:scale-[0.98]`}>
+                        <div className={`${styles.iconWrap} rounded-2xl bg-orange-500/10 text-orange-400 flex items-center justify-center group-hover:scale-110 transition-transform border border-orange-500/20`}><FolderTree size={styles.iconSize} /></div>
+                        <div><h3 className={`${styles.title} font-bold mb-1 text-white`}>{savedLocalDirHandle ? 'Reconectar' : 'Pasta Local'}</h3><p className={`${styles.desc} text-white/40 leading-relaxed truncate max-w-full`}>{savedLocalDirHandle ? savedLocalDirHandle.name : 'Vincular pasta do sistema.'}</p></div>
                         {savedLocalDirHandle && <div className="absolute top-6 right-6 bg-orange-500/20 text-orange-400 p-2 rounded-full animate-pulse"><ArrowRight size={16} /></div>}
                     </button>
                 )}
 
-                <button onClick={onCreateDocument} className="p-6 rounded-[2rem] bg-black/40 backdrop-blur-[8px] hover:bg-black/60 transition-all group text-left border border-brand/30 hover:border-brand/60 flex flex-col items-start gap-6 shadow-2xl hover:scale-[1.02] active:scale-[0.98]">
-                  <div className="w-14 h-14 rounded-2xl bg-blue-500/10 text-blue-400 flex items-center justify-center group-hover:scale-110 transition-transform border border-blue-500/20"><FilePlus size={28} /></div>
-                  <div><h3 className="text-base font-bold mb-1 text-white">Novo Documento</h3><p className="text-xs text-white/40 leading-relaxed">Criar texto acadêmico seguindo normas ABNT.</p></div>
+                <button onClick={onCreateDocument} className={`${styles.p} rounded-[2rem] bg-black/40 backdrop-blur-[8px] hover:bg-black/60 transition-all group text-left border border-brand/30 hover:border-brand/60 flex flex-col items-start gap-6 shadow-2xl hover:scale-[1.02] active:scale-[0.98]`}>
+                  <div className={`${styles.iconWrap} rounded-2xl bg-blue-500/10 text-blue-400 flex items-center justify-center group-hover:scale-110 transition-transform border border-blue-500/20`}><FilePlus size={styles.iconSize} /></div>
+                  <div><h3 className={`${styles.title} font-bold mb-1 text-white`}>Novo Documento</h3><p className={`${styles.desc} text-white/40 leading-relaxed`}>Criar texto acadêmico seguindo normas ABNT.</p></div>
                 </button>
 
-                <button onClick={() => setShowHelpModal(true)} className="p-6 rounded-[2rem] bg-black/40 backdrop-blur-[8px] hover:bg-black/60 transition-all group text-left border border-brand/30 hover:border-brand/60 flex flex-col items-start gap-6 shadow-2xl hover:scale-[1.02] active:scale-[0.98]">
-                  <div className="w-14 h-14 rounded-2xl bg-purple-500/10 text-purple-400 flex items-center justify-center group-hover:scale-110 transition-transform border border-purple-500/20"><Info size={28} /></div>
-                  <div><h3 className="text-base font-bold mb-1 text-white">Suporte</h3><p className="text-xs text-white/40 leading-relaxed">Aprender atalhos e dicas de pesquisa com IA.</p></div>
+                <button onClick={() => setShowHelpModal(true)} className={`${styles.p} rounded-[2rem] bg-black/40 backdrop-blur-[8px] hover:bg-black/60 transition-all group text-left border border-brand/30 hover:border-brand/60 flex flex-col items-start gap-6 shadow-2xl hover:scale-[1.02] active:scale-[0.98]`}>
+                  <div className={`${styles.iconWrap} rounded-2xl bg-purple-500/10 text-purple-400 flex items-center justify-center group-hover:scale-110 transition-transform border border-purple-500/20`}><Info size={styles.iconSize} /></div>
+                  <div><h3 className={`${styles.title} font-bold mb-1 text-white`}>Suporte</h3><p className={`${styles.desc} text-white/40 leading-relaxed`}>Aprender atalhos e dicas de pesquisa com IA.</p></div>
                 </button>
               </div>
             </div>
 
-            {/* Side Column: Recent Files with minimal OS list style */}
+            {/* Side Column: Recent Files - Dynamic Scaling */}
             <div className="w-full lg:w-[380px] shrink-0 lg:mt-0">
               <div className="flex items-center justify-between mb-8 px-1">
                 <h2 className="text-xs font-bold text-white/40 uppercase tracking-[0.2em] flex items-center gap-2">
@@ -247,10 +320,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     <div 
                       key={file.id} 
                       onClick={() => onOpenFile(file)} 
-                      className="group bg-black/30 backdrop-blur-[4px] rounded-3xl p-4 hover:bg-white/5 transition-all cursor-pointer border border-white/5 hover:border-white/20 flex items-center gap-5 shadow-lg"
+                      className={`group bg-black/30 backdrop-blur-[4px] rounded-3xl ${styles.recentP} hover:bg-white/5 transition-all cursor-pointer border border-white/5 hover:border-white/20 flex items-center ${styles.recentGap} shadow-lg`}
                     >
-                      <div className="w-14 h-14 bg-white/5 rounded-2xl shrink-0 flex items-center justify-center text-white/30 relative border border-white/5 shadow-inner">
-                        {file.name.endsWith('.mindmap') ? <Workflow size={24} className="text-purple-400/50"/> : file.mimeType.includes('document') ? <FilePlus size={24} className="text-blue-400/50"/> : <FileText size={24} />}
+                      <div className={`${styles.recentIconWrap} bg-white/5 rounded-2xl shrink-0 flex items-center justify-center text-white/30 relative border border-white/5 shadow-inner`}>
+                        {file.name.endsWith('.mindmap') ? <Workflow size={styles.recentIconSize} className="text-purple-400/50"/> : file.mimeType.includes('document') ? <FilePlus size={styles.recentIconSize} className="text-blue-400/50"/> : <FileText size={styles.recentIconSize} />}
                         {file.pinned && <div className="absolute -top-1.5 -right-1.5 text-brand bg-[#0b141a] rounded-full p-1 border border-brand/50 shadow-lg shadow-brand/20"><Pin size={10} fill="currentColor" /></div>}
                       </div>
                       <div className="min-w-0 flex-1">
@@ -290,7 +363,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                           <button onClick={handleManualJanitor} className="text-[10px] text-brand font-bold bg-brand/10 px-3 py-1 rounded-full hover:bg-brand hover:text-black transition-all">LIMPAR CACHE</button>
                       </div>
                       <div className="w-full bg-white/5 h-3 rounded-full overflow-hidden mb-2 shadow-inner">
-                          <div className="h-full bg-gradient-to-r from-brand to-emerald-400 transition-all duration-1000" style={{ width: storageData ? `${Math.min(100, (storageData.usage / (storageData.quota || 1)) * 100)}%` : '0%' }} />
+                          <div className="h-full bg-gradient-to-r from-brand to-brand-to transition-all duration-1000" style={{ width: storageData ? `${Math.min(100, (storageData.usage / (storageData.quota || 1)) * 100)}%` : '0%' }} />
                       </div>
                   </div>
                   <button onClick={clearAppStorage} className="w-full py-4 bg-red-500/10 text-red-500 border border-red-500/20 rounded-2xl text-xs font-bold hover:bg-red-500 hover:text-white transition-all">REDEFINIR APLICAÇÃO (APAGAR TUDO)</button>

@@ -22,7 +22,7 @@
     
     <title>Lectorium</title>
 
-    <!-- Tailwind via CDN -->
+    <!-- Tailwind via CDN (Fallback) -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
       tailwind.config = {
@@ -30,6 +30,7 @@
           extend: {
             colors: {
               brand: 'var(--brand)',
+              'brand-to': 'var(--brand-to)',
               bg: 'var(--bg-main)',
               surface: 'var(--bg-surface)',
               sidebar: 'var(--bg-sidebar)',

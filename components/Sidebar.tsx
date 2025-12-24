@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 // Added FileText icon to the imports below to fix "Cannot find name 'FileText'" error on line 155
-import { Home, FolderOpen, LogOut, User as UserIcon, X, Palette, ChevronDown, ChevronRight, Workflow, DownloadCloud, CheckCircle, Loader2, LayoutGrid, Cloud, CloudOff, LogIn, Wrench, Key, Scale, Monitor, Smartphone, Upload, Trash2, RefreshCw, FileText, Maximize, Minimize } from 'lucide-react';
+import { Home, FolderOpen, LogOut, User as UserIcon, X, Palette, ChevronDown, ChevronRight, Workflow, DownloadCloud, CheckCircle, Loader2, LayoutGrid, Cloud, CloudOff, LogIn, Wrench, Key, Scale, Monitor, Smartphone, Upload, Trash2, RefreshCw, FileText, Maximize, Minimize, Sliders } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { ThemeSwitcher } from './ThemeSwitcher';
 import { DriveFile } from '../types';
@@ -12,6 +12,7 @@ import { ApiKeyModal } from './ApiKeyModal';
 import { getStoredApiKey } from '../utils/apiKeyUtils';
 import { BaseModal } from './shared/BaseModal';
 import { getWallpaper, saveWallpaper, removeWallpaper } from '../services/storageService';
+import { useGlobalContext } from '../context/GlobalContext';
 
 interface SidebarProps {
   activeTab: string;
@@ -36,6 +37,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isImmersive, onToggleImmersive
 }) => {
   const [isThemesOpen, setIsThemesOpen] = useState(false);
+  const [isLayoutOpen, setIsLayoutOpen] = useState(false);
   const [showOfflineModal, setShowOfflineModal] = useState(false);
   const [showDebugModal, setShowDebugModal] = useState(false);
   const [showKeyModal, setShowKeyModal] = useState(false);
@@ -46,6 +48,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [cacheProgress, setCacheProgress] = useState(0);
   const [downloadSize, setDownloadSize] = useState<string | null>(null);
   const [hasUserKey, setHasUserKey] = useState(false);
+
+  const { dashboardScale, setDashboardScale } = useGlobalContext();
 
   const isDebugMode = useMemo(() => {
     if (typeof window === 'undefined') return false;
@@ -157,6 +161,34 @@ export const Sidebar: React.FC<SidebarProps> = ({
                  <button onClick={() => setShowCustomizeModal(true)} className="mt-2 w-full flex items-center gap-2 p-2 text-xs text-brand hover:bg-brand/10 rounded-lg transition-colors border border-dashed border-brand/20">
                     <Monitor size={14} /> Personalizar Fundo
                  </button>
+              </div>
+            )}
+
+            <button onClick={() => setIsLayoutOpen(!isLayoutOpen)} className="w-full group p-3 rounded-xl transition-all duration-200 flex items-center px-4 text-text-sec hover:bg-white/5 hover:text-text">
+              <Sliders size={24} className="shrink-0" />
+              <div className="flex items-center justify-between flex-1 ml-4"><span className="text-sm">Layout</span>{isLayoutOpen ? <ChevronDown size={14}/> : <ChevronRight size={14}/>}</div>
+            </button>
+            {isLayoutOpen && (
+              <div className="pl-12 pr-4 py-2 animate-in slide-in-from-top-2">
+                 <div className="space-y-2">
+                    <div className="flex justify-between items-center text-xs text-text-sec mb-1">
+                        <span>Escala de Interface</span>
+                        <span className="text-brand font-mono font-bold">{dashboardScale}x</span>
+                    </div>
+                    <input 
+                      type="range" 
+                      min="1" 
+                      max="5" 
+                      step="1"
+                      value={dashboardScale} 
+                      onChange={(e) => setDashboardScale(parseInt(e.target.value))}
+                      className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-brand"
+                    />
+                    <div className="flex justify-between text-[10px] text-text-sec/50 font-bold uppercase tracking-wider">
+                        <span>Minimalista</span>
+                        <span>Imersivo</span>
+                    </div>
+                 </div>
               </div>
             )}
           </div>

@@ -4,7 +4,7 @@ import {
   Folder, FileText, MoreVertical, Trash2, Edit2, Download, 
   Share2, ArrowLeft, Loader2, WifiOff, RefreshCw, Menu,
   X, Image as ImageIcon, Activity, CheckCircle, CloudOff, Package, Pin, PinOff,
-  Workflow, Zap, Plus, HardDrive, BookOpen, FolderInput, Cloud, Sparkles
+  Workflow, Zap, Plus, HardDrive, BookOpen, FolderInput, Cloud, Sparkles, FolderOpen, ChevronRight
 } from 'lucide-react';
 import { DriveFile, MIME_TYPES } from '../types';
 import { 
@@ -108,7 +108,6 @@ const FileItem = React.memo(({ file, onSelect, onTogglePin, onDelete, onShare, o
     }, [file.thumbnailLink, localThumbnail, accessToken, isLocalMode]);
     
     const getIcon = (f: DriveFile, size: number = 40) => {
-      if (f.mimeType === MIME_TYPES.FOLDER) return <Folder size={size} className="text-brand fill-brand/10" />;
       if (f.name.endsWith('.mindmap')) return <Workflow size={size} className="text-purple-400" />;
       if (f.mimeType === MIME_TYPES.PDF) return <BookOpen size={size} className="text-red-400" />;
       if (f.mimeType === MIME_TYPES.DOCX || f.mimeType === MIME_TYPES.GOOGLE_DOC) return <FileText size={size} className="text-blue-400" />;
@@ -118,25 +117,110 @@ const FileItem = React.memo(({ file, onSelect, onTogglePin, onDelete, onShare, o
       return <FileText size={size} className="text-text-sec" />;
     };
 
-    const aspectRatioClass = isFolder ? "aspect-[4/3]" : (isDoc ? "aspect-[3/4]" : "aspect-[4/3]");
+    // --- RENDERIZADOR DE PASTA (ESTÉTICA XBOX/GITHUB) ---
+    if (isFolder) {
+        return (
+            <div 
+                onClick={() => onSelect(file)} 
+                className="group relative h-32 md:h-40 w-full bg-[#0d1117] border border-[#30363d] rounded-2xl p-4 flex flex-col justify-between cursor-pointer transition-all duration-300 hover:border-brand/50 hover:shadow-[0_0_20px_-5px_var(--brand)] hover:-translate-y-1 overflow-hidden"
+            >
+                {/* Background Grid Pattern */}
+                <div 
+                    className="absolute inset-0 opacity-10 pointer-events-none group-hover:opacity-20 transition-opacity" 
+                    style={{ backgroundImage: 'radial-gradient(#ffffff 1px, transparent 1px)', backgroundSize: '16px 16px' }}
+                />
+                
+                {/* Top Bar (Tab) */}
+                <div className="flex justify-between items-start relative z-10">
+                    <div className="flex items-center gap-2">
+                        <div className="p-1.5 bg-[#161b22] border border-[#30363d] rounded-lg text-brand shadow-sm">
+                            <FolderOpen size={16} />
+                        </div>
+                        <span className="text-[10px] font-mono font-bold text-[#8b949e] uppercase tracking-wider bg-[#161b22] px-1.5 py-0.5 rounded border border-[#30363d]">DIR</span>
+                    </div>
+                    {!isLocalMode && (
+                        <button 
+                            onClick={(e) => { e.stopPropagation(); setActiveMenu(isActiveMenu ? null : file.id); }} 
+                            className="text-[#8b949e] hover:text-white p-1 hover:bg-[#21262d] rounded transition-colors"
+                        >
+                            <MoreVertical size={16} />
+                        </button>
+                    )}
+                </div>
 
+                {/* Big Icon Watermark */}
+                <div className="absolute right-[-10px] bottom-[-10px] text-[#21262d] group-hover:text-brand/10 transition-colors duration-300 rotate-[-10deg] pointer-events-none">
+                    <Folder size={100} strokeWidth={1} />
+                </div>
+
+                {/* Label Area */}
+                <div className="relative z-10 mt-auto">
+                    <h3 className="font-bold text-[#e6edf3] text-sm md:text-base leading-tight line-clamp-2 mb-1 group-hover:text-brand transition-colors">
+                        {file.name}
+                    </h3>
+                    <div className="flex items-center gap-1 text-[10px] text-[#8b949e]">
+                       <span>Acessar</span> <ChevronRight size={10} />
+                    </div>
+                </div>
+
+                {/* Menu Dropdown */}
+                {isActiveMenu && !isLocalMode && (
+                    <div className="absolute top-10 right-2 w-48 bg-[#161b22] border border-[#30363d] shadow-2xl rounded-xl overflow-hidden z-30 animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
+                        <button onClick={() => onMove(file)} className="w-full text-left px-4 py-3 hover:bg-[#21262d] text-xs flex items-center gap-2 text-[#c9d1d9]"><FolderInput size={14} /> Mover para...</button>
+                        <button onClick={() => onShare(file)} className="w-full text-left px-4 py-3 hover:bg-[#21262d] text-xs flex items-center gap-2 text-[#c9d1d9]"><Share2 size={14} /> Compartilhar</button>
+                        <button onClick={() => onDelete(file)} className="w-full text-left px-4 py-3 hover:bg-red-900/20 text-red-400 text-xs flex items-center gap-2 border-t border-[#30363d]"><Trash2 size={14} /> Excluir</button>
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+    // --- RENDERIZADOR DE ARQUIVO (Mantendo estilo anterior mas refinado) ---
     return (
-        <div onClick={() => onSelect(file)} className="group relative bg-surface p-3 rounded-2xl border border-border hover:border-brand/50 transition-all cursor-pointer flex flex-col h-full">
-            <div className={`w-full ${aspectRatioClass} bg-black/20 rounded-xl mb-3 relative flex items-center justify-center overflow-hidden`}>
-                {isPinned && <div className="absolute top-2 left-2 text-brand bg-bg/60 p-1 rounded-full z-10"><Pin size={12} fill="currentColor"/></div>}
-                {isOffline && !isPinned && !isLocalMode && <div className="absolute top-2 right-2 text-green-500 z-10"><CheckCircle size={12}/></div>}
-                {thumbnailSrc && !imgError && !isFolder ? <img src={thumbnailSrc} alt={file.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110 opacity-90 group-hover:opacity-100" onError={() => setImgError(true)} loading="lazy" referrerPolicy="no-referrer" crossOrigin="anonymous" /> : <div className="transition-transform duration-300 group-hover:scale-110">{getIcon(file, isFolder ? 32 : 48)}</div>}
+        <div onClick={() => onSelect(file)} className="group relative bg-surface p-3 rounded-2xl border border-border hover:border-brand/50 transition-all cursor-pointer flex flex-col h-full hover:shadow-lg">
+            <div className="w-full aspect-[3/4] bg-black/20 rounded-xl mb-3 relative flex items-center justify-center overflow-hidden border border-white/5">
+                {isPinned && <div className="absolute top-2 left-2 text-brand bg-bg/80 backdrop-blur p-1.5 rounded-full z-10 border border-brand/20 shadow-lg"><Pin size={10} fill="currentColor"/></div>}
+                {isOffline && !isPinned && !isLocalMode && <div className="absolute top-2 right-2 text-green-500 z-10 bg-black/50 rounded-full p-1"><CheckCircle size={12}/></div>}
+                
+                {thumbnailSrc && !imgError ? (
+                    <img 
+                        src={thumbnailSrc} 
+                        alt={file.name} 
+                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105 opacity-90 group-hover:opacity-100" 
+                        onError={() => setImgError(true)} 
+                        loading="lazy" 
+                        referrerPolicy="no-referrer" 
+                        crossOrigin="anonymous" 
+                    />
+                ) : (
+                    <div className="transition-transform duration-300 group-hover:scale-110 opacity-70 group-hover:opacity-100">
+                        {getIcon(file, 48)}
+                    </div>
+                )}
             </div>
+            
             <div className="flex items-start justify-between gap-2 mt-auto">
-                <div className="min-w-0 flex-1"><h3 className="font-medium truncate text-text text-xs mb-1">{file.name}</h3><p className="text-[9px] text-text-sec uppercase font-bold opacity-60">{isFolder ? 'Pasta' : file.mimeType.split('/').pop()?.split('.').pop() || 'Arquivo'}</p></div>
-                {!isLocalMode && <button onClick={(e) => { e.stopPropagation(); setActiveMenu(isActiveMenu ? null : file.id); }} className="p-1 text-text-sec hover:text-text"><MoreVertical size={14} /></button>}
+                <div className="min-w-0 flex-1">
+                    <h3 className="font-medium truncate text-text text-xs mb-0.5 group-hover:text-brand transition-colors">{file.name}</h3>
+                    <p className="text-[9px] text-text-sec uppercase font-bold opacity-60 flex items-center gap-1">
+                        {file.mimeType.split('/').pop()?.split('.').pop() || 'Arquivo'}
+                    </p>
+                </div>
+                {!isLocalMode && (
+                    <button onClick={(e) => { e.stopPropagation(); setActiveMenu(isActiveMenu ? null : file.id); }} className="p-1 text-text-sec hover:text-text hover:bg-white/10 rounded transition-colors">
+                        <MoreVertical size={14} />
+                    </button>
+                )}
             </div>
+
             {isActiveMenu && !isLocalMode && (
-                <div className="absolute top-10 right-2 w-48 bg-bg border border-border shadow-2xl rounded-xl overflow-hidden z-30 animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
-                    {!isFolder && <button onClick={() => onTogglePin(file)} className="w-full text-left px-4 py-3 hover:bg-white/5 text-xs flex items-center gap-2">{isPinned ? <><PinOff size={14} /> Soltar do disco</> : <><Pin size={14} /> Manter Offline</>}</button>}
-                    <button onClick={() => onMove(file)} className="w-full text-left px-4 py-3 hover:bg-white/5 text-xs flex items-center gap-2"><FolderInput size={14} /> Mover para...</button>
-                    <button onClick={() => onShare(file)} className="w-full text-left px-4 py-3 hover:bg-white/5 text-xs flex items-center gap-2"><Share2 size={14} /> Compartilhar</button>
-                    <button onClick={() => onDelete(file)} className="w-full text-left px-4 py-3 hover:bg-red-500/10 text-red-500 text-xs flex items-center gap-2 border-t border-border"><Trash2 size={14} /> Excluir</button>
+                <div className="absolute bottom-10 right-2 w-48 bg-[#161b22] border border-[#30363d] shadow-2xl rounded-xl overflow-hidden z-30 animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
+                    <button onClick={() => onTogglePin(file)} className="w-full text-left px-4 py-3 hover:bg-[#21262d] text-xs flex items-center gap-2 text-[#c9d1d9]">
+                        {isPinned ? <><PinOff size={14} /> Soltar do disco</> : <><Pin size={14} /> Manter Offline</>}
+                    </button>
+                    <button onClick={() => onMove(file)} className="w-full text-left px-4 py-3 hover:bg-[#21262d] text-xs flex items-center gap-2 text-[#c9d1d9]"><FolderInput size={14} /> Mover para...</button>
+                    <button onClick={() => onShare(file)} className="w-full text-left px-4 py-3 hover:bg-[#21262d] text-xs flex items-center gap-2 text-[#c9d1d9]"><Share2 size={14} /> Compartilhar</button>
+                    <button onClick={() => onDelete(file)} className="w-full text-left px-4 py-3 hover:bg-red-900/20 text-red-400 text-xs flex items-center gap-2 border-t border-[#30363d]"><Trash2 size={14} /> Excluir</button>
                 </div>
             )}
         </div>

@@ -60,6 +60,7 @@ body.is-native textarea {
 }
 
 /* --- THEME DEFINITIONS --- */
+/* Default (Forest) */
 :root {
   --bg-main: #09090b;
   --bg-surface: #121212;
@@ -67,26 +68,74 @@ body.is-native textarea {
   --bg-paper: #121212;
   --text-main: #e2e8f0;
   --text-sec: #a1a1aa;
-  --brand: #4ade80;
   --border-color: #27272a;
+  
+  /* Gradient System: Forest -> Emerald */
+  --brand: #4ade80;
+  --brand-to: #34d399; 
 }
 
-html.nordic { --bg-main: #2e3440; --bg-surface: #3b4252; --bg-sidebar: #242933; --bg-paper: #3b4252; --text-main: #eceff4; --text-sec: #d8dee9; --brand: #88c0d0; --border-color: #4c566a; }
-html.gruvbox { --bg-main: #282828; --bg-surface: #3c3836; --bg-sidebar: #1d2021; --bg-paper: #3c3836; --text-main: #ebdbb2; --text-sec: #a89984; --brand: #fabd2f; --border-color: #504945; }
-html.dracula { --bg-main: #282a36; --bg-surface: #44475a; --bg-sidebar: #1e1f29; --bg-paper: #44475a; --text-main: #f8f8f2; --text-sec: #6272a4; --brand: #ff79c6; --border-color: #6272a4; }
-html.high-contrast { --bg-main: #000000; --bg-surface: #000000; --bg-sidebar: #000000; --bg-paper: #000000; --text-main: #ffffff; --text-sec: #ffffff; --brand: #ffff00; --border-color: #ffffff; }
-html.azul { --bg-main: #000000; --bg-surface: #000000; --bg-sidebar: #000000; --bg-paper: #000000; --text-main: #ffffff; --text-sec: #ffffff; --brand: #009DFF; --border-color: #ffffff; }
+/* Base High Contrast / Amoled Structure */
+html.azul,
+html.vermelho,
+html.laranja,
+html.amarelo,
+html.lima,
+html.ciano,
+html.roxo,
+html.rosa,
+html.magenta,
+html.dourado,
+html.prata,
+html.custom {
+  --bg-main: #000000;
+  --bg-surface: #000000;
+  --bg-sidebar: #000000;
+  --bg-paper: #000000;
+  --text-main: #ffffff;
+  --text-sec: #ffffff;
+  --border-color: #ffffff;
+}
 
-/* Tema Personalizado: Base Amoled + Cor Variável */
+/* Specific Brands & Gradients */
+/* Azul -> Cyan */
+html.azul { --brand: #009DFF; --brand-to: #22d3ee; }
+
+/* Vermelho -> Laranja (Fiery) */
+html.vermelho { --brand: #FF0000; --brand-to: #fb923c; }
+
+/* Laranja -> Amarelo */
+html.laranja { --brand: #FF8800; --brand-to: #facc15; }
+
+/* Amarelo -> Laranja */
+html.amarelo { --brand: #FFFF00; --brand-to: #fb923c; }
+
+/* Lima -> Verde */
+html.lima { --brand: #CCFF00; --brand-to: #4ade80; }
+
+/* Ciano -> Azul */
+html.ciano { --brand: #00FFFF; --brand-to: #3b82f6; }
+
+/* Roxo -> Fuchsia */
+html.roxo { --brand: #BF5AF2; --brand-to: #e879f9; }
+
+/* Rosa -> Roxo */
+html.rosa { --brand: #FF0080; --brand-to: #a855f7; }
+
+/* Magenta -> Violeta */
+html.magenta { --brand: #FF00FF; --brand-to: #9333ea; }
+
+/* Dourado -> Laranja */
+html.dourado { --brand: #FFD700; --brand-to: #fb923c; }
+
+/* Prata -> Branco */
+html.prata { --brand: #E0E0E0; --brand-to: #ffffff; }
+
+/* Custom Theme Variable Injection handled by React */
 html.custom { 
-  --bg-main: #000000; 
-  --bg-surface: #000000; 
-  --bg-sidebar: #000000; 
-  --bg-paper: #000000; 
-  --text-main: #ffffff; 
-  --text-sec: #ffffff; 
-  --brand: var(--custom-brand, #ffffff); 
-  --border-color: #ffffff; 
+  --brand: var(--custom-brand, #ffffff);
+  /* Custom themes fade to same color or white for safety */
+  --brand-to: var(--custom-brand, #ffffff);
 }
 
 /* --- TIPTAP & TEXT LAYER STYLES --- */

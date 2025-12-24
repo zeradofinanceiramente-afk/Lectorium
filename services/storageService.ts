@@ -1,6 +1,6 @@
 
 import { openDB } from "idb";
-import { Annotation, DriveFile, SyncQueueItem } from "../types";
+import { Annotation, DriveFile, SyncQueueItem, AuditRecord, VectorIndex } from "../types";
 
 export const APP_VERSION = '1.3.1'; 
 const BLOB_CACHE_LIMIT = 500 * 1024 * 1024;
@@ -20,7 +20,8 @@ interface OcrRecord {
     updatedAt: number;
 }
 
-const dbPromise = openDB("pwa-drive-annotator", 12, {
+// Upgrade to version 15 for vector_store
+const dbPromise = openDB("pwa-drive-annotator", 15, {
   upgrade(db, oldVersion) {
     if (!db.objectStoreNames.contains("annotations")) {
       const store = db.createObjectStore("annotations", { keyPath: "id" });
@@ -52,8 +53,52 @@ const dbPromise = openDB("pwa-drive-annotator", 12, {
     if (!db.objectStoreNames.contains("settings")) {
       db.createObjectStore("settings");
     }
+    if (!db.objectStoreNames.contains("audit_log")) {
+      db.createObjectStore("audit_log", { keyPath: "fileId" });
+    }
+    // Vector Store for Semantic Search (RAG)
+    if (!db.objectStoreNames.contains("vector_store")) {
+      db.createObjectStore("vector_store", { keyPath: "fileId" });
+    }
   }
 });
+
+// --- RAG / VECTOR METHODS ---
+
+export async function saveVectorIndex(index: VectorIndex): Promise<void> {
+  const idb = await dbPromise;
+  await idb.put("vector_store", index);
+}
+
+export async function getVectorIndex(fileId: string): Promise<VectorIndex | undefined> {
+  const idb = await dbPromise;
+  return await idb.get("vector_store", fileId);
+}
+
+export async function deleteVectorIndex(fileId: string): Promise<void> {
+  const idb = await dbPromise;
+  await idb.delete("vector_store", fileId);
+}
+
+// --- AUDIT LOG METHODS ---
+
+export async function saveAuditRecord(fileId: string, contentHash: string, annotationCount: number): Promise<void> {
+  const idb = await dbPromise;
+  const record: AuditRecord = {
+    fileId,
+    contentHash,
+    lastModified: Date.now(),
+    annotationCount
+  };
+  await idb.put("audit_log", record);
+}
+
+export async function getAuditRecord(fileId: string): Promise<AuditRecord | undefined> {
+  const idb = await dbPromise;
+  return await idb.get("audit_log", fileId);
+}
+
+// --- EXISTING METHODS ---
 
 export async function saveWallpaper(orientation: 'landscape' | 'portrait', blob: Blob): Promise<void> {
   const idb = await dbPromise;
@@ -110,9 +155,11 @@ export async function runJanitor(): Promise<void> {
 
     if (currentUsage < BLOB_CACHE_LIMIT) return;
 
-    const tx = idb.transaction(["offlineFiles", "ocrCache"], "readwrite");
+    const tx = idb.transaction(["offlineFiles", "ocrCache", "vector_store"], "readwrite");
     const offlineStore = tx.objectStore("offlineFiles");
     const ocrStore = tx.objectStore("ocrCache");
+    const vectorStore = tx.objectStore("vector_store");
+    
     const index = offlineStore.index("lastAccessed");
     
     let cursor = await index.openCursor();
@@ -124,12 +171,16 @@ export async function runJanitor(): Promise<void> {
       if (!file.pinned) {
         deletedBytes += (file.blob?.size || 0);
         
+        // Limpa OCR
         const ocrIndex = ocrStore.index("fileId");
         let ocrCursor = await ocrIndex.openCursor(IDBKeyRange.only(file.id));
         while (ocrCursor) {
             await ocrCursor.delete();
             ocrCursor = await ocrCursor.continue();
         }
+
+        // Limpa Vetores
+        await vectorStore.delete(file.id);
 
         await cursor.delete();
       }
@@ -227,6 +278,8 @@ export async function deleteOfflineFile(fileId: string): Promise<void> {
   const idb = await dbPromise;
   await idb.delete("offlineFiles", fileId);
   await idb.delete("documentCache", fileId);
+  await idb.delete("audit_log", fileId); // Clean up audit log
+  await idb.delete("vector_store", fileId); // Clean up vectors
   
   const tx = idb.transaction("ocrCache", "readwrite");
   const index = tx.objectStore("ocrCache").index("fileId");
@@ -254,7 +307,6 @@ export async function getCachedDocumentData(id: string): Promise<any | undefined
   return await idb.get("documentCache", id);
 }
 
-// Fixed: Added return statement to getSyncQueue function to match its declared return type.
 export async function getSyncQueue(): Promise<SyncQueueItem[]> {
   const idb = await dbPromise;
   return await idb.getAll("syncQueue");

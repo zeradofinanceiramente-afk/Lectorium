@@ -89,6 +89,41 @@ function findRelevantChunks(documentText: string, query: string, topK = 4): stri
 
 // --- AI FUNCTIONS ---
 
+/**
+ * Gera embeddings vetoriais para uma lista de textos usando o modelo text-embedding-004.
+ * Retorna uma lista de vetores (Float32Array) correspondentes.
+ */
+export async function generateEmbeddings(texts: string[]): Promise<Float32Array[]> {
+  const ai = getAiClient();
+  const model = "text-embedding-004";
+  
+  // Limita o batch para evitar erros de limite da API
+  // O modelo embedding suporta batch, mas vamos ser conservadores
+  const embeddings: Float32Array[] = [];
+  
+  for (const text of texts) {
+      try {
+          const result = await ai.models.embedContent({
+              model: model,
+              content: { parts: [{ text }] }
+          });
+          
+          if (result.embedding && result.embedding.values) {
+              embeddings.push(new Float32Array(result.embedding.values));
+          } else {
+              // Fallback vetor zero ou skip? Melhor skip para não sujar a busca.
+              // Mas para manter índice alinhado, pushamos null ou zero.
+              console.warn("Embedding vazio retornado para:", text.slice(0, 20));
+              embeddings.push(new Float32Array(0)); 
+          }
+      } catch (e) {
+          console.error("Erro ao gerar embedding:", e);
+          embeddings.push(new Float32Array(0));
+      }
+  }
+  return embeddings;
+}
+
 export async function extractNewspaperContent(base64Image: string, mimeType: string) {
   const ai = getAiClient();
   const prompt = `Você é um arquivista digital. Analise esta página de jornal histórico.

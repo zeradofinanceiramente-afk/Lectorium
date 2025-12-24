@@ -24,6 +24,14 @@ interface WorkerMessage {
   ocrData?: any[];
 }
 
+// Helper seguro para Base64 Unicode
+function toBase64(str: string) {
+    return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g,
+        function toSolidBytes(match, p1) {
+            return String.fromCharCode(parseInt(p1, 16));
+    }));
+}
+
 self.onmessage = async (e: MessageEvent) => {
   const data = e.data as WorkerMessage;
   const { command, pdfBytes } = data;
@@ -34,8 +42,6 @@ self.onmessage = async (e: MessageEvent) => {
     const helveticaFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
     // --- MODO 1: INJEÇÃO IMEDIATA DE OCR (Single Source Update) ---
-    // Apenas desenha o texto invisível na página específica e salva.
-    // Não toca em metadados globais nem queima anotações visuais.
     if (command === 'burn-page-ocr' && data.pageNumber && data.ocrData) {
         const pageIndex = data.pageNumber - 1;
         if (pageIndex >= 0 && pageIndex < pages.length) {
@@ -47,32 +53,41 @@ self.onmessage = async (e: MessageEvent) => {
                     const { x0, y0, x1, y1 } = word.bbox;
                     const h = y1 - y0;
                     
-                    // Desenhar texto invisível (Camada de Seleção Nativa)
                     page.drawText(word.text, {
                         x: x0,
-                        y: height - y1, // Sistema de coordenadas PDF (origem inferior-esquerda)
+                        y: height - y1, 
                         size: h, 
                         font: helveticaFont,
                         color: rgb(0, 0, 0),
-                        opacity: 0, // Totalmente invisível, apenas selecionável
+                        opacity: 0, 
                     });
                 }
             }
         }
     } 
     
-    // --- MODO 2: SALVAMENTO FINAL (Anotações Visuais + Metadados) ---
+    // --- MODO 2: SALVAMENTO FINAL (Anotações Visuais + Metadados V2) ---
     else if (command === 'burn-all' || !command) {
         const annotations = data.annotations || [];
         const ocrMap = data.ocrMap;
 
-        // 1. EMBED ANNOTATIONS DATA (Para re-edição futura)
-        const annotationsToBurn = annotations.map(a => ({
-            ...a,
-            isBurned: true
-        }));
-        const serializedData = JSON.stringify(annotationsToBurn);
-        pdfDoc.setKeywords([`PDF_ANNOTATOR_DATA:::${serializedData}`]);
+        // 1. ANNOTATIONS V2 METADATA (SAFE ENCODING)
+        // Serializamos as anotações para recuperação futura e integridade
+        const metadataV2 = {
+            lectorium_v: "2.1", // Bumped version for Base64 support
+            last_sync: new Date().toISOString(),
+            pageCount: pages.length, // Crítico para validação de merge
+            annotations: annotations.map(a => ({
+                ...a,
+                isBurned: true // Marca como "queimado" para lógica de UI
+            }))
+        };
+        
+        // Encode para Base64 para evitar corrupção por caracteres especiais em leitores legados
+        const safePayload = toBase64(JSON.stringify(metadataV2));
+        
+        // Armazena no Keywords com prefixo atualizado
+        pdfDoc.setKeywords([`LECTORIUM_V2_B64:::${safePayload}`]);
 
         const hexToRgb = (hex: string) => {
             const bigint = parseInt(hex.replace('#', ''), 16);
@@ -82,11 +97,10 @@ self.onmessage = async (e: MessageEvent) => {
             return rgb(r / 255, g / 255, b / 255);
         };
 
-        // 2. QUEIMAR OCR PENDENTE (Caso algum não tenha sido salvo incrementalmente)
+        // 2. QUEIMAR OCR PENDENTE
         if (ocrMap) {
             for (const [pageNumStr, words] of Object.entries(ocrMap)) {
                 const pageNum = parseInt(pageNumStr);
-                // Verifica se a página é válida
                 if (pageNum <= pages.length) {
                     const page = pages[pageNum - 1];
                     const { height } = page.getSize();
@@ -110,7 +124,7 @@ self.onmessage = async (e: MessageEvent) => {
             }
         }
 
-        // 3. DESENHAR ANOTAÇÕES VISUAIS (Highlights, Ink, etc)
+        // 3. DESENHAR ANOTAÇÕES VISUAIS
         for (const ann of annotations) {
             if (ann.isBurned) continue;
             if (ann.page > pages.length) continue;
@@ -149,7 +163,6 @@ self.onmessage = async (e: MessageEvent) => {
                     });
                 }
             } else if (ann.type === 'note') {
-                // Notas adesivas são ícones visuais
                 const cx = ann.bbox[0];
                 const cy = ann.bbox[1];
                 const size = 14;
@@ -165,7 +178,6 @@ self.onmessage = async (e: MessageEvent) => {
                     borderWidth: 1,
                 });
                 
-                // Pequeno "x" ou linhas para simular texto na nota
                 page.drawLine({ start: { x: cx - 3, y: pdfY + 2 }, end: { x: cx + 3, y: pdfY + 2 }, thickness: 1, color: rgb(0,0,0), opacity: 0.3 });
                 page.drawLine({ start: { x: cx - 3, y: pdfY - 1 }, end: { x: cx + 3, y: pdfY - 1 }, thickness: 1, color: rgb(0,0,0), opacity: 0.3 });
             }

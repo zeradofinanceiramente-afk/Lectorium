@@ -3,11 +3,17 @@ import { Check, Palette, Sliders } from 'lucide-react';
 
 const themes = [
   { id: 'forest', name: 'Verde (Padrão)' },
-  { id: 'nordic', name: 'Nordic' },
-  { id: 'gruvbox', name: 'Gruvbox' },
-  { id: 'dracula', name: 'Dracula' },
-  { id: 'high-contrast', name: 'Alto Contraste' },
   { id: 'azul', name: 'Azul' },
+  { id: 'vermelho', name: 'Vermelho' },
+  { id: 'laranja', name: 'Laranja' },
+  { id: 'amarelo', name: 'Amarelo' },
+  { id: 'lima', name: 'Lima' },
+  { id: 'ciano', name: 'Ciano' },
+  { id: 'roxo', name: 'Roxo' },
+  { id: 'rosa', name: 'Rosa' },
+  { id: 'magenta', name: 'Magenta' },
+  { id: 'dourado', name: 'Dourado' },
+  { id: 'prata', name: 'Prata' },
   { id: 'custom', name: 'Personalizado' },
 ];
 
@@ -20,8 +26,8 @@ export const ThemeSwitcher: React.FC<Props> = ({ className = '', onThemeSelect }
   const [currentTheme, setCurrentTheme] = useState(() => {
     if (typeof localStorage !== 'undefined') {
       const saved = localStorage.getItem('app-theme');
-      // Migração e limpeza de temas deletados
-      const deleted = ['muryokusho', 'synthwave', 'parchment'];
+      // Migração e limpeza de temas deletados ou legados
+      const deleted = ['nordic', 'gruvbox', 'dracula', 'high-contrast', 'muryokusho', 'synthwave', 'parchment'];
       if (deleted.includes(saved || '')) return 'forest';
       return saved || 'forest';
     }
@@ -38,8 +44,10 @@ export const ThemeSwitcher: React.FC<Props> = ({ className = '', onThemeSelect }
   const applyTheme = (themeId: string, color?: string) => {
     const root = document.documentElement;
     
-    // Limpeza de classes
+    // Limpeza de classes de todos os temas possíveis
     themes.forEach(t => root.classList.remove(t.id));
+    // Remove também classes legadas para garantir limpeza
+    root.classList.remove('nordic', 'gruvbox', 'dracula', 'high-contrast');
     
     if (themeId === 'custom') {
       root.classList.add('custom');
@@ -66,6 +74,7 @@ export const ThemeSwitcher: React.FC<Props> = ({ className = '', onThemeSelect }
     // Aplicação inicial garantida
     const root = document.documentElement;
     themes.forEach(t => root.classList.remove(t.id));
+    root.classList.remove('nordic', 'gruvbox', 'dracula', 'high-contrast');
 
     if (currentTheme === 'custom') {
       root.classList.add('custom');

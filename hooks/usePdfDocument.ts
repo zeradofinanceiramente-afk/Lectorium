@@ -1,7 +1,9 @@
+
 import { useState, useEffect, useRef } from 'react';
 import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy } from 'pdfjs-dist';
 import { downloadDriveFile } from '../services/driveService';
 import { getOfflineFile } from '../services/storageService';
+import { blobRegistry } from '../services/blobRegistry';
 
 // Configuração do Worker - CRÍTICO: Versão deve bater com importmap
 GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@4.8.69/build/pdf.worker.min.mjs`;
@@ -24,6 +26,14 @@ export const usePdfDocument = ({ fileId, fileBlob, accessToken, onAuthError }: U
   const [error, setError] = useState<string | null>(null);
   const [scale, setScale] = useState(1.0);
   const [pageDimensions, setPageDimensions] = useState<{ width: number, height: number } | null>(null);
+
+  // Janitor Hook: Limpa Blobs ao desmontar ou trocar arquivo
+  useEffect(() => {
+    return () => {
+      // Quando o componente desmonta, limpamos TUDO (incluindo thumbnails gerados por PdfPage)
+      blobRegistry.revokeAll();
+    };
+  }, []);
 
   useEffect(() => {
     let mounted = true;
