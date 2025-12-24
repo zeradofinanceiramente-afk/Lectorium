@@ -417,6 +417,14 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
     }
   };
 
+  // Callback quando o OCR global é iniciado no modal
+  const handleOcrConfirm = useCallback(() => {
+      // Fecha o modal
+      setShowOcrModal(false);
+      // Volta para o Dashboard para permitir o processamento em background sem pesar a UI
+      onBack();
+  }, [onBack, setShowOcrModal]);
+
   return (
     <div className="flex flex-col h-screen bg-[#2e2e2e] text-text relative" onContextMenu={(e) => e.preventDefault()}>
       <svg style={{ width: 0, height: 0, position: 'absolute' }}>
@@ -565,7 +573,7 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
         onClose={() => setShowOcrModal(false)}
         numPages={numPages}
         currentPage={currentPage}
-        onConfirm={triggerBatchOcr}
+        onConfirm={handleOcrConfirm}
       />
     </div>
   );

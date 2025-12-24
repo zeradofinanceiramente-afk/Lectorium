@@ -16,10 +16,11 @@ import { Dashboard } from './components/Dashboard';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { CookieConsent } from './components/CookieConsent';
 import { DriveFile, MIME_TYPES } from './types';
-import { Loader2, Wifi, Sparkles } from 'lucide-react';
+import { Loader2, Wifi, Sparkles, X, CheckCircle, AlertTriangle, ScanLine } from 'lucide-react';
 import ReauthToast from './components/ReauthToast';
 import { LegalModal, LegalTab } from './components/modals/LegalModal';
 import { generateMindMapAi } from './services/aiService';
+import { GlobalProvider, useGlobalContext } from './context/GlobalContext';
 
 const DriveBrowser = lazy(() => import('./components/DriveBrowser').then(m => ({ default: m.DriveBrowser })));
 const PdfViewer = lazy(() => import('./components/PdfViewer').then(m => ({ default: m.PdfViewer })));
@@ -38,22 +39,54 @@ const GlobalLoader = () => (
   </div>
 );
 
-const AiProcessingLoader = ({ message }: { message: string }) => (
-  <div className="fixed inset-0 z-[100] bg-bg/90 backdrop-blur-md flex flex-col items-center justify-center animate-in fade-in duration-300">
-      <div className="relative mb-6">
-          <div className="absolute inset-0 bg-brand/20 rounded-full blur-xl animate-pulse"></div>
-          <div className="relative bg-surface p-6 rounded-full border border-brand/30 shadow-2xl">
-              <Sparkles size={48} className="text-brand animate-pulse" />
-          </div>
-      </div>
-      <h3 className="text-xl font-bold text-white mb-2">IA Criando Conexões</h3>
-      <p className="text-sm text-text-sec max-w-xs text-center px-4 animate-pulse">
-          {message}
-      </p>
-  </div>
-);
+const GlobalToastContainer = () => {
+    const { notifications, removeNotification, isOcrRunning, ocrProgress } = useGlobalContext();
 
-export default function App() {
+    return (
+        <div className="fixed top-6 right-6 z-[200] flex flex-col gap-2 pointer-events-none">
+            {/* Status Persistente do OCR */}
+            {isOcrRunning && ocrProgress && (
+                <div className="bg-[#1e1e1e] border border-brand/30 p-3 rounded-xl shadow-2xl flex items-center gap-3 w-80 animate-in slide-in-from-right pointer-events-auto">
+                    <Loader2 size={20} className="text-brand animate-spin shrink-0" />
+                    <div className="flex-1 min-w-0">
+                        <p className="text-xs font-bold text-white truncate">Processando: {ocrProgress.filename}</p>
+                        <div className="w-full bg-white/10 h-1.5 rounded-full mt-1.5 overflow-hidden">
+                            <div 
+                                className="h-full bg-brand transition-all duration-500" 
+                                style={{ width: `${(ocrProgress.current / ocrProgress.total) * 100}%` }}
+                            />
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Notificações Temporárias */}
+            {notifications.map(n => (
+                <div 
+                    key={n.id} 
+                    className={`
+                        p-3 rounded-xl shadow-2xl flex items-center gap-3 w-80 animate-in slide-in-from-right pointer-events-auto border
+                        ${n.type === 'error' ? 'bg-red-950/90 border-red-500/30 text-red-200' : 
+                          n.type === 'success' ? 'bg-green-950/90 border-green-500/30 text-green-200' : 
+                          'bg-[#1e1e1e]/90 border-white/10 text-white'}
+                    `}
+                >
+                    <div className="shrink-0">
+                        {n.type === 'error' ? <AlertTriangle size={18} /> : 
+                         n.type === 'success' ? <CheckCircle size={18} /> : 
+                         <ScanLine size={18} />}
+                    </div>
+                    <p className="text-xs font-medium leading-relaxed">{n.message}</p>
+                    <button onClick={() => removeNotification(n.id)} className="ml-auto hover:bg-white/10 p-1 rounded">
+                        <X size={14} />
+                    </button>
+                </div>
+            ))}
+        </div>
+    );
+};
+
+const AppContent = () => {
   const [user, setUser] = useState<User | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(() => getValidDriveToken());
   const [activeTab, setActiveTab] = useState<string>('dashboard');
@@ -67,9 +100,10 @@ export default function App() {
   const [showLegalModal, setShowLegalModal] = useState(false);
   const [legalModalTab, setLegalModalTab] = useState<LegalTab>('privacy');
   const [aiLoadingMessage, setAiLoadingMessage] = useState<string | null>(null);
-  
-  // Immersive Mode State
   const [isImmersive, setIsImmersive] = useState(false);
+
+  // Global Context for OCR control
+  const { isOcrRunning, addNotification } = useGlobalContext();
 
   const handleAuthError = useCallback(() => setAccessToken(null), []);
   const handleToggleSyncStrategy = useCallback((strategy: 'smart' | 'online') => { setSyncStrategy(strategy); localStorage.setItem('sync_strategy', strategy); }, []);
@@ -85,31 +119,17 @@ export default function App() {
     try { const result = await signInWithGoogleDrive(); if (result.accessToken) { saveDriveToken(result.accessToken); setAccessToken(result.accessToken); setShowReauthToast(false); } } catch (error) { console.error("Falha na reconexão:", error); }
   }, []);
 
-  useEffect(() => {
-    const handleGlobalError = (event: PromiseRejectionEvent) => { if (event.reason?.message === "DRIVE_TOKEN_EXPIRED") { setShowReauthToast(true); event.preventDefault(); } };
-    window.addEventListener('unhandledrejection', handleGlobalError);
-    return () => window.removeEventListener('unhandledrejection', handleGlobalError);
-  }, []);
-
   const { syncStatus } = useSync({ accessToken, onAuthError: handleAuthError });
 
-  // Immersive Mode Logic
+  // Toggle Immersive
   useEffect(() => {
-    // 1. Check preference on load
     const storedPref = localStorage.getItem('app-immersive-mode');
-    if (storedPref === 'true') {
-        // We can't force fullscreen on load due to browser security,
-        // but we update state so the button reflects the intent.
-        setIsImmersive(false); // Button will show "Expand" but logic will know intent
-    }
-
-    // 2. Sync state with actual browser event (e.g. user presses ESC)
+    if (storedPref === 'true') setIsImmersive(false);
     const handleFullscreenChange = () => {
         const isFull = !!document.fullscreenElement;
         setIsImmersive(isFull);
         localStorage.setItem('app-immersive-mode', String(isFull));
     };
-
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
@@ -130,6 +150,7 @@ export default function App() {
     }
   }, []);
 
+  // Init
   useEffect(() => {
     const init = async () => {
         await performAppUpdateCleanup();
@@ -157,7 +178,13 @@ export default function App() {
       try { const granted = await verifyPermission(savedLocalDirHandle, true); if (granted) { setLocalDirHandle(savedLocalDirHandle); setActiveTab('local-fs'); } else { alert("Acesso negado."); setSavedLocalDirHandle(null); } } catch (e) { handleOpenLocalFolder(); }
   }, [savedLocalDirHandle, handleOpenLocalFolder]);
 
+  // CONSTRAINT: Check if OCR is running before opening new heavy files
   const handleOpenFile = useCallback(async (file: DriveFile) => {
+    if (isOcrRunning && openFiles.length >= 1) {
+        addNotification("Atenção: OCR em andamento. Mantenha apenas 1 documento aberto para garantir performance.", "error");
+        // Não impedimos, mas avisamos. Se for PDF, o usuário pode sentir lentidão.
+    }
+
     if (!file.blob && !file.id.startsWith('local-') && !file.id.startsWith('native-')) {
         const cached = await getOfflineFile(file.id);
         if (cached) file.blob = cached; else if (navigator.onLine) {
@@ -170,7 +197,7 @@ export default function App() {
     setOpenFiles(prev => prev.find(f => f.id === file.id) ? prev : [...prev, file]);
     setActiveTab(file.id);
     setIsSidebarOpen(false);
-  }, [accessToken, syncStrategy]);
+  }, [accessToken, syncStrategy, isOcrRunning, openFiles.length, addNotification]);
 
   const handleCreateMindMap = useCallback((parentId?: string) => {
     const fileId = `local-mindmap-${Date.now()}`;
@@ -206,36 +233,15 @@ export default function App() {
 
   const handleCreateFileFromBlob = useCallback((blob: Blob, name: string, mimeType: string) => { handleOpenFile({ id: `local-${Date.now()}`, name, mimeType, blob }); }, [handleOpenFile]);
 
-  useEffect(() => {
-    const handleLaunch = async () => {
-      const params = new URLSearchParams(window.location.search);
-      
-      // Handle Legal Params (for OAuth Compliance Links)
-      const legalParam = params.get('legal');
-      if (legalParam === 'terms' || legalParam === 'privacy') {
-        setLegalModalTab(legalParam as LegalTab);
-        setShowLegalModal(true);
-      }
-
-      // Handle PWA Share Target
-      if (params.get('share_target') === 'true') {
-        const cache = await caches.open('share-target-cache');
-        const keys = await cache.keys();
-        if (keys.length > 0) {
-          const res = await cache.match(keys[0]);
-          if (res) { const blob = await res.blob(); const name = decodeURIComponent(keys[0].url.split('/').pop() || 'shared-file'); handleCreateFileFromBlob(blob, name, blob.type); await cache.delete(keys[0]); }
-        }
-        window.history.replaceState({}, '', '/');
-      }
-    };
-    handleLaunch();
-  }, [handleCreateFileFromBlob]);
-
   const handleCloseFile = useCallback((id: string) => {
     setOpenFiles(prev => { const next = prev.filter(f => f.id !== id); if (activeTab === id) setActiveTab(next.length ? next[next.length - 1].id : 'dashboard'); return next; });
   }, [activeTab]);
 
-  const commonProps = useMemo(() => ({ accessToken: accessToken || '', uid: user?.uid || 'guest', onBack: () => setActiveTab('dashboard'), onAuthError: handleAuthError, onToggleMenu: () => setIsSidebarOpen(v => !v) }), [accessToken, user?.uid, handleAuthError]);
+  const handleReturnToDashboard = () => {
+      setActiveTab('dashboard');
+  };
+
+  const commonProps = useMemo(() => ({ accessToken: accessToken || '', uid: user?.uid || 'guest', onBack: handleReturnToDashboard, onAuthError: handleAuthError, onToggleMenu: () => setIsSidebarOpen(v => !v) }), [accessToken, user?.uid, handleAuthError]);
 
   const activeContent = useMemo(() => {
     if (activeTab === 'dashboard') return <Dashboard userName={user?.displayName} onOpenFile={handleOpenFile} onUploadLocal={(e) => { const f = e.target.files?.[0]; if (f) handleCreateFileFromBlob(f, f.name, f.type); }} onCreateMindMap={() => handleCreateMindMap()} onCreateDocument={() => handleCreateDocument()} onCreateFileFromBlob={handleCreateFileFromBlob} onChangeView={(view) => setActiveTab(view)} onToggleMenu={() => setIsSidebarOpen(true)} storageMode={storageMode} onToggleStorageMode={setStorageMode} onLogin={handleLogin} onOpenLocalFolder={handleOpenLocalFolder} savedLocalDirHandle={savedLocalDirHandle} onReconnectLocalFolder={handleReconnectLocalFolder} syncStrategy={syncStrategy} onToggleSyncStrategy={handleToggleSyncStrategy} />;
@@ -253,7 +259,8 @@ export default function App() {
   }, [activeTab, openFiles, commonProps, user, handleOpenFile, handleAuthError, accessToken, handleCreateMindMap, handleCreateDocument, handleCreateFileFromBlob, storageMode, handleLogin, handleOpenLocalFolder, localDirHandle, savedLocalDirHandle, handleReconnectLocalFolder, syncStrategy, handleToggleSyncStrategy, handleGenerateMindMapWithAi]);
 
   return (
-    <ErrorBoundary>
+    <>
+      <GlobalToastContainer />
       <div className="flex h-screen w-full bg-bg overflow-hidden relative selection:bg-brand/30">
         <Sidebar 
             activeTab={activeTab} 
@@ -278,9 +285,32 @@ export default function App() {
         </main>
         {showReauthToast && <ReauthToast onReauth={handleReauth} onClose={() => setShowReauthToast(false)} />}
         <LegalModal isOpen={showLegalModal} onClose={() => setShowLegalModal(false)} initialTab={legalModalTab} />
-        {aiLoadingMessage && <AiProcessingLoader message={aiLoadingMessage} />}
+        {aiLoadingMessage && (
+            <div className="fixed inset-0 z-[100] bg-bg/90 backdrop-blur-md flex flex-col items-center justify-center animate-in fade-in duration-300">
+                <div className="relative mb-6">
+                    <div className="absolute inset-0 bg-brand/20 rounded-full blur-xl animate-pulse"></div>
+                    <div className="relative bg-surface p-6 rounded-full border border-brand/30 shadow-2xl">
+                        <Sparkles size={48} className="text-brand animate-pulse" />
+                    </div>
+                </div>
+                <h3 className="text-xl font-bold text-white mb-2">IA Criando Conexões</h3>
+                <p className="text-sm text-text-sec max-w-xs text-center px-4 animate-pulse">
+                    {aiLoadingMessage}
+                </p>
+            </div>
+        )}
       </div>
       <CookieConsent />
-    </ErrorBoundary>
+    </>
+  );
+};
+
+export default function App() {
+  return (
+    <GlobalProvider>
+      <ErrorBoundary>
+        <AppContent />
+      </ErrorBoundary>
+    </GlobalProvider>
   );
 }
