@@ -31,10 +31,16 @@ export const getValidDriveToken = (): string | null => {
 
 export async function signInWithGoogleDrive() {
   const provider = new GoogleAuthProvider();
-  // Essential scopes for the app's functionality
-  provider.addScope("https://www.googleapis.com/auth/drive.readonly"); 
-  provider.addScope("https://www.googleapis.com/auth/drive.file");
-  provider.addScope("https://www.googleapis.com/auth/drive.metadata.readonly");
+  
+  // ESCOPO CRÍTICO: 'https://www.googleapis.com/auth/drive'
+  // Necessário para:
+  // 1. O DriveBrowser listar pastas e arquivos que NÃO foram criados pelo Lectorium.
+  // 2. O PdfViewer salvar anotações (PATCH) em PDFs existentes enviados por outros meios.
+  // 3. Mover e organizar arquivos arbitrários.
+  provider.addScope("https://www.googleapis.com/auth/drive");
+  
+  // Permite que o app apareça no menu "Abrir com" do Google Drive UI
+  provider.addScope("https://www.googleapis.com/auth/drive.install");
 
   try {
     // Força a persistência da sessão do Firebase para LOCAL (sobrevive ao fechamento da aba/navegador)

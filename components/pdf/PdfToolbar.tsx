@@ -12,7 +12,8 @@ export const PdfToolbar: React.FC<Props> = ({ onFitWidth }) => {
     activeTool, setActiveTool,
     currentPage, jumpToPage, numPages,
     scale, setScale,
-    goNext, goPrev
+    goNext, goPrev,
+    settings // Consumindo settings para layout
   } = usePdfContext();
 
   const [isEditingPage, setIsEditingPage] = useState(false);
@@ -53,7 +54,13 @@ export const PdfToolbar: React.FC<Props> = ({ onFitWidth }) => {
   );
 
   return (
-    <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-bottom-6 fade-in duration-500">
+    <div 
+        className="fixed left-1/2 z-[100] animate-in slide-in-from-bottom-6 fade-in duration-500 origin-bottom"
+        style={{
+            bottom: `${32 + settings.toolbarYOffset}px`,
+            transform: `translateX(-50%) scale(${settings.toolbarScale})`
+        }}
+    >
         <div className="
             flex items-center gap-3 p-1.5 px-2
             bg-[#0d1117]/95 backdrop-blur-xl 

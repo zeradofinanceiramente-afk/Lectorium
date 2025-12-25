@@ -45,7 +45,8 @@ export const OcrCompletionModal = () => {
 
             addNotification("Arquivo original atualizado com texto pesquisável!", "success");
         } else {
-            const newName = filename.replace('.pdf', '') + ' (OCR).pdf';
+            // Alterado para (1) para seguir padrão de versão
+            const newName = filename.replace(/\.pdf$/i, '') + ' (1).pdf';
             
             if (!isLocal && accessToken) {
                await uploadFileToDrive(accessToken, newBlob, newName);
@@ -119,7 +120,7 @@ export const OcrCompletionModal = () => {
                         <Copy size={20} className="text-gray-400 group-hover:text-white" />
                         <div className="text-left">
                             <span className="block text-sm">Salvar como Cópia</span>
-                            <span className="block text-[10px] text-gray-500 font-normal">Cria um novo arquivo "(OCR).pdf"</span>
+                            <span className="block text-[10px] text-gray-500 font-normal">Cria um novo arquivo com sufixo (1)</span>
                         </div>
                     </div>
                 </button>

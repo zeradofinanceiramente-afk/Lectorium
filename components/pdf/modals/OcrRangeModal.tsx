@@ -9,11 +9,12 @@ interface Props {
   onClose: () => void;
   numPages: number;
   currentPage: number;
+  fileName: string; // Adicionado para manter nome original
   onConfirm: (start: number, end: number) => void;
 }
 
 export const OcrRangeModal: React.FC<Props> = ({ 
-  isOpen, onClose, numPages, currentPage, onConfirm 
+  isOpen, onClose, numPages, currentPage, fileName, onConfirm 
 }) => {
   const [startPage, setStartPage] = useState(currentPage);
   const [endPage, setEndPage] = useState(numPages);
@@ -39,8 +40,8 @@ export const OcrRangeModal: React.FC<Props> = ({
     const blob = currentBlobRef.current;
     
     if (blob && fileId) {
-        // Dispara o OCR Global - fileId?.slice(-4) protege contra strings vazias ou nulas
-        startGlobalOcr(fileId, `Documento (${fileId.slice(-4)})`, blob, s, e);
+        // Dispara o OCR Global usando o fileName real
+        startGlobalOcr(fileId, fileName, blob, s, e);
         
         // Direciona o usuário para o dashboard (a lógica de navegação está no PdfViewer que recebe um callback, 
         // ou podemos forçar aqui se tivéssemos acesso ao router, mas o PdfViewer observará o estado global)

@@ -96,6 +96,52 @@ const getScaleStyles = (scale: number) => {
     return config[scale] || config[3];
 };
 
+interface RecentFileItemProps {
+    file: DriveFile & { lastOpened: Date };
+    styles: any;
+    onClick: () => void;
+}
+
+// Componente isolado para gerenciar erro de imagem individualmente
+const RecentFileItem: React.FC<RecentFileItemProps> = ({ file, styles, onClick }) => {
+    const [imgError, setImgError] = useState(false);
+    
+    // Tenta usar thumbnailLink se disponível. Ajusta tamanho se for link do google.
+    const thumbUrl = file.thumbnailLink ? file.thumbnailLink.replace(/=s\d+/, '=s200') : null;
+
+    return (
+        <div 
+            onClick={onClick} 
+            className={`group bg-black/30 backdrop-blur-[4px] rounded-3xl ${styles.recentP} hover:bg-white/5 transition-all cursor-pointer border border-white/5 hover:border-white/20 flex items-center ${styles.recentGap} shadow-lg`}
+        >
+            <div className={`${styles.recentIconWrap} bg-white/5 rounded-2xl shrink-0 flex items-center justify-center text-white/30 relative border border-white/5 shadow-inner overflow-hidden`}>
+                {thumbUrl && !imgError ? (
+                    <img 
+                        src={thumbUrl} 
+                        alt="" 
+                        className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
+                        onError={() => setImgError(true)}
+                        referrerPolicy="no-referrer"
+                        crossOrigin="anonymous"
+                    />
+                ) : (
+                    <>
+                        {file.name.endsWith('.mindmap') ? <Workflow size={styles.recentIconSize} className="text-purple-400/50"/> : file.mimeType.includes('document') ? <FilePlus size={styles.recentIconSize} className="text-blue-400/50"/> : <FileText size={styles.recentIconSize} />}
+                    </>
+                )}
+                
+                {file.pinned && <div className="absolute -top-1.5 -right-1.5 text-brand bg-[#0b141a] rounded-full p-1 border border-brand/50 shadow-lg shadow-brand/20 z-10"><Pin size={10} fill="currentColor" /></div>}
+            </div>
+            <div className="min-w-0 flex-1">
+                <h3 className="font-bold text-white/90 truncate text-sm mb-1 group-hover:text-white transition-colors" title={file.name}>{file.name}</h3>
+                <p className="text-[10px] text-white/40 font-medium flex items-center gap-1.5">
+                    Acessado em {new Date(file.lastOpened).toLocaleDateString()}
+                </p>
+            </div>
+        </div>
+    );
+};
+
 export const Dashboard: React.FC<DashboardProps> = ({ 
     userName, onOpenFile, onUploadLocal, onCreateMindMap, onCreateDocument, 
     onCreateFileFromBlob, onChangeView, onToggleMenu, storageMode, onToggleStorageMode,
@@ -317,22 +363,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
               </div>
               <div className="space-y-4">
                 {recents.slice(0, 5).map((file) => (
-                    <div 
-                      key={file.id} 
-                      onClick={() => onOpenFile(file)} 
-                      className={`group bg-black/30 backdrop-blur-[4px] rounded-3xl ${styles.recentP} hover:bg-white/5 transition-all cursor-pointer border border-white/5 hover:border-white/20 flex items-center ${styles.recentGap} shadow-lg`}
-                    >
-                      <div className={`${styles.recentIconWrap} bg-white/5 rounded-2xl shrink-0 flex items-center justify-center text-white/30 relative border border-white/5 shadow-inner`}>
-                        {file.name.endsWith('.mindmap') ? <Workflow size={styles.recentIconSize} className="text-purple-400/50"/> : file.mimeType.includes('document') ? <FilePlus size={styles.recentIconSize} className="text-blue-400/50"/> : <FileText size={styles.recentIconSize} />}
-                        {file.pinned && <div className="absolute -top-1.5 -right-1.5 text-brand bg-[#0b141a] rounded-full p-1 border border-brand/50 shadow-lg shadow-brand/20"><Pin size={10} fill="currentColor" /></div>}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <h3 className="font-bold text-white/90 truncate text-sm mb-1 group-hover:text-white transition-colors" title={file.name}>{file.name}</h3>
-                        <p className="text-[10px] text-white/40 font-medium flex items-center gap-1.5">
-                           Acessado em {new Date(file.lastOpened).toLocaleDateString()}
-                        </p>
-                      </div>
-                    </div>
+                    <RecentFileItem 
+                        key={file.id} 
+                        file={file} 
+                        styles={styles} 
+                        onClick={() => onOpenFile(file)} 
+                    />
                 ))}
                 {recents.length === 0 && (
                   <div className="text-center py-16 bg-white/5 rounded-[2rem] border border-dashed border-white/10 backdrop-blur-[2px]">

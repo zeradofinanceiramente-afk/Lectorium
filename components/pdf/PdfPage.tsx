@@ -325,7 +325,13 @@ export const PdfPage: React.FC<PdfPageProps> = ({
     if (!isDrawing.current) return;
     isDrawing.current = false;
     e.currentTarget.releasePointerCapture(e.pointerId);
+    
     if (currentPoints.length > 1) {
+        // --- JARVIS PROTOCOL: SEMANTIC INK V2 (TEMPORARILY DISABLED) ---
+        // O algoritmo "Point-in-Rect" foi desligado para otimizar performance 
+        // e focar na anotação puramente visual, conforme solicitado.
+        // O campo 'text' agora recebe um placeholder vazio para não poluir o fichamento.
+        
         addAnnotation({
             id: `ink-${Date.now()}`,
             page: pageNumber,
@@ -335,7 +341,8 @@ export const PdfPage: React.FC<PdfPageProps> = ({
             color: settings.inkColor,
             strokeWidth: settings.inkStrokeWidth / 5,
             opacity: settings.inkOpacity,
-            createdAt: new Date().toISOString()
+            createdAt: new Date().toISOString(),
+            text: "" // Desativado: Não captura texto subjacente
         });
     }
     setCurrentPoints([]);

@@ -118,17 +118,22 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
 
   const createHighlight = () => {
     if (!selection) return;
-    selection.relativeRects.forEach(rect => {
+    
+    // JARVIS OPTIMIZATION: Semantic Singularity
+    // Ao destacar múltiplas linhas (vários rects), atribuímos o texto APENAS ao primeiro rect.
+    // Os demais rects servem apenas para renderização visual (cor), evitando duplicação de dados semânticos.
+    selection.relativeRects.forEach((rect, index) => {
       addAnnotation({
         id: `hl-${Date.now()}-${Math.random()}`,
         page: selection.page,
         bbox: [rect.x, rect.y, rect.width, rect.height],
         type: 'highlight',
-        text: selection.text,
+        text: index === 0 ? selection.text : '', // Apenas o líder carrega o payload
         color: settings.highlightColor,
         opacity: settings.highlightOpacity
       });
     });
+    
     setSelection(null);
     window.getSelection()?.removeAllRanges();
   };
@@ -254,8 +259,25 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
   const handleFitWidth = async () => { if (!pdfDoc || !containerRef.current) return; try { const page = await pdfDoc.getPage(currentPage); const viewport = page.getViewport({ scale: 1 }); const containerWidth = containerRef.current.clientWidth; const isMobile = window.innerWidth < 768; const padding = isMobile ? 20 : 100; const newScale = (containerWidth - padding) / viewport.width; setScale(newScale); } catch (e) { console.error("Erro ao ajustar largura:", e); } };
   const handleExplainAi = () => { if (!selection) return; setChatRequest(`Explique este trecho: "${selection.text}"`); setSelection(null); setSidebarTab('chat'); setShowSidebar(true); };
   const handleDefine = async () => { if (!selection) return; const word = selection.text; setSelection(null); setDefinition(null); setShowDefinitionModal(true); try { const def = await fetchDefinition(word); setDefinition(def || { word, meanings: ["Definição não encontrada"] }); } catch (e) { setDefinition({ word, meanings: ["Erro ao buscar"] }); } };
+  
   const sidebarAnnotations = useMemo(() => annotations.sort((a, b) => (a.page - b.page)), [annotations]);
-  const fichamentoText = useMemo(() => sidebarAnnotations.filter(ann => ann.text).map(ann => `(Pág ${ann.page}) ${ann.text}`).join('\n\n'), [sidebarAnnotations]);
+  
+  // JARVIS PROTOCOL: IDEMPOTENCY FILTER FOR FICHAMENTO
+  // Garante que cada trecho extraído apareça apenas uma vez por página
+  const fichamentoText = useMemo(() => {
+      const seen = new Set<string>();
+      return sidebarAnnotations
+        .filter(ann => ann.text && ann.text.trim().length > 0)
+        .filter(ann => {
+            const signature = `${ann.page}-${ann.text!.trim()}`;
+            if (seen.has(signature)) return false;
+            seen.add(signature);
+            return true;
+        })
+        .map(ann => `(Pág ${ann.page}) ${ann.text}`)
+        .join('\n\n');
+  }, [sidebarAnnotations]);
+
   const handleDownloadFichamento = () => { const blob = new Blob([fichamentoText], { type: 'text/plain' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `Fichamento.txt`; a.click(); URL.revokeObjectURL(url); };
   const filterValues = useMemo(() => { const hexToRgb = (hex: string) => { const bigint = parseInt(hex.slice(1), 16); return [(bigint >> 16) & 255, (bigint >> 8) & 255, bigint & 255]; }; const [tr, tg, tb] = hexToRgb(settings.textColor); const [br, bg, bb] = hexToRgb(settings.pageColor); const rScale = (br - tr) / 255, gScale = (bg - tg) / 255, bScale = (bb - tb) / 255; const rOffset = tr / 255, gOffset = tg / 255, bOffset = tb / 255; return `${rScale} 0 0 0 ${rOffset} 0 ${gScale} 0 0 ${gOffset} 0 0 ${bScale} 0 ${bOffset} 0 0 0 1 0`; }, [settings.textColor, settings.pageColor]);
   
@@ -331,8 +353,7 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
          </div>
       </div>
 
-      {/* THE TACTICAL PULLER (Top Notch) - RESTORED VISUAL */}
-      {/* Visual sólido, preto, borda brand/50, rounded-b-2xl */}
+      {/* THE TACTICAL PULLER (Top Notch) */}
       <div 
         className={`fixed left-1/2 -translate-x-1/2 z-[60] transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] flex justify-center cursor-pointer ${isHeaderVisible ? 'top-[4.5rem]' : 'top-0'}`}
         onClick={() => setIsHeaderVisible(!isHeaderVisible)}
@@ -423,7 +444,14 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
           </div>
       )}
 
-      <OcrRangeModal isOpen={showOcrModal} onClose={() => setShowOcrModal(false)} numPages={numPages} currentPage={currentPage} onConfirm={handleOcrConfirm} />
+      <OcrRangeModal 
+        isOpen={showOcrModal} 
+        onClose={() => setShowOcrModal(false)} 
+        numPages={numPages} 
+        currentPage={currentPage} 
+        fileName={fileName} // Passa o fileName para o modal
+        onConfirm={handleOcrConfirm} 
+      />
       
       <ConflictResolutionModal 
         isOpen={conflictDetected} 

@@ -62,6 +62,7 @@ interface FileItemProps {
     onDelete: (file: DriveFile) => void;
     onShare: (file: DriveFile) => void;
     onMove: (file: DriveFile) => void;
+    onRename: (file: DriveFile) => void;
     isOffline: boolean;
     isPinned: boolean;
     isActiveMenu: boolean;
@@ -70,7 +71,7 @@ interface FileItemProps {
     accessToken?: string;
 }
 
-const FileItem = React.memo(({ file, onSelect, onTogglePin, onDelete, onShare, onMove, isOffline, isPinned, isActiveMenu, setActiveMenu, isLocalMode, accessToken }: FileItemProps) => {
+const FileItem = React.memo(({ file, onSelect, onTogglePin, onDelete, onShare, onMove, onRename, isOffline, isPinned, isActiveMenu, setActiveMenu, isLocalMode, accessToken }: FileItemProps) => {
     const isFolder = file.mimeType === MIME_TYPES.FOLDER;
     const isDoc = file.mimeType === MIME_TYPES.PDF || file.mimeType === MIME_TYPES.DOCX || file.mimeType === MIME_TYPES.GOOGLE_DOC || file.name.endsWith('.lect') || file.name.endsWith('.cbz') || file.name.endsWith('.cbr');
     const [imgError, setImgError] = useState(false);
@@ -166,6 +167,7 @@ const FileItem = React.memo(({ file, onSelect, onTogglePin, onDelete, onShare, o
                 {/* Menu Dropdown */}
                 {isActiveMenu && !isLocalMode && (
                     <div className="absolute top-10 right-2 w-48 bg-[#161b22] border border-[#30363d] shadow-2xl rounded-xl overflow-hidden z-30 animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
+                        <button onClick={() => onRename(file)} className="w-full text-left px-4 py-3 hover:bg-[#21262d] text-xs flex items-center gap-2 text-[#c9d1d9]"><Edit2 size={14} /> Renomear</button>
                         <button onClick={() => onMove(file)} className="w-full text-left px-4 py-3 hover:bg-[#21262d] text-xs flex items-center gap-2 text-[#c9d1d9]"><FolderInput size={14} /> Mover para...</button>
                         <button onClick={() => onShare(file)} className="w-full text-left px-4 py-3 hover:bg-[#21262d] text-xs flex items-center gap-2 text-[#c9d1d9]"><Share2 size={14} /> Compartilhar</button>
                         <button onClick={() => onDelete(file)} className="w-full text-left px-4 py-3 hover:bg-red-900/20 text-red-400 text-xs flex items-center gap-2 border-t border-[#30363d]"><Trash2 size={14} /> Excluir</button>
@@ -218,6 +220,7 @@ const FileItem = React.memo(({ file, onSelect, onTogglePin, onDelete, onShare, o
                     <button onClick={() => onTogglePin(file)} className="w-full text-left px-4 py-3 hover:bg-[#21262d] text-xs flex items-center gap-2 text-[#c9d1d9]">
                         {isPinned ? <><PinOff size={14} /> Soltar do disco</> : <><Pin size={14} /> Manter Offline</>}
                     </button>
+                    <button onClick={() => onRename(file)} className="w-full text-left px-4 py-3 hover:bg-[#21262d] text-xs flex items-center gap-2 text-[#c9d1d9]"><Edit2 size={14} /> Renomear</button>
                     <button onClick={() => onMove(file)} className="w-full text-left px-4 py-3 hover:bg-[#21262d] text-xs flex items-center gap-2 text-[#c9d1d9]"><FolderInput size={14} /> Mover para...</button>
                     <button onClick={() => onShare(file)} className="w-full text-left px-4 py-3 hover:bg-[#21262d] text-xs flex items-center gap-2 text-[#c9d1d9]"><Share2 size={14} /> Compartilhar</button>
                     <button onClick={() => onDelete(file)} className="w-full text-left px-4 py-3 hover:bg-red-900/20 text-red-400 text-xs flex items-center gap-2 border-t border-[#30363d]"><Trash2 size={14} /> Excluir</button>
@@ -290,6 +293,23 @@ export const DriveBrowser: React.FC<Props> = ({
       } catch (e) { alert("Erro ao fixar."); } finally { setActionLoading(false); }
   }, [accessToken, offlineFileIds, pinnedFileIds, updateCacheStatus]);
 
+  const handleRename = useCallback(async (file: DriveFile) => {
+      setActiveMenuId(null);
+      const newName = window.prompt("Novo nome:", file.name);
+      if (newName && newName !== file.name) {
+          setActionLoading(true);
+          try {
+              await renameDriveFile(accessToken, file.id, newName);
+              // Pequeno delay para a API do Google propagar a mudança
+              setTimeout(loadFiles, 500); 
+          } catch (e: any) {
+              alert("Erro ao renomear arquivo: " + e.message);
+          } finally {
+              setActionLoading(false);
+          }
+      }
+  }, [accessToken, loadFiles]);
+
   const handleFolderClick = useCallback((folder: DriveFile) => {
     setCurrentFolder(folder.id);
     setFolderHistory(prev => [...prev, { id: folder.id, name: folder.name }]);
@@ -304,7 +324,58 @@ export const DriveBrowser: React.FC<Props> = ({
   }, [folderHistory]);
 
   const handleDelete = useCallback((file: DriveFile) => { if (confirm(`Tem certeza que deseja excluir "${file.name}"?`)) deleteDriveFile(accessToken, file.id).then(loadFiles); }, [accessToken, loadFiles]);
-  const handleShare = useCallback((file: DriveFile) => { setActiveMenuId(null); window.open(`https://drive.google.com/file/d/${file.id}/share`, '_blank'); }, []);
+  
+  const handleShare = useCallback(async (file: DriveFile) => { 
+      setActiveMenuId(null); 
+      
+      // Para pastas, mantemos o comportamento padrão de abrir o link do Drive
+      // pois "baixar" uma pasta como um único arquivo é complexo sem zip
+      if (file.mimeType === MIME_TYPES.FOLDER) {
+          window.open(`https://drive.google.com/file/d/${file.id}/share`, '_blank');
+          return;
+      }
+
+      setActionLoading(true);
+      try {
+          let blob = file.blob;
+          // Se não temos o blob (arquivo online não cacheado), baixamos
+          if (!blob && !file.id.startsWith('local-')) {
+               blob = await downloadDriveFile(accessToken, file.id, file.mimeType);
+          }
+
+          if (blob) {
+              const fileObj = new File([blob], file.name, { type: file.mimeType });
+              
+              if (navigator.canShare && navigator.canShare({ files: [fileObj] })) {
+                  await navigator.share({
+                      files: [fileObj],
+                      title: file.name,
+                      text: 'Arquivo compartilhado via Lectorium'
+                  });
+              } else {
+                  // Fallback: Download direto se a API de compartilhamento não suportar arquivos
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = file.name;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  URL.revokeObjectURL(url);
+              }
+          } else {
+              // Se falhar o download do blob, fallback para link
+              window.open(`https://drive.google.com/file/d/${file.id}/share`, '_blank');
+          }
+      } catch (e) {
+          console.error("Erro ao compartilhar", e);
+          // Fallback final
+          window.open(`https://drive.google.com/file/d/${file.id}/share`, '_blank');
+      } finally {
+          setActionLoading(false);
+      }
+  }, [accessToken]);
+
   const handleMove = useCallback((file: DriveFile) => { setActiveMenuId(null); setFileToMove(file); setMoveFileModalOpen(true); }, []);
 
   const handleSelect = useCallback(async (file: DriveFile) => {
@@ -354,7 +425,7 @@ export const DriveBrowser: React.FC<Props> = ({
          </div>
       </div>
       <div className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar relative">
-         {loading && files.length === 0 ? <div className="flex items-center justify-center h-64"><Loader2 size={32} className="animate-spin text-brand" /></div> : <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">{files.map(file => <FileItem key={file.id} file={file} onSelect={handleSelect} onTogglePin={handleTogglePin} onDelete={handleDelete} onShare={handleShare} onMove={handleMove} isOffline={offlineFileIds.has(file.id)} isPinned={pinnedFileIds.has(file.id)} isActiveMenu={activeMenuId === file.id} setActiveMenu={setActiveMenuId} isLocalMode={mode === 'local'} accessToken={accessToken} />)}{files.length === 0 && !loading && <div className="col-span-full text-center py-12 text-text-sec opacity-50">{mode === 'mindmaps' ? 'Nenhum mapa mental encontrado.' : 'Esta pasta está vazia.'}</div>}</div>}
+         {loading && files.length === 0 ? <div className="flex items-center justify-center h-64"><Loader2 size={32} className="animate-spin text-brand" /></div> : <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">{files.map(file => <FileItem key={file.id} file={file} onSelect={handleSelect} onTogglePin={handleTogglePin} onDelete={handleDelete} onShare={handleShare} onMove={handleMove} onRename={handleRename} isOffline={offlineFileIds.has(file.id)} isPinned={pinnedFileIds.has(file.id)} isActiveMenu={activeMenuId === file.id} setActiveMenu={setActiveMenuId} isLocalMode={mode === 'local'} accessToken={accessToken} />)}{files.length === 0 && !loading && <div className="col-span-full text-center py-12 text-text-sec opacity-50">{mode === 'mindmaps' ? 'Nenhum mapa mental encontrado.' : 'Esta pasta está vazia.'}</div>}</div>}
       </div>
       {actionLoading && !openingFileId && <div className="absolute inset-0 z-50 bg-bg/50 backdrop-blur-sm flex items-center justify-center"><Loader2 size={40} className="animate-spin text-brand" /></div>}
       {openingFileId && <div className="absolute inset-0 z-[60] bg-bg/90 backdrop-blur-md flex flex-col items-center justify-center animate-in fade-in duration-300"><div className="relative mb-6"><div className="absolute inset-0 bg-brand/20 rounded-full blur-xl animate-pulse"></div><div className="relative bg-surface p-4 rounded-full border border-brand/30 shadow-2xl"><Cloud size={40} className="text-brand animate-pulse" /></div><div className="absolute -bottom-2 -right-2 bg-bg rounded-full p-1 border border-border"><Loader2 size={20} className="animate-spin text-white" /></div></div><h3 className="text-xl font-bold text-white mb-2">Abrindo Arquivo</h3><p className="text-sm text-text-sec max-w-xs text-center truncate px-4">{openingFileName || "Carregando..."}</p><div className="mt-8 flex gap-2"><div className="w-2 h-2 rounded-full bg-brand animate-bounce [animation-delay:-0.3s]"></div><div className="w-2 h-2 rounded-full bg-brand animate-bounce [animation-delay:-0.15s]"></div><div className="w-2 h-2 rounded-full bg-brand animate-bounce"></div></div></div>}

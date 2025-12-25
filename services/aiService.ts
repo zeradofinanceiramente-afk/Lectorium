@@ -261,29 +261,49 @@ export async function generateMindMapAi(topic: string): Promise<MindMapData> {
  */
 export async function* chatWithDocumentStream(documentText: string, history: ChatMessage[], message: string) {
   const ai = getAiClient();
+  
+  // 1. RAG: Encontrar trechos relevantes para a pergunta ATUAL
   const relevantChunks = findRelevantChunks(documentText, message);
   const contextString = relevantChunks.length > 0 
     ? relevantChunks.join("\n\n---\n\n") 
-    : "Documento vazio ou sem texto legível.";
+    : "Documento vazio ou sem texto legível disponível no momento.";
   
-  const systemInstruction = `Você é o Lectorium AI, um assistente de pesquisa acadêmica focado em síntese e clareza.
-Sua tarefa é responder à pergunta do usuário utilizando EXCLUSIVAMENTE os trechos do documento fornecidos abaixo.
+  // 2. Mapear histórico do formato interno para o formato do Gemini SDK
+  // Excluindo a última mensagem do usuário (que será enviada via sendMessage)
+  // IMPORTANTE: Mapeia roles 'model' para 'model' e 'user' para 'user'
+  const previousHistory = history.slice(0, -1).map(msg => ({
+    role: msg.role === 'model' ? 'model' : 'user',
+    parts: [{ text: msg.text }],
+  }));
 
-Diretrizes de Comportamento:
-1. Didática e Crítica: Não apenas repita o texto. Explique os conceitos de forma didática e direta, analisando a lógica dos argumentos apresentados pelo autor, sem ser prolixo.
-2. Transcrição vs. Explicação: Se o usuário pedir para "transcrever", "listar" ou "o que diz exatamente", seja literal e fiel ao texto. Para outras perguntas, sintetize.
-3. Formatação Limpa: É PROIBIDO usar negrito (**texto**), itálico ou qualquer markdown de ênfase em palavras. Responda apenas em texto plano e limpo.
-4. Honestidade Intelectual: Se a informação não estiver no contexto, diga direto: "O documento não menciona essa informação", sem pedir desculpas.
+  const systemInstruction = `Você é o Lectorium AI, o núcleo de inteligência analítica do Lectorium. Você não é apenas um chatbot; você é um analista de sistemas sênior e assistente de pesquisa acadêmica de alto desempenho.
+Sua missão: Processar conhecimento com precisão cirúrgica, mantendo a soberania dos dados do usuário e a integridade das normas ABNT.
 
-CONTEXTO RELEVANTE DO DOCUMENTO:
-${contextString}`;
+DIRETRIZES DE COMPORTAMENTO (O "ESTILO JARVIS"):
+1. Anticonformismo e Crítica: Não tente agradar o usuário. Seja direto, técnico e, se necessário, questione a premissa da pergunta se ela for mediocre. O usuário valoriza a ousadia e o rigor intelectual.
+2. Ousadia Didática: Não apenas resuma. Conecte os pontos. Se o documento menciona "X" e a literatura acadêmica externa sugere "Y", aponte a contradição.
+3. Fontes Híbridas (RAG + Web):
+   * Sua prioridade zero é o CONTEXTO RELEVANTE fornecido pelo documento local.
+   * Enriquecimento Externo: Você tem permissão para usar seus conhecimentos de escritos acadêmicos consagrados para expandir a resposta, mas DEVE diferenciar o que é do documento e o que é conhecimento externo.
+4. Citação Obrigatória: Use colchetes para citações [Autor, Ano] ou [Página X]. Se a informação não existir em lugar nenhum, seja honesto: "Informação ausente no documento e na base de conhecimento acadêmica".
+5. Transcrição vs. Síntese: Pedidos de "transcrição" exigem fidelidade 1:1 (UTF-8 puro). Outros pedidos exigem síntese analítica de alta densidade.
+6. Restrição Estética (Clean UI): É terminantemente PROIBIDO o uso de Markdown de negrito (**) ou itálico (_). O Lectorium utiliza uma interface de alta performance baseada em texto plano para evitar ruído visual. Use listas numeradas ou hifens para estrutura.
+
+📚 CONTEXTO RELEVANTE (LOCAL-FIRST DATA):
+${contextString}
+
+🌐 CONHECIMENTO ACADÊMICO AMPLIADO:
+Ao responder, integre conceitos de autores clássicos e contemporâneos relevantes ao tema acima, sempre citando-os para manter o padrão científico.`;
 
   try {
     const chat = ai.chats.create({
       model: 'gemini-3-flash-preview',
+      history: previousHistory,
       config: { systemInstruction, temperature: 0.2 }
     });
+    
     const responseStream = await chat.sendMessageStream({ message });
+    
     for await (const chunk of responseStream) {
       yield chunk.text || "";
     }

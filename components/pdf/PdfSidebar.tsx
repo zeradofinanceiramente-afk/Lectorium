@@ -1,6 +1,6 @@
 
 import React, { useMemo, useState, useEffect } from 'react';
-import { X, Lock, FileText, Copy, Download, Sparkles, Loader2, Hash, PaintBucket, Eye, ImageOff, Columns, Highlighter, Pen, ScanLine, MessageSquare, Pipette, MoveHorizontal, MousePointer2, ScrollText, ScanFace, Cloud, CloudOff, AlertCircle, CheckCircle, Palette, Droplets, Binary, ChevronLeft, ChevronRight, PanelRightOpen, PanelRightClose } from 'lucide-react';
+import { X, Lock, FileText, Copy, Download, Sparkles, Loader2, Hash, PaintBucket, Eye, ImageOff, Columns, Highlighter, Pen, ScanLine, MessageSquare, Pipette, MoveHorizontal, MousePointer2, ScrollText, ScanFace, Cloud, CloudOff, AlertCircle, CheckCircle, Palette, Droplets, Binary, ChevronLeft, ChevronRight, PanelRightOpen, PanelRightClose, Move, Maximize } from 'lucide-react';
 import { Annotation } from '../../types';
 import { usePdfContext } from '../../context/PdfContext';
 import { AiChatPanel } from '../shared/AiChatPanel';
@@ -29,6 +29,38 @@ export const PdfSidebar: React.FC<Props> = ({
   const { settings, updateSettings, jumpToPage, removeAnnotation, triggerOcr, currentPage, ocrMap, hasUnsavedOcr } = usePdfContext();
   const [isHoveringHandler, setIsHoveringHandler] = useState(false);
 
+  // --- JARVIS PROTOCOL: SEMANTIC DEDUPLICATION (V2.1) ---
+  // A lógica agora inclui um filtro de "Artefatos Visuais".
+  // Highlights sem texto são considerados fragmentos de renderização (linhas 2+) e devem ser ocultos.
+  const uniqueAnnotations = useMemo(() => {
+    const seen = new Set<string>();
+    
+    return sidebarAnnotations.filter(ann => {
+        // FILTER: Se for highlight e estiver vazio, é um artefato visual de quebra de linha. Ocultar.
+        if (ann.type === 'highlight' && (!ann.text || ann.text.trim() === '')) {
+            return false;
+        }
+
+        const content = (ann.text || '').trim();
+        let signature = '';
+
+        if (content.length > 0) {
+            // Se tem texto, a unicidade é semântica. 
+            signature = `${ann.page}-text-${content}`;
+        } else {
+            // Se não tem texto (apenas permitido para INK ou NOTE vazia), usamos geometria.
+            const x = Math.round(ann.bbox[0]);
+            const y = Math.round(ann.bbox[1]);
+            signature = `${ann.page}-${ann.type}-${x}-${y}`;
+        }
+        
+        if (seen.has(signature)) return false;
+        
+        seen.add(signature);
+        return true;
+    });
+  }, [sidebarAnnotations]);
+
   const fullDocumentText = useMemo(() => {
     let text = "";
     const processedPages = Object.keys(ocrMap).map(Number).sort((a, b) => a - b);
@@ -43,7 +75,7 @@ export const PdfSidebar: React.FC<Props> = ({
         });
     }
 
-    const annotationsContent = sidebarAnnotations
+    const annotationsContent = uniqueAnnotations
         .filter(a => a.text && a.text.trim().length > 0)
         .map(a => `[COMENTÁRIO DO USUÁRIO NA PÁGINA ${a.page}]: ${a.text}`)
         .join('\n');
@@ -53,7 +85,7 @@ export const PdfSidebar: React.FC<Props> = ({
     }
 
     return text || "O documento está sendo lido ou é um PDF de imagem sem processamento. Use a ferramenta 'Extrair Texto' para dar contexto ao Gemini.";
-  }, [ocrMap, sidebarAnnotations]);
+  }, [ocrMap, uniqueAnnotations]);
 
   return (
     <>
@@ -129,20 +161,20 @@ export const PdfSidebar: React.FC<Props> = ({
                 <div className="flex-1 overflow-hidden flex flex-col bg-black/10 relative z-10">
                     {activeTab === 'annotations' ? (
                         <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
-                            {sidebarAnnotations.length === 0 && (
+                            {uniqueAnnotations.length === 0 && (
                                 <div className="text-center text-gray-600 py-10 flex flex-col items-center gap-3">
                                     <FileText size={32} className="opacity-20" />
                                     <span className="text-xs uppercase tracking-widest font-bold">Sem dados</span>
                                 </div>
                             )}
-                            {sidebarAnnotations.map((ann, idx) => (
+                            {uniqueAnnotations.map((ann, idx) => (
                                 <div key={ann.id || idx} onClick={() => jumpToPage(ann.page)} className="bg-[#1a1a1a] p-3 rounded-xl border border-white/5 hover:border-brand/50 cursor-pointer group transition-all hover:bg-white/5 relative">
                                     <div className="flex items-center gap-2 mb-2">
                                         <span className="w-2 h-2 rounded-full shadow-[0_0_5px_currentColor]" style={{ backgroundColor: ann.color || '#4ade80', color: ann.color || '#4ade80' }} />
                                         <span className="text-[10px] text-gray-400 font-mono">PÁG {ann.page.toString().padStart(2, '0')}</span>
                                         {ann.isBurned && <span className="text-[9px] bg-white/5 border border-white/10 px-1.5 py-0.5 rounded text-gray-400 ml-auto flex items-center gap-1"><Lock size={8}/> HARDCODED</span>}
                                     </div>
-                                    <p className="text-sm text-gray-200 line-clamp-2 leading-relaxed font-medium">{ann.text || <span className="italic opacity-50 text-xs">Desenho à mão livre</span>}</p>
+                                    <p className="text-sm text-gray-200 line-clamp-2 leading-relaxed font-medium">{ann.text || <span className="italic opacity-50 text-xs">Anotação usando caneta</span>}</p>
                                     {!ann.isBurned && <button onClick={(e) => { e.stopPropagation(); removeAnnotation(ann); }} className="absolute top-2 right-2 text-gray-500 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 hover:bg-white/5 rounded-lg"><X size={14} /></button>}
                                 </div>
                             ))}
@@ -234,7 +266,7 @@ export const PdfSidebar: React.FC<Props> = ({
                             {/* Seção 3: Ferramenta de Escrita (Ink) */}
                             <div className="space-y-4">
                                 <h4 className="text-[10px] text-brand font-bold uppercase tracking-[0.2em] flex items-center gap-2 mb-4 border-b border-white/10 pb-2">
-                                    <Pen size={14} /> Estilete Digital
+                                    <Pen size={14} /> Caneta
                                 </h4>
                                 
                                 <div className="flex flex-wrap gap-2 px-1">
@@ -309,16 +341,45 @@ export const PdfSidebar: React.FC<Props> = ({
                                 </div>
                             </div>
 
-                            {/* Seção 5: Layout */}
-                            <div className="space-y-3 pt-2">
+                            {/* Seção 5: Layout e Interface */}
+                            <div className="space-y-6 pt-2">
                                 <h4 className="text-[10px] text-brand font-bold uppercase tracking-[0.2em] flex items-center gap-2 mb-4 border-b border-white/10 pb-2">
-                                    <Eye size={14} /> Modo de Leitura
+                                    <Eye size={14} /> Interface e Layout
                                 </h4>
-                                <div className="flex items-center justify-between bg-[#1a1a1a] p-3 rounded-xl border border-white/5 hover:border-white/10 transition-colors">
+                                
+                                <div className="flex items-center justify-between bg-[#1a1a1a] p-3 rounded-xl border border-white/5 hover:border-white/10 transition-colors mb-4">
                                     <span className="text-xs text-white font-bold flex items-center gap-2">
                                         <Columns size={16} className={settings.detectColumns ? "text-brand" : "text-gray-600"}/> Pág. Dupla
                                     </span>
                                     <button onClick={() => updateSettings({ detectColumns: !settings.detectColumns })} className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${settings.detectColumns ? 'bg-brand' : 'bg-white/10'}`}><span className={`inline-block h-3 w-3 transform rounded-full bg-black transition ${settings.detectColumns ? 'translate-x-5' : 'translate-x-1'}`} /></button>
+                                </div>
+
+                                <div className="space-y-4 px-1">
+                                    <div className="space-y-1.5">
+                                        <div className="flex justify-between text-[9px] uppercase font-bold text-gray-500">
+                                            <span className="flex items-center gap-1"><Maximize size={10} /> Tamanho da Toolbar</span>
+                                            <span className="text-brand font-mono">{Math.round(settings.toolbarScale * 100)}%</span>
+                                        </div>
+                                        <input 
+                                            type="range" min="0.5" max="1.5" step="0.1"
+                                            value={settings.toolbarScale}
+                                            onChange={(e) => updateSettings({ toolbarScale: parseFloat(e.target.value) })}
+                                            className="w-full accent-brand bg-white/10 h-1 rounded-full appearance-none cursor-pointer"
+                                        />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <div className="flex justify-between text-[9px] uppercase font-bold text-gray-500">
+                                            <span className="flex items-center gap-1"><Move size={10} /> Posição Vertical</span>
+                                            <span className="text-brand font-mono">{settings.toolbarYOffset}px</span>
+                                        </div>
+                                        <input 
+                                            type="range" min="0" max="200" step="5"
+                                            value={settings.toolbarYOffset}
+                                            onChange={(e) => updateSettings({ toolbarYOffset: parseInt(e.target.value) })}
+                                            className="w-full accent-brand bg-white/10 h-1 rounded-full appearance-none cursor-pointer"
+                                        />
+                                        <p className="text-[9px] text-gray-600 text-center pt-1">Ajuste para evitar cobrir legendas ou rodapés.</p>
+                                    </div>
                                 </div>
                             </div>
                         </div>

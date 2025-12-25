@@ -21,6 +21,9 @@ interface PdfSettings {
   inkColor: string;
   inkStrokeWidth: number;
   inkOpacity: number;
+  // Interface Customization
+  toolbarScale: number;
+  toolbarYOffset: number;
 }
 
 interface PdfContextState {
@@ -124,7 +127,8 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
     pageOffset: 1, disableColorFilter: false, detectColumns: false, showOcrDebug: false,
     showConfidenceOverlay: false,
     pageColor: "#ffffff", textColor: "#000000", highlightColor: "#4ade80",
-    highlightOpacity: 0.4, inkColor: "#22c55e", inkStrokeWidth: 20, inkOpacity: 0.35,
+    highlightOpacity: 0.4, inkColor: "#a855f7", inkStrokeWidth: 42, inkOpacity: 0.35,
+    toolbarScale: 1, toolbarYOffset: 0
   });
 
   const getUnburntOcrMap = useCallback(() => {
