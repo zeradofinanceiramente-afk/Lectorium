@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { SelectionState } from '../components/pdf/SelectionMenu';
 
@@ -125,7 +124,9 @@ export const usePdfSelection = ({ activeTool, scale, containerRef }: UsePdfSelec
 
     const handleSelectionChange = () => {
       if (selectionDebounce.current) clearTimeout(selectionDebounce.current);
-      selectionDebounce.current = setTimeout(processSelection, 300);
+      // OTIMIZAÇÃO: 150ms é um bom balanço entre responsividade e performance
+      // Evita o "pulo" do handle nativo causado por re-renders frequentes do React
+      selectionDebounce.current = setTimeout(processSelection, 150);
     };
 
     const handleInteractionEnd = (e: Event) => {

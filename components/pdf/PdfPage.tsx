@@ -1,4 +1,3 @@
-
 import React, { useRef, useState, useEffect, useMemo, useCallback } from 'react';
 import { Loader2, Sparkles, ScanLine, X, Save, RefreshCw, Columns, ArrowLeft, ArrowRight, CheckCircle2, FileSearch, AlertCircle, Wand2, Check } from 'lucide-react';
 import { renderCustomTextLayer } from '../../utils/pdfRenderUtils';
@@ -85,7 +84,7 @@ const ConfidenceWord: React.FC<ConfidenceWordProps> = ({ word, scale, wordIndex,
     );
 };
 
-export const PdfPage: React.FC<PdfPageProps> = ({ 
+const PdfPageComponent: React.FC<PdfPageProps> = ({ 
   pageNumber, filterValues, pdfDoc 
 }) => {
   const { 
@@ -550,3 +549,14 @@ export const PdfPage: React.FC<PdfPageProps> = ({
     </div>
   );
 };
+
+export const PdfPage = React.memo(PdfPageComponent, (prev, next) => {
+    // Comparação personalizada para React.memo:
+    // Retorna true se as props forem iguais (não re-renderiza).
+    // Retorna false se mudaram (re-renderiza).
+    return (
+        prev.pageNumber === next.pageNumber &&
+        prev.filterValues === next.filterValues &&
+        prev.pdfDoc === next.pdfDoc
+    );
+});
