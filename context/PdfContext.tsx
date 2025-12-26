@@ -5,6 +5,7 @@ import { loadOcrData, saveOcrData, touchOfflineFile } from '../services/storageS
 import { PDFDocumentProxy } from 'pdfjs-dist';
 import { OcrManager, OcrStatus } from '../services/ocrManager';
 import { refineOcrWords } from '../services/aiService';
+import { indexDocumentForSearch } from '../services/ragService';
 
 export type ToolType = 'cursor' | 'text' | 'ink' | 'eraser' | 'note';
 
@@ -59,16 +60,14 @@ interface PdfContextState {
   jumpToPage: (page: number) => void;
   accessToken?: string | null;
   fileId: string;
-  // Permite atualizar o blob principal (Single Source of Truth)
   updateSourceBlob: (newBlob: Blob) => void;
   currentBlobRef: React.MutableRefObject<Blob | null>;
-  // Novo: Retorna apenas OCR pendente para evitar duplicação no save
   getUnburntOcrMap: () => Record<number, any[]>;
-  // Marca páginas como salvas no blob atual
   markOcrAsSaved: (pages: number[]) => void;
-  // Chat Bridge
   chatRequest: string | null;
   setChatRequest: (msg: string | null) => void;
+  // RAG Indexing
+  generateSearchIndex: (fullText: string) => Promise<void>;
 }
 
 const PdfContext = createContext<PdfContextState | null>(null);
@@ -90,7 +89,6 @@ interface PdfProviderProps {
   accessToken?: string | null;
   fileId: string;
   pdfDoc: PDFDocumentProxy | null;
-  // Callbacks para manipular o blob original no componente pai
   onUpdateSourceBlob: (blob: Blob) => void;
   currentBlob: Blob | null;
 }
@@ -113,14 +111,11 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
   const [chatRequest, setChatRequest] = useState<string | null>(null);
   const [showOcrModal, setShowOcrModal] = useState(false);
   
-  // Ref para acessar o blob mais atual dentro das funções assíncronas/fila
   const currentBlobRef = useRef<Blob | null>(currentBlob);
   useEffect(() => {
       currentBlobRef.current = currentBlob;
   }, [currentBlob]);
 
-  // --- CONTROLE DE ESTADO DO BLOB ---
-  // Rastreia quais páginas já tiveram seu OCR "queimado" (injetado) no currentBlobRef
   const burnedPagesRef = useRef<Set<number>>(new Set());
 
   const [settings, setSettings] = useState<PdfSettings>({
@@ -137,7 +132,6 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
       
       Object.entries(fullMap).forEach(([pageStr, words]) => {
           const page = parseInt(pageStr);
-          // Só inclui se AINDA NÃO foi queimado no blob atual
           if (!burnedPagesRef.current.has(page) && Array.isArray(words)) {
               filteredMap[page] = words;
           }
@@ -166,9 +160,6 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
             Object.keys(data).forEach(pStr => {
                 const p = parseInt(pStr);
                 statusUpdate[p] = 'done';
-                // CRÍTICO: Se carregamos do cache, assumimos que o arquivo salvo no disco/drive
-                // já contém esse OCR (de um save anterior). Marcamos como queimado para não duplicar.
-                // Se o arquivo for novo/limpo mas tiver cache órfão, o usuário precisará salvar uma vez.
                 burnedPagesRef.current.add(p);
             });
             
@@ -253,8 +244,6 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
         if (fileId) {
             saveOcrData(fileId, page, pageWords).catch(() => {});
             setHasUnsavedOcr(true);
-            
-            // Se editamos, precisamos garantir que será re-queimado no próximo save
             if (burnedPagesRef.current.has(page)) {
                 burnedPagesRef.current.delete(page);
             }
@@ -297,6 +286,20 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
     }
   }, [ocrMap, showOcrNotification, setPageOcrData]);
 
+  const generateSearchIndex = useCallback(async (fullText: string) => {
+      const blob = currentBlobRef.current;
+      if (fileId && blob && fullText.trim().length > 100) {
+          showOcrNotification("Gerando índice semântico (RAG)...");
+          try {
+              await indexDocumentForSearch(fileId, blob, fullText);
+              showOcrNotification("Índice semântico criado.");
+          } catch (e) {
+              console.error("Index failed", e);
+              showOcrNotification("Erro na indexação.");
+          }
+      }
+  }, [fileId, showOcrNotification]);
+
   const value = useMemo(() => ({
     scale, setScale, currentPage, setCurrentPage, numPages, activeTool, setActiveTool,
     settings, updateSettings, annotations, addAnnotation: onAddAnnotation, removeAnnotation: onRemoveAnnotation,
@@ -306,8 +309,9 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
     jumpToPage, accessToken, fileId, isSpread, setIsSpread, spreadSide, setSpreadSide, goNext, goPrev,
     updateSourceBlob: onUpdateSourceBlob, currentBlobRef, 
     getUnburntOcrMap, markOcrAsSaved,
-    chatRequest, setChatRequest
-  }), [scale, currentPage, numPages, activeTool, settings, annotations, onAddAnnotation, onRemoveAnnotation, ocrMap, ocrStatusMap, setPageOcrData, updateOcrWord, triggerOcr, showOcrModal, refinePageOcr, hasUnsavedOcr, setHasUnsavedOcr, ocrNotification, jumpToPage, accessToken, fileId, isSpread, spreadSide, goNext, goPrev, onUpdateSourceBlob, getUnburntOcrMap, markOcrAsSaved, chatRequest]);
+    chatRequest, setChatRequest,
+    generateSearchIndex
+  }), [scale, currentPage, numPages, activeTool, settings, annotations, onAddAnnotation, onRemoveAnnotation, ocrMap, ocrStatusMap, setPageOcrData, updateOcrWord, triggerOcr, showOcrModal, refinePageOcr, hasUnsavedOcr, setHasUnsavedOcr, ocrNotification, jumpToPage, accessToken, fileId, isSpread, spreadSide, goNext, goPrev, onUpdateSourceBlob, getUnburntOcrMap, markOcrAsSaved, chatRequest, generateSearchIndex]);
 
   return <PdfContext.Provider value={value}>{children}</PdfContext.Provider>;
 };

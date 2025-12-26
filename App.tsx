@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback, useMemo, Suspense, lazy } from 'react';
 import { auth } from './firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { signInWithGoogleDrive, logout, saveDriveToken, getValidDriveToken } from './services/authService';
+import { signInWithGoogleDrive, logout, saveDriveToken, getValidDriveToken, DRIVE_TOKEN_EVENT } from './services/authService';
 import { 
   addRecentFile, performAppUpdateCleanup, runJanitor, saveOfflineFile, 
   getOfflineFile, getLocalDirectoryHandle, saveLocalDirectoryHandle 
@@ -151,7 +151,7 @@ const AppContent = () => {
     }
   }, []);
 
-  // Init
+  // Init & Auth Listeners
   useEffect(() => {
     const init = async () => {
         await performAppUpdateCleanup();
@@ -163,11 +163,28 @@ const AppContent = () => {
         setTimeout(() => getOcrWorker().catch(() => {}), 2000);
     };
     init();
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    
+    // Firebase Auth Listener
+    const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
-      if (!currentUser) { setAccessToken(null); setOpenFiles([]); setActiveTab('dashboard'); } else { const storedToken = getValidDriveToken(); if (storedToken) setAccessToken(storedToken); }
+      if (!currentUser) { setAccessToken(null); setOpenFiles([]); setActiveTab('dashboard'); } 
+      else { const storedToken = getValidDriveToken(); if (storedToken) setAccessToken(storedToken); }
     });
-    return () => unsubscribe();
+
+    // Token Update Listener (for Auto-Retry updates)
+    const handleTokenUpdate = (e: Event) => {
+        const customEvent = e as CustomEvent;
+        if (customEvent.detail && customEvent.detail.token) {
+            setAccessToken(customEvent.detail.token);
+            setShowReauthToast(false);
+        }
+    };
+    window.addEventListener(DRIVE_TOKEN_EVENT, handleTokenUpdate);
+
+    return () => {
+        unsubscribeAuth();
+        window.removeEventListener(DRIVE_TOKEN_EVENT, handleTokenUpdate);
+    };
   }, []);
 
   const handleOpenLocalFolder = useCallback(async () => {

@@ -26,17 +26,14 @@ const PRESET_COLORS = [
 export const PdfSidebar: React.FC<Props> = ({
   isOpen, onClose, activeTab, onTabChange, sidebarAnnotations, fichamentoText, onCopyFichamento, onDownloadFichamento,
 }) => {
-  const { settings, updateSettings, jumpToPage, removeAnnotation, triggerOcr, currentPage, ocrMap, hasUnsavedOcr } = usePdfContext();
+  const { settings, updateSettings, jumpToPage, removeAnnotation, triggerOcr, currentPage, ocrMap, hasUnsavedOcr, fileId, generateSearchIndex } = usePdfContext();
   const [isHoveringHandler, setIsHoveringHandler] = useState(false);
 
   // --- JARVIS PROTOCOL: SEMANTIC DEDUPLICATION (V2.1) ---
-  // A lógica agora inclui um filtro de "Artefatos Visuais".
-  // Highlights sem texto são considerados fragmentos de renderização (linhas 2+) e devem ser ocultos.
   const uniqueAnnotations = useMemo(() => {
     const seen = new Set<string>();
     
     return sidebarAnnotations.filter(ann => {
-        // FILTER: Se for highlight e estiver vazio, é um artefato visual de quebra de linha. Ocultar.
         if (ann.type === 'highlight' && (!ann.text || ann.text.trim() === '')) {
             return false;
         }
@@ -45,10 +42,8 @@ export const PdfSidebar: React.FC<Props> = ({
         let signature = '';
 
         if (content.length > 0) {
-            // Se tem texto, a unicidade é semântica. 
             signature = `${ann.page}-text-${content}`;
         } else {
-            // Se não tem texto (apenas permitido para INK ou NOTE vazia), usamos geometria.
             const x = Math.round(ann.bbox[0]);
             const y = Math.round(ann.bbox[1]);
             signature = `${ann.page}-${ann.type}-${x}-${y}`;
@@ -77,11 +72,11 @@ export const PdfSidebar: React.FC<Props> = ({
 
     const annotationsContent = uniqueAnnotations
         .filter(a => a.text && a.text.trim().length > 0)
-        .map(a => `[COMENTÁRIO DO USUÁRIO NA PÁGINA ${a.page}]: ${a.text}`)
+        .map(a => `[NOTA/DESTAQUE DO USUÁRIO NA PÁGINA ${a.page}]: ${a.text}`)
         .join('\n');
     
     if (annotationsContent) {
-        text += `\n--- OBSERVAÇÕES E DESTAQUES DO LEITOR ---\n${annotationsContent}\n`;
+        text += `\n--- SEÇÃO DE NOTAS PESSOAIS, RESUMO, FICHAMENTO E DESTAQUES FEITOS PELO USUÁRIO ---\n${annotationsContent}\n`;
     }
 
     return text || "O documento está sendo lido ou é um PDF de imagem sem processamento. Use a ferramenta 'Extrair Texto' para dar contexto ao Gemini.";
@@ -99,7 +94,7 @@ export const PdfSidebar: React.FC<Props> = ({
         <div 
             className={`fixed inset-y-0 right-0 z-[60] w-80 md:w-96 transition-transform duration-500 cubic-bezier(0.16, 1, 0.3, 1) flex ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
         >
-            {/* THE HANDLER (Attached Puller) - Old School Visual */}
+            {/* THE HANDLER */}
             <div className="absolute top-1/2 -left-6 -translate-y-1/2 z-[70] flex items-center">
                 <button
                     onClick={onClose}
@@ -121,7 +116,6 @@ export const PdfSidebar: React.FC<Props> = ({
 
             {/* MAIN PANEL */}
             <div className="flex-1 h-full flex flex-col relative overflow-hidden">
-                {/* Glassmorphism Background & Neon Border */}
                 <div className="absolute inset-0 bg-[#050505]/85 backdrop-blur-xl z-0" />
                 <div className="absolute inset-0 border-l border-brand/40 z-0 pointer-events-none shadow-[inset_10px_0_30px_-15px_rgba(var(--brand),0.3)] box-border" />
                 
@@ -187,10 +181,17 @@ export const PdfSidebar: React.FC<Props> = ({
                             </div>
                             {fichamentoText ? <div className="flex-1 bg-[#1a1a1a] border border-white/5 rounded-xl p-4 text-sm font-mono text-gray-300 whitespace-pre-wrap select-text leading-relaxed shadow-inner">{fichamentoText}</div> : <div className="flex-1 flex flex-col items-center justify-center text-gray-600 gap-2"><ScrollText size={32} className="opacity-20" /><span className="text-xs text-center max-w-[200px]">Destaque textos no documento para compilar aqui.</span></div>}
                         </div>
-                    ) : activeTab === 'chat' ? <AiChatPanel contextText={fullDocumentText} documentName="Documento PDF" className="bg-transparent" /> :
-                    activeTab === 'settings' ? (
+                    ) : activeTab === 'chat' ? (
+                        <AiChatPanel 
+                            contextText={fullDocumentText} 
+                            documentName="Documento PDF" 
+                            className="bg-transparent"
+                            fileId={fileId}
+                            onIndexRequest={() => generateSearchIndex(fullDocumentText)}
+                        />
+                    ) : activeTab === 'settings' ? (
                         <div className="flex-1 overflow-y-auto p-4 space-y-8 custom-scrollbar pb-10">
-                            {/* Settings Content... (Mantido igual) */}
+                            {/* Settings Content... */}
                             <div className="space-y-4">
                                 <h4 className="text-[10px] text-brand font-bold uppercase tracking-[0.2em] flex items-center gap-2 mb-4 border-b border-white/10 pb-2">
                                     <Palette size={14} /> Renderização
@@ -395,7 +396,7 @@ export const PdfSidebar: React.FC<Props> = ({
             </div>
         </div>
         
-        {/* THE FLOATING TRIGGER (Visible when sidebar is closed) - Old School Visual */}
+        {/* THE FLOATING TRIGGER */}
         {!isOpen && (
             <div className="fixed top-1/2 right-0 -translate-y-1/2 z-[50]">
                 <button 

@@ -1,19 +1,63 @@
 
 import { DriveFile, MIME_TYPES } from "../types";
-import { getValidDriveToken } from "./authService";
+import { getValidDriveToken, signInWithGoogleDrive, saveDriveToken } from "./authService";
 
 const LIST_PARAMS = "&supportsAllDrives=true&includeItemsFromAllDrives=true";
 const WRITE_PARAMS = "&supportsAllDrives=true";
 
-// Helper to validate token before request
-const getAuthTokenOrThrow = (): string => {
-  const token = getValidDriveToken();
-  if (!token) throw new Error("DRIVE_TOKEN_EXPIRED");
-  return token;
-};
+/**
+ * Interceptador Centralizado de Requisições (Protocolo Auto-Retry)
+ * Gerencia tokens expirados (401) tentando renovar silenciosamente ou via popup antes de falhar.
+ */
+async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
+  let token = getValidDriveToken();
+  const headers = new Headers(options.headers || {});
+
+  // Tenta injetar o token se disponível
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  // Primeira tentativa
+  let response: Response | null = null;
+  try {
+    response = await fetch(url, { ...options, headers });
+  } catch (e) {
+    // Erros de rede (offline, dns, etc) propagam normalmente
+    throw e;
+  }
+
+  // Se receber 401 (Unauthorized), tenta renovar o token
+  if (response.status === 401) {
+    console.warn("[Auto-Retry] Token expirado (401). Iniciando protocolo de renovação...");
+    
+    try {
+      // Tenta renovar (Isso abrirá um popup se o navegador não permitir refresh silencioso)
+      // Em contextos sem interação do usuário (ex: autosave), isso pode falhar (bloqueio de popup).
+      const result = await signInWithGoogleDrive();
+      
+      if (result && result.accessToken) {
+        console.log("[Auto-Retry] Token renovado com sucesso. Retentando requisição...");
+        saveDriveToken(result.accessToken);
+        token = result.accessToken;
+        
+        // Atualiza header e refaz a requisição
+        headers.set('Authorization', `Bearer ${token}`);
+        response = await fetch(url, { ...options, headers });
+      } else {
+        throw new Error("Falha ao obter novo token.");
+      }
+    } catch (renewError) {
+      console.error("[Auto-Retry] Falha crítica na renovação.", renewError);
+      // Lança o erro específico para que a UI mostre o Toast de Reautenticação (Opção 3)
+      throw new Error("DRIVE_TOKEN_EXPIRED");
+    }
+  }
+
+  return response;
+}
 
 export async function listDriveContents(accessToken: string, folderId: string = 'root'): Promise<DriveFile[]> {
-  const validToken = getAuthTokenOrThrow();
   let query = "";
   
   const supportedExtensions = [
@@ -65,11 +109,8 @@ export async function listDriveContents(accessToken: string, folderId: string = 
 
   const fields = "files(id, name, mimeType, thumbnailLink, parents, starred, size, modifiedTime)";
   
-  const response = await fetch(
-    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=${encodeURIComponent(fields)}&pageSize=1000&orderBy=folder,name${LIST_PARAMS}`,
-    {
-      headers: { Authorization: `Bearer ${validToken}` }
-    }
+  const response = await fetchWithAuth(
+    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=${encodeURIComponent(fields)}&pageSize=1000&orderBy=folder,name${LIST_PARAMS}`
   );
 
   if (!response.ok) {
@@ -83,16 +124,11 @@ export async function listDriveContents(accessToken: string, folderId: string = 
 }
 
 export async function listDriveFolders(accessToken: string, parentId: string = 'root'): Promise<DriveFile[]> {
-  const validToken = getAuthTokenOrThrow();
-  // Query apenas para pastas
   const query = `'${parentId}' in parents and mimeType='${MIME_TYPES.FOLDER}' and trashed=false`;
   const fields = "files(id, name, mimeType, parents)";
   
-  const response = await fetch(
-    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=${encodeURIComponent(fields)}&pageSize=1000&orderBy=name${LIST_PARAMS}`,
-    {
-      headers: { Authorization: `Bearer ${validToken}` }
-    }
+  const response = await fetchWithAuth(
+    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=${encodeURIComponent(fields)}&pageSize=1000&orderBy=name${LIST_PARAMS}`
   );
 
   if (!response.ok) {
@@ -105,15 +141,11 @@ export async function listDriveFolders(accessToken: string, parentId: string = '
 }
 
 export async function searchMindMaps(accessToken: string): Promise<DriveFile[]> {
-  const validToken = getAuthTokenOrThrow();
   const query = `name contains '${MIME_TYPES.LEGACY_MINDMAP_EXT}' and trashed=false`;
   const fields = "files(id, name, mimeType, thumbnailLink, parents, starred, modifiedTime)";
   
-  const response = await fetch(
-    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=${encodeURIComponent(fields)}&pageSize=1000&orderBy=modifiedTime desc${LIST_PARAMS}`,
-    {
-      headers: { Authorization: `Bearer ${validToken}` }
-    }
+  const response = await fetchWithAuth(
+    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=${encodeURIComponent(fields)}&pageSize=1000&orderBy=modifiedTime desc${LIST_PARAMS}`
   );
 
   if (!response.ok) {
@@ -127,7 +159,6 @@ export async function searchMindMaps(accessToken: string): Promise<DriveFile[]> 
 }
 
 export async function downloadDriveFile(accessToken: string, driveFileId: string, mimeType?: string): Promise<Blob> {
-  const validToken = getAuthTokenOrThrow();
   let url = `https://www.googleapis.com/drive/v3/files/${driveFileId}?alt=media${WRITE_PARAMS}`;
 
   if (mimeType === MIME_TYPES.GOOGLE_DOC) {
@@ -138,7 +169,7 @@ export async function downloadDriveFile(accessToken: string, driveFileId: string
       url = `https://www.googleapis.com/drive/v3/files/${driveFileId}/export?mimeType=application/vnd.openxmlformats-officedocument.presentationml.presentation`;
   }
 
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${validToken}` } });
+  const res = await fetchWithAuth(url);
   if (!res.ok) {
     if (res.status === 401) throw new Error("DRIVE_TOKEN_EXPIRED");
     throw new Error("Falha no download do Drive");
@@ -153,7 +184,6 @@ export async function uploadFileToDrive(
   parents: string[] = [],
   mimeType: string = MIME_TYPES.PDF
 ): Promise<{ id: string }> {
-  const validToken = getAuthTokenOrThrow();
   const metadata = {
     name: name,
     mimeType: mimeType,
@@ -164,9 +194,8 @@ export async function uploadFileToDrive(
   form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
   form.append('file', file);
 
-  const res = await fetch(`https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart${WRITE_PARAMS}`, {
+  const res = await fetchWithAuth(`https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart${WRITE_PARAMS}`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${validToken}` },
     body: form
   });
 
@@ -183,15 +212,13 @@ export async function updateDriveFile(
   file: Blob,
   mimeType: string = MIME_TYPES.PDF
 ): Promise<{ id: string }> {
-  const validToken = getAuthTokenOrThrow();
   const metadata = { mimeType: mimeType };
   const form = new FormData();
   form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
   form.append('file', file);
 
-  const res = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart${WRITE_PARAMS}`, {
+  const res = await fetchWithAuth(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart${WRITE_PARAMS}`, {
     method: 'PATCH',
-    headers: { Authorization: `Bearer ${validToken}` },
     body: form
   });
 
@@ -208,17 +235,11 @@ export async function moveDriveFile(
   previousParents: string[],
   newParentId: string
 ): Promise<void> {
-  const validToken = getAuthTokenOrThrow();
-  
-  // Constrói a query string
-  // addParents: ID da nova pasta
-  // removeParents: ID da pasta antiga (necessário para "mover", senão ele apenas adiciona um atalho)
   const prevParentsStr = previousParents.join(',');
   const url = `https://www.googleapis.com/drive/v3/files/${fileId}?addParents=${newParentId}&removeParents=${prevParentsStr}${WRITE_PARAMS}`;
 
-  const res = await fetch(url, {
-    method: 'PATCH',
-    headers: { Authorization: `Bearer ${validToken}` }
+  const res = await fetchWithAuth(url, {
+    method: 'PATCH'
   });
 
   if (!res.ok) {
@@ -229,10 +250,8 @@ export async function moveDriveFile(
 }
 
 export async function deleteDriveFile(accessToken: string, fileId: string): Promise<void> {
-  const validToken = getAuthTokenOrThrow();
-  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?supportsAllDrives=true`, {
-    method: 'DELETE',
-    headers: { Authorization: `Bearer ${validToken}` }
+  const res = await fetchWithAuth(`https://www.googleapis.com/drive/v3/files/${fileId}?supportsAllDrives=true`, {
+    method: 'DELETE'
   });
   
   if (!res.ok) {
@@ -241,11 +260,9 @@ export async function deleteDriveFile(accessToken: string, fileId: string): Prom
 }
 
 export async function renameDriveFile(accessToken: string, fileId: string, newName: string): Promise<void> {
-  const validToken = getAuthTokenOrThrow();
-  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?supportsAllDrives=true`, {
+  const res = await fetchWithAuth(`https://www.googleapis.com/drive/v3/files/${fileId}?supportsAllDrives=true`, {
     method: 'PATCH',
     headers: { 
-      Authorization: `Bearer ${validToken}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({ name: newName })

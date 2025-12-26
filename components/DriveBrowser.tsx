@@ -137,7 +137,13 @@ const FileItem = React.memo(({ file, onSelect, onTogglePin, onDelete, onShare, o
                         <div className="p-1.5 bg-[#161b22] border border-[#30363d] rounded-lg text-brand shadow-sm">
                             <FolderOpen size={16} />
                         </div>
-                        <span className="text-[10px] font-mono font-bold text-[#8b949e] uppercase tracking-wider bg-[#161b22] px-1.5 py-0.5 rounded border border-[#30363d]">DIR</span>
+                        {isPinned ? (
+                            <div className="text-brand bg-[#161b22] p-1 rounded border border-brand/30 shadow-sm" title="Pasta Fixada">
+                                <Pin size={10} fill="currentColor" />
+                            </div>
+                        ) : (
+                            <span className="text-[10px] font-mono font-bold text-[#8b949e] uppercase tracking-wider bg-[#161b22] px-1.5 py-0.5 rounded border border-[#30363d]">DIR</span>
+                        )}
                     </div>
                     {!isLocalMode && (
                         <button 
@@ -167,6 +173,9 @@ const FileItem = React.memo(({ file, onSelect, onTogglePin, onDelete, onShare, o
                 {/* Menu Dropdown */}
                 {isActiveMenu && !isLocalMode && (
                     <div className="absolute top-10 right-2 w-48 bg-[#161b22] border border-[#30363d] shadow-2xl rounded-xl overflow-hidden z-30 animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
+                        <button onClick={() => onTogglePin(file)} className="w-full text-left px-4 py-3 hover:bg-[#21262d] text-xs flex items-center gap-2 text-[#c9d1d9]">
+                            {isPinned ? <><PinOff size={14} /> Desafixar</> : <><Pin size={14} /> Fixar no Topo</>}
+                        </button>
                         <button onClick={() => onRename(file)} className="w-full text-left px-4 py-3 hover:bg-[#21262d] text-xs flex items-center gap-2 text-[#c9d1d9]"><Edit2 size={14} /> Renomear</button>
                         <button onClick={() => onMove(file)} className="w-full text-left px-4 py-3 hover:bg-[#21262d] text-xs flex items-center gap-2 text-[#c9d1d9]"><FolderInput size={14} /> Mover para...</button>
                         <button onClick={() => onShare(file)} className="w-full text-left px-4 py-3 hover:bg-[#21262d] text-xs flex items-center gap-2 text-[#c9d1d9]"><Share2 size={14} /> Compartilhar</button>
@@ -285,10 +294,18 @@ export const DriveBrowser: React.FC<Props> = ({
       setActiveMenuId(null);
       try {
           if (!offlineFileIds.has(file.id) && !isPinned) {
-              setActionLoading(true);
-              const blob = await downloadDriveFile(accessToken, file.id, file.mimeType);
-              await saveOfflineFile(file, blob, true);
-          } else await toggleFilePin(file.id, !isPinned);
+              if (file.mimeType === MIME_TYPES.FOLDER) {
+                  // Pastas: Salva apenas metadados (sem blob)
+                  await saveOfflineFile(file, null, true);
+              } else {
+                  // Arquivos: Baixa conteúdo
+                  setActionLoading(true);
+                  const blob = await downloadDriveFile(accessToken, file.id, file.mimeType);
+                  await saveOfflineFile(file, blob, true);
+              }
+          } else {
+              await toggleFilePin(file.id, !isPinned);
+          }
           updateCacheStatus();
       } catch (e) { alert("Erro ao fixar."); } finally { setActionLoading(false); }
   }, [accessToken, offlineFileIds, pinnedFileIds, updateCacheStatus]);

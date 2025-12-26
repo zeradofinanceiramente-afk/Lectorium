@@ -1,22 +1,62 @@
+
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Sparkles, Loader2, User, Bot, Trash2, MessageSquare, FileSearch } from 'lucide-react';
+import { Send, Sparkles, Loader2, User, Bot, Trash2, MessageSquare, FileSearch, Copy, Check, BrainCircuit, Database } from 'lucide-react';
 import { ChatMessage } from '../../types';
-import { chatWithDocumentStream } from '../../services/aiService';
+import { chatWithDocumentStream, findRelevantChunks } from '../../services/aiService';
+import { semanticSearch } from '../../services/ragService';
 import { usePdfContext } from '../../context/PdfContext';
 
 interface Props {
   contextText: string;
   documentName: string;
   className?: string;
+  fileId?: string; // Optional for RAG
+  onIndexRequest?: () => Promise<void>; // Request to build index
 }
 
-export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, className = "" }) => {
+const MessageItem: React.FC<{ m: ChatMessage }> = ({ m }) => {
+    const [copied, setCopied] = useState(false);
+
+    const onCopy = () => {
+        if (!m.text) return;
+        navigator.clipboard.writeText(m.text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
+
+    return (
+      <div className={`flex gap-3 ${m.role === 'user' ? 'flex-row-reverse' : ''}`}>
+          <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border ${m.role === 'user' ? 'bg-blue-500/10 border-blue-500/30 text-blue-400' : 'bg-brand/10 border-brand/30 text-brand'}`}>
+              {m.role === 'user' ? <User size={16} /> : <Bot size={16} />}
+          </div>
+          <div className={`max-w-[85%] rounded-2xl p-3 text-sm leading-relaxed ${m.role === 'user' ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-surface border border-border text-text rounded-tl-none'}`}>
+              <div className="whitespace-pre-wrap select-text selection:bg-brand/30 selection:text-white">{m.text}</div>
+              
+              {m.role === 'model' && m.text && (
+                  <div className="mt-2 pt-2 border-t border-white/5 flex justify-end">
+                      <button 
+                        onClick={onCopy} 
+                        className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-text-sec hover:text-brand transition-colors px-2 py-1 hover:bg-white/5 rounded"
+                        title="Copiar resposta"
+                      >
+                          {copied ? <Check size={12} /> : <Copy size={12} />}
+                          {copied ? 'Copiado' : 'Copiar'}
+                      </button>
+                  </div>
+              )}
+          </div>
+      </div>
+    );
+};
+
+export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, className = "", fileId, onIndexRequest }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const [isRagActive, setIsRagActive] = useState(false);
+  const [isIndexing, setIsIndexing] = useState(false);
   
-  // Consume context to check for incoming "Explain" requests
+  const scrollRef = useRef<HTMLDivElement>(null);
   const { chatRequest, setChatRequest } = usePdfContext();
 
   useEffect(() => {
@@ -25,11 +65,25 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
     }
   }, [messages]);
 
+  const handleIndex = async () => {
+      if (onIndexRequest && !isIndexing) {
+          setIsIndexing(true);
+          try {
+              await onIndexRequest();
+              setIsRagActive(true);
+          } catch (e) {
+              console.error(e);
+          } finally {
+              setIsIndexing(false);
+          }
+      }
+  };
+
   // Main sending logic
   const handleSend = async (textOverride?: string) => {
     const textToSend = textOverride || input;
     
-    if (!textToSend.trim() || isLoading || !contextText) return;
+    if (!textToSend.trim() || isLoading) return;
 
     const userMessage = textToSend.trim();
     setInput("");
@@ -37,10 +91,39 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
     setIsLoading(true);
 
     try {
-        const stream = chatWithDocumentStream(contextText, messages, userMessage);
+        // --- HYBRID RETRIEVAL STRATEGY ---
+        let retrievalContext = "";
+        let mode = "TEXT-MATCH";
+
+        // 1. Try Semantic Search (Vector RAG)
+        if (fileId && isRagActive) {
+            try {
+                const results = await semanticSearch(fileId, userMessage);
+                if (results.length > 0) {
+                    retrievalContext = results.map(r => `[Página ${r.page || '?'}] ${r.text}`).join("\n\n---\n\n");
+                    mode = "NEURAL-RAG";
+                }
+            } catch (e) {
+                console.warn("RAG failed, falling back to text match", e);
+            }
+        }
+
+        // 2. Fallback to Keyword Match (Classic) if RAG failed or empty
+        if (!retrievalContext && contextText) {
+            const chunks = findRelevantChunks(contextText, userMessage);
+            retrievalContext = chunks.join("\n\n---\n\n");
+        }
+
+        // 3. Fallback message
+        if (!retrievalContext) {
+            retrievalContext = "Documento vazio ou sem texto extraído disponível.";
+        }
+
+        console.log(`[LectoriumAI] Mode: ${mode} | Context Length: ${retrievalContext.length}`);
+
+        const stream = chatWithDocumentStream(retrievalContext, messages, userMessage);
         let assistantText = "";
         
-        // Adiciona mensagem vazia do assistente para ir preenchendo
         setMessages(prev => [...prev, { role: 'model', text: "" }]);
 
         for await (const chunk of stream) {
@@ -58,11 +141,10 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
     }
   };
 
-  // Watch for external chat requests (from selection menu "Explain")
   useEffect(() => {
     if (chatRequest) {
         handleSend(chatRequest);
-        setChatRequest(null); // Clear request after processing
+        setChatRequest(null);
     }
   }, [chatRequest]);
 
@@ -70,17 +152,33 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
     if (confirm("Limpar histórico do chat?")) setMessages([]);
   };
 
+  const handleContextMenu = (e: React.MouseEvent) => {
+      e.stopPropagation();
+  };
+
   return (
-    <div className={`flex flex-col h-full bg-bg ${className}`}>
+    <div className={`flex flex-col h-full bg-bg ${className}`} onContextMenu={handleContextMenu}>
       {/* Header */}
       <div className="p-3 border-b border-border flex items-center justify-between bg-surface/50">
           <div className="flex items-center gap-2 text-brand">
               <MessageSquare size={16} />
-              <span className="text-xs font-bold uppercase tracking-wider">Chat com Documento</span>
+              <span className="text-xs font-bold uppercase tracking-wider">Lectorium AI</span>
           </div>
-          <button onClick={clearChat} className="p-1.5 text-text-sec hover:text-red-400 transition-colors" title="Limpar Chat">
-              <Trash2 size={14} />
-          </button>
+          <div className="flex items-center gap-1">
+              {onIndexRequest && (
+                  <button 
+                    onClick={handleIndex} 
+                    disabled={isIndexing || isRagActive}
+                    className={`p-1.5 rounded transition-colors ${isRagActive ? 'text-purple-400' : 'text-text-sec hover:text-white'}`}
+                    title={isRagActive ? "Memória Neural Ativa" : "Criar Índice Semântico"}
+                  >
+                      {isIndexing ? <Loader2 size={14} className="animate-spin"/> : <BrainCircuit size={14} />}
+                  </button>
+              )}
+              <button onClick={clearChat} className="p-1.5 text-text-sec hover:text-red-400 transition-colors" title="Limpar Chat">
+                  <Trash2 size={14} />
+              </button>
+          </div>
       </div>
 
       {/* Messages */}
@@ -89,24 +187,27 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
               <div className="flex flex-col items-center justify-center h-full text-center p-6 space-y-4 opacity-40">
                   <Sparkles size={48} className="text-brand animate-pulse" />
                   <div className="space-y-1">
-                      <p className="text-sm font-bold text-text">Pergunte qualquer coisa</p>
-                      <p className="text-xs text-text-sec">IA analisando: {documentName}</p>
+                      <p className="text-sm font-bold text-text">Pergunte ao Documento</p>
+                      <p className="text-xs text-text-sec">Analisando: {documentName}</p>
                   </div>
-                  <div className="bg-brand/10 p-2 rounded text-[10px] text-brand border border-brand/20">
-                      Modo: Pesquisa Contextual (RAG)
-                  </div>
+                  {onIndexRequest && !isRagActive && !isIndexing && (
+                      <button 
+                        onClick={handleIndex}
+                        className="bg-brand/10 border border-brand/20 px-3 py-1.5 rounded-full text-[10px] text-brand hover:bg-brand/20 transition-colors flex items-center gap-2"
+                      >
+                          <Database size={12} /> Ativar Busca Semântica
+                      </button>
+                  )}
+                  {isRagActive && (
+                      <div className="flex items-center gap-1 text-[10px] text-purple-400 bg-purple-500/10 px-2 py-1 rounded border border-purple-500/20">
+                          <BrainCircuit size={12} /> Memória Neural Ativa
+                      </div>
+                  )}
               </div>
           )}
 
           {messages.map((m, i) => (
-              <div key={i} className={`flex gap-3 ${m.role === 'user' ? 'flex-row-reverse' : ''}`}>
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border ${m.role === 'user' ? 'bg-blue-500/10 border-blue-500/30 text-blue-400' : 'bg-brand/10 border-brand/30 text-brand'}`}>
-                      {m.role === 'user' ? <User size={16} /> : <Bot size={16} />}
-                  </div>
-                  <div className={`max-w-[85%] rounded-2xl p-3 text-sm leading-relaxed ${m.role === 'user' ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-surface border border-border text-text rounded-tl-none'}`}>
-                      <div className="whitespace-pre-wrap">{m.text}</div>
-                  </div>
-              </div>
+              <MessageItem key={i} m={m} />
           ))}
 
           {isLoading && messages[messages.length-1]?.role === 'user' && (
@@ -116,7 +217,7 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
                   </div>
                   <div className="bg-surface border border-border rounded-2xl rounded-tl-none p-3 flex items-center gap-3">
                       <div className="text-xs text-text-sec italic">
-                          Analisando documento...
+                          {isRagActive ? "Consultando vetores..." : "Lendo contexto..."}
                       </div>
                       <div className="flex gap-1">
                           <div className="w-1.5 h-1.5 bg-brand rounded-full animate-bounce"></div>
@@ -152,7 +253,6 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
                   <Send size={18} />
               </button>
           </div>
-          <p className="text-[9px] text-text-sec mt-2 text-center opacity-50 uppercase font-bold tracking-tighter">Powered by Gemini 3 Flash</p>
       </div>
     </div>
   );

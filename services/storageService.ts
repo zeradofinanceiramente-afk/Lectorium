@@ -6,7 +6,7 @@ export const APP_VERSION = '1.3.1';
 const BLOB_CACHE_LIMIT = 500 * 1024 * 1024;
 
 interface OfflineRecord extends DriveFile {
-    blob: Blob;
+    blob?: Blob; // Blob agora é opcional (pastas não têm blob)
     storedAt: number;
     lastAccessed: number;
     pinned: boolean;
@@ -192,17 +192,23 @@ export async function runJanitor(): Promise<void> {
   }
 }
 
-export async function saveOfflineFile(file: DriveFile, blob: Blob, pinned: boolean = false): Promise<void> {
+export async function saveOfflineFile(file: DriveFile, blob: Blob | null, pinned: boolean = false): Promise<void> {
   const idb = await dbPromise;
   const { blob: _, ...metadata } = file;
-  await idb.put("offlineFiles", { 
+  
+  const record: OfflineRecord = { 
     ...metadata,
     id: file.id, 
-    blob, 
     storedAt: Date.now(),
     lastAccessed: Date.now(),
     pinned: pinned || !!file.pinned
-  });
+  };
+
+  if (blob) {
+      record.blob = blob;
+  }
+
+  await idb.put("offlineFiles", record);
 }
 
 export async function touchOfflineFile(fileId: string): Promise<void> {

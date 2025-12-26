@@ -26,7 +26,7 @@ const STOP_WORDS = new Set([
 ]);
 
 // Divide o texto em blocos lógicos (parágrafos)
-function chunkText(fullText: string, maxChunkSize = 1000): string[] {
+export function chunkText(fullText: string, maxChunkSize = 1000): string[] {
   const cleanText = fullText.replace(/\r\n/g, '\n');
   let rawChunks = cleanText.split(/\n\s*\n/);
   const finalChunks: string[] = [];
@@ -69,7 +69,7 @@ function scoreChunk(chunk: string, queryTerms: string[]): number {
   return score;
 }
 
-function findRelevantChunks(documentText: string, query: string, topK = 4): string[] {
+export function findRelevantChunks(documentText: string, query: string, topK = 4): string[] {
   if (!documentText) return [];
   const queryTerms = query.toLowerCase()
     .replace(/[^\w\sà-ú]/g, '')
@@ -258,42 +258,34 @@ export async function generateMindMapAi(topic: string): Promise<MindMapData> {
 
 /**
  * Chat Stream with Local RAG Strategy
+ * Now accepts a contextString directly (pre-retrieved via RAG or regex)
  */
-export async function* chatWithDocumentStream(documentText: string, history: ChatMessage[], message: string) {
+export async function* chatWithDocumentStream(contextString: string, history: ChatMessage[], message: string) {
   const ai = getAiClient();
   
-  // 1. RAG: Encontrar trechos relevantes para a pergunta ATUAL
-  const relevantChunks = findRelevantChunks(documentText, message);
-  const contextString = relevantChunks.length > 0 
-    ? relevantChunks.join("\n\n---\n\n") 
-    : "Documento vazio ou sem texto legível disponível no momento.";
-  
-  // 2. Mapear histórico do formato interno para o formato do Gemini SDK
-  // Excluindo a última mensagem do usuário (que será enviada via sendMessage)
-  // IMPORTANTE: Mapeia roles 'model' para 'model' e 'user' para 'user'
+  // Mapear histórico do formato interno para o formato do Gemini SDK
   const previousHistory = history.slice(0, -1).map(msg => ({
     role: msg.role === 'model' ? 'model' : 'user',
     parts: [{ text: msg.text }],
   }));
 
-  const systemInstruction = `Você é o Lectorium AI, o núcleo de inteligência analítica do Lectorium. Você não é apenas um chatbot; você é um analista de sistemas sênior e assistente de pesquisa acadêmica de alto desempenho.
+  const systemInstruction = `Você é o Lectorium AI, o núcleo de inteligência analítica do Lectorium.
 Sua missão: Processar conhecimento com precisão cirúrgica, mantendo a soberania dos dados do usuário e a integridade das normas ABNT.
 
 DIRETRIZES DE COMPORTAMENTO (O "ESTILO JARVIS"):
-1. Anticonformismo e Crítica: Não tente agradar o usuário. Seja direto, técnico e, se necessário, questione a premissa da pergunta se ela for mediocre. O usuário valoriza a ousadia e o rigor intelectual.
-2. Ousadia Didática: Não apenas resuma. Conecte os pontos. Se o documento menciona "X" e a literatura acadêmica externa sugere "Y", aponte a contradição.
+1. Anticonformismo e Crítica: Não tente agradar. Seja direto, técnico e questione premissas mediocres.
+2. Ousadia Didática: Conecte os pontos. Se o documento menciona "X" e a literatura externa sugere "Y", aponte a contradição.
 3. Fontes Híbridas (RAG + Web):
-   * Sua prioridade zero é o CONTEXTO RELEVANTE fornecido pelo documento local.
-   * Enriquecimento Externo: Você tem permissão para usar seus conhecimentos de escritos acadêmicos consagrados para expandir a resposta, mas DEVE diferenciar o que é do documento e o que é conhecimento externo.
-4. Citação Obrigatória: Use colchetes para citações [Autor, Ano] ou [Página X]. Se a informação não existir em lugar nenhum, seja honesto: "Informação ausente no documento e na base de conhecimento acadêmica".
-5. Transcrição vs. Síntese: Pedidos de "transcrição" exigem fidelidade 1:1 (UTF-8 puro). Outros pedidos exigem síntese analítica de alta densidade.
-6. Restrição Estética (Clean UI): É terminantemente PROIBIDO o uso de Markdown de negrito (**) ou itálico (_). O Lectorium utiliza uma interface de alta performance baseada em texto plano para evitar ruído visual. Use listas numeradas ou hifens para estrutura.
+   * Prioridade zero: CONTEXTO RELEVANTE fornecido.
+   * Enriquecimento: Use conhecimentos externos acadêmicos, mas diferencie claramente do documento.
+4. Citação: Use colchetes para referências [Página X] ou [Autor, Ano] baseadas no contexto.
+5. Formatação: Texto plano limpo. Sem Markdown excessivo (** ou _). Use listas numeradas ou hifens.
 
 📚 CONTEXTO RELEVANTE (LOCAL-FIRST DATA):
-${contextString}
+${contextString || "Documento vazio ou contexto não encontrado."}
 
 🌐 CONHECIMENTO ACADÊMICO AMPLIADO:
-Ao responder, integre conceitos de autores clássicos e contemporâneos relevantes ao tema acima, sempre citando-os para manter o padrão científico.`;
+Ao responder, integre conceitos de autores clássicos e contemporâneos relevantes ao tema acima.`;
 
   try {
     const chat = ai.chats.create({

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { SelectionState } from '../components/pdf/SelectionMenu';
 
@@ -98,19 +99,35 @@ export const usePdfSelection = ({ activeTool, scale, containerRef }: UsePdfSelec
         }
       }
 
+      // --- MAGNETIC POSITIONING SYSTEM ---
+      const clientRects = range.getClientRects();
       const boundingRect = range.getBoundingClientRect();
+      
+      const anchorRect = clientRects.length > 0 
+        ? clientRects[clientRects.length - 1] 
+        : boundingRect;
+
       const container = containerRef.current;
       const containerRect = container.getBoundingClientRect();
       
-      let popupY = boundingRect.top - containerRect.top + container.scrollTop - 60;
-      let position: 'top' | 'bottom' = 'top';
+      const anchorBottom = anchorRect.bottom - containerRect.top + container.scrollTop;
+      const anchorLeft = anchorRect.left - containerRect.left + container.scrollLeft;
+      const anchorWidth = anchorRect.width;
 
-      if ((boundingRect.top - containerRect.top) < 60) {
-         popupY = boundingRect.bottom - containerRect.top + container.scrollTop + 10;
-         position = 'bottom';
+      let popupY = anchorBottom + 8;
+      let position: 'top' | 'bottom' = 'bottom';
+
+      const viewportHeight = container.clientHeight;
+      const visibleBottom = container.scrollTop + viewportHeight;
+      const menuEstimatedHeight = 60;
+
+      if (popupY + menuEstimatedHeight > visibleBottom) {
+         const wholeBlockTop = boundingRect.top - containerRect.top + container.scrollTop;
+         popupY = wholeBlockTop - menuEstimatedHeight; 
+         position = 'top';
       }
 
-      const popupX = boundingRect.left - containerRect.left + container.scrollLeft + (boundingRect.width / 2);
+      const popupX = anchorLeft + (anchorWidth / 2);
 
       setSelection({
         page: pageNum,
@@ -124,13 +141,19 @@ export const usePdfSelection = ({ activeTool, scale, containerRef }: UsePdfSelec
 
     const handleSelectionChange = () => {
       if (selectionDebounce.current) clearTimeout(selectionDebounce.current);
-      // OTIMIZAÇÃO: 150ms é um bom balanço entre responsividade e performance
-      // Evita o "pulo" do handle nativo causado por re-renders frequentes do React
-      selectionDebounce.current = setTimeout(processSelection, 150);
+      
+      // OCULTAR IMEDIATAMENTE: Garante que o menu suma enquanto arrasta
+      setSelection(null);
+
+      // DELAY AUMENTADO: Só processa após 500ms de inatividade
+      selectionDebounce.current = setTimeout(processSelection, 500);
     };
 
     const handleInteractionEnd = (e: Event) => {
       if (e.target instanceof Element && e.target.closest('button, input, textarea, .ui-panel')) return;
+      
+      // Ao soltar o mouse, podemos ser mais rápidos que o debounce de 500ms
+      // para dar feedback de conclusão, mas limpamos o timer anterior.
       if (selectionDebounce.current) clearTimeout(selectionDebounce.current);
       setTimeout(processSelection, 10);
     };

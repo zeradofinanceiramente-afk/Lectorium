@@ -2,6 +2,7 @@ import { signInWithPopup, GoogleAuthProvider, signOut as firebaseSignOut, setPer
 import { auth } from "../firebase";
 
 const TOKEN_DATA_KEY = 'drive_access_token_data';
+export const DRIVE_TOKEN_EVENT = 'drive_token_changed';
 
 export const saveDriveToken = (token: string, expiresIn: number = 3600) => {
   // Default Google OAuth access token lifetime is 1 hour (3600s)
@@ -12,6 +13,9 @@ export const saveDriveToken = (token: string, expiresIn: number = 3600) => {
     expiresAt: expiryDate
   };
   localStorage.setItem(TOKEN_DATA_KEY, JSON.stringify(tokenData));
+  
+  // Notifica a aplicação que o token mudou (para atualizar estados React e interceptadores)
+  window.dispatchEvent(new CustomEvent(DRIVE_TOKEN_EVENT, { detail: { token } }));
 };
 
 export const getValidDriveToken = (): string | null => {
