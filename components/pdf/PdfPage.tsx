@@ -125,6 +125,7 @@ export const PdfPage: React.FC<PdfPageProps> = ({
   useEffect(() => {
     const element = pageContainerRef.current;
     if (!element) return;
+    // Aumentamos a margem para pre-load, mas gerenciamos o render com cuidado
     const observer = new IntersectionObserver(([entry]) => setIsVisible(entry.isIntersecting), { rootMargin: '50% 0px' });
     observer.observe(element);
     return () => observer.disconnect();
@@ -154,6 +155,13 @@ export const PdfPage: React.FC<PdfPageProps> = ({
   useEffect(() => {
     if (!isVisible || !pageDimensions || !pageProxy || !canvasRef.current) return;
     let active = true;
+    
+    // --- ENERGY SAVER PROTOCOL ---
+    // Em dispositivos móveis de alta densidade (Retina/OLED), renderizar a 3x ou 4x consome muita bateria.
+    // Limitamos o DPR a 2.0 (que já é excelente) para salvar GPU. Em telas desktop normais, usa-se 1.0.
+    const nativeDpr = window.devicePixelRatio || 1;
+    const cappedDpr = Math.min(nativeDpr, 2.0); 
+
     const render = async () => {
       try {
         const viewport = pageProxy.getViewport({ scale: scale });
@@ -162,13 +170,12 @@ export const PdfPage: React.FC<PdfPageProps> = ({
         if (!ctx) return;
         if (renderTaskRef.current) try { renderTaskRef.current.cancel(); } catch {}
 
-        const dpr = window.devicePixelRatio || 1;
-        canvas.width = Math.floor(viewport.width * dpr);
-        canvas.height = Math.floor(viewport.height * dpr);
+        canvas.width = Math.floor(viewport.width * cappedDpr);
+        canvas.height = Math.floor(viewport.height * cappedDpr);
         canvas.style.width = `${viewport.width}px`;
         canvas.style.height = `${viewport.height}px`;
         ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.scale(dpr, dpr);
+        ctx.scale(cappedDpr, cappedDpr);
 
         const task = pageProxy.render({ canvasContext: ctx, viewport });
         renderTaskRef.current = task;
@@ -327,11 +334,6 @@ export const PdfPage: React.FC<PdfPageProps> = ({
     e.currentTarget.releasePointerCapture(e.pointerId);
     
     if (currentPoints.length > 1) {
-        // --- JARVIS PROTOCOL: SEMANTIC INK V2 (TEMPORARILY DISABLED) ---
-        // O algoritmo "Point-in-Rect" foi desligado para otimizar performance 
-        // e focar na anotação puramente visual, conforme solicitado.
-        // O campo 'text' agora recebe um placeholder vazio para não poluir o fichamento.
-        
         addAnnotation({
             id: `ink-${Date.now()}`,
             page: pageNumber,
@@ -342,7 +344,7 @@ export const PdfPage: React.FC<PdfPageProps> = ({
             strokeWidth: settings.inkStrokeWidth / 5,
             opacity: settings.inkOpacity,
             createdAt: new Date().toISOString(),
-            text: "" // Desativado: Não captura texto subjacente
+            text: "" 
         });
     }
     setCurrentPoints([]);

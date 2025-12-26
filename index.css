@@ -60,12 +60,12 @@ body.is-native textarea {
 }
 
 /* --- THEME DEFINITIONS --- */
-/* Default (Forest) */
+/* Default (OLED / True Black Protocol) */
 :root {
-  --bg-main: #09090b;
-  --bg-surface: #121212;
-  --bg-sidebar: #0a0a0a;
-  --bg-paper: #121212;
+  --bg-main: #000000; /* Mudança Tática: Zero Energy */
+  --bg-surface: #0a0a0a;
+  --bg-sidebar: #000000;
+  --bg-paper: #000000;
   --text-main: #e2e8f0;
   --text-sec: #a1a1aa;
   --border-color: #27272a;
