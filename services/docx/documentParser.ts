@@ -11,6 +11,7 @@ interface ParseContext {
   styles: StyleMap;
   commentsMap: Record<string, CommentData>;
   relsMap: Record<string, string>; // rId -> target (image path)
+  activeCommentIds: Set<string>; // Rastreia comentários abertos durante a leitura linear
   numbering?: any; // Future: Ordered lists
 }
 
@@ -31,10 +32,17 @@ export async function parseDocument(
     
     if (node.nodeName === "w:p") {
       const pNode = await parseParagraph(node, context);
-      if (pNode) content.push(pNode);
+      if (Array.isArray(pNode)) {
+          // Se o parágrafo foi quebrado (ex: continha pageBreak), adiciona os múltiplos nós
+          content.push(...pNode);
+      } else if (pNode) {
+          content.push(pNode);
+      }
     } else if (node.nodeName === "w:tbl") {
       const tNode = await parseTable(node, context);
       if (tNode) content.push(tNode);
+    } else if (node.nodeName === "w:sectPr") {
+       // Seções isoladas às vezes contêm quebras, mas geralmente são propriedades
     }
   }
 
@@ -44,13 +52,48 @@ export async function parseDocument(
   let settings: PageSettings | undefined = undefined;
 
   if (lastSect) {
-    settings = parseSectionProperties(lastSect);
+    settings = await parseSectionProperties(lastSect, context);
   }
 
   return { content, settings };
 }
 
-function parseSectionProperties(sectPr: Element): PageSettings {
+// Helper para ler texto de arquivos XML auxiliares (header/footer)
+async function loadHeaderFooterText(zip: JSZip, path: string): Promise<string> {
+    let fullPath = path;
+    // Normalização básica de caminho relativa a word/
+    if (!path.startsWith("word/") && !path.startsWith("/")) {
+        fullPath = "word/" + path;
+    }
+    if (fullPath.startsWith("/")) fullPath = fullPath.substring(1);
+
+    try {
+        const file = zip.file(fullPath);
+        if (!file) return "";
+        
+        const xmlStr = await file.async("string");
+        const doc = parseXml(xmlStr);
+        let text = "";
+        
+        // Extrai parágrafos para manter quebras de linha
+        const paragraphs = doc.getElementsByTagName("w:p");
+        for (let i = 0; i < paragraphs.length; i++) {
+            const p = paragraphs[i];
+            const tNodes = p.getElementsByTagName("w:t");
+            let line = "";
+            for (let j = 0; j < tNodes.length; j++) {
+                line += tNodes[j].textContent || "";
+            }
+            if (line.trim()) text += line + "\n";
+        }
+        return text.trim();
+    } catch (e) {
+        console.warn("Falha ao ler header/footer:", path);
+        return "";
+    }
+}
+
+async function parseSectionProperties(sectPr: Element, ctx: ParseContext): Promise<PageSettings> {
   const pgSz = sectPr.getElementsByTagName("w:pgSz")[0];
   const pgMar = sectPr.getElementsByTagName("w:pgMar")[0];
 
@@ -73,7 +116,6 @@ function parseSectionProperties(sectPr: Element): PageSettings {
     const right = parseInt(getVal(pgMar, "w:right") || "1701");
 
     // 567 twips ~= 1cm
-    // Use precise floating point values for margins to avoid pagination overflow issues
     mt = top / CM_TO_TWIPS;
     mb = bottom / CM_TO_TWIPS;
     ml = left / CM_TO_TWIPS;
@@ -84,6 +126,34 @@ function parseSectionProperties(sectPr: Element): PageSettings {
   let paperSize = 'a4';
   if (Math.abs(widthTwips - 12240) < 100) paperSize = 'letter';
 
+  // --- HEADER & FOOTER EXTRACTION ---
+  let headerText = "";
+  let footerText = "";
+
+  const headers = sectPr.getElementsByTagName("w:headerReference");
+  const footers = sectPr.getElementsByTagName("w:footerReference");
+
+  const getRefId = (nodes: HTMLCollectionOf<Element>) => {
+      for (let i = 0; i < nodes.length; i++) {
+          if (getVal(nodes[i], "w:type") === "default") {
+              return getVal(nodes[i], "r:id");
+          }
+      }
+      // Fallback: se tiver apenas um, usa ele
+      if (nodes.length === 1) return getVal(nodes[0], "r:id");
+      return null;
+  };
+
+  const headerId = getRefId(headers);
+  if (headerId && ctx.relsMap[headerId]) {
+      headerText = await loadHeaderFooterText(ctx.zip, ctx.relsMap[headerId]);
+  }
+
+  const footerId = getRefId(footers);
+  if (footerId && ctx.relsMap[footerId]) {
+      footerText = await loadHeaderFooterText(ctx.zip, ctx.relsMap[footerId]);
+  }
+
   return {
     paperSize,
     orientation,
@@ -91,12 +161,53 @@ function parseSectionProperties(sectPr: Element): PageSettings {
     marginTop: mt,
     marginBottom: mb,
     marginLeft: ml,
-    marginRight: mr
+    marginRight: mr,
+    headerText: headerText || undefined,
+    footerText: footerText || undefined
   };
 }
 
+// Helper para verificar booleanos no XML do Word
+// Word: <tag w:val="on"/> ou <tag/> = true. <tag w:val="off"/> = false.
+function isBoolPropertyOn(element: Element, tagName: string): boolean {
+    const nodes = element.getElementsByTagName(tagName);
+    if (nodes.length === 0) return false;
+    
+    const val = getVal(nodes[0]);
+    // Se a tag existe e não tem valor, é true. Se tem valor, checamos se não é negativo.
+    if (val === null) return true;
+    return val !== '0' && val !== 'false' && val !== 'off';
+}
+
+// Helper to apply active comments to a Tiptap node (or array of nodes)
+function applyActiveComments(nodes: any | any[], activeIds: Set<string>) {
+    if (activeIds.size === 0) return;
+    
+    const targetNodes = Array.isArray(nodes) ? nodes : [nodes];
+    
+    targetNodes.forEach(node => {
+        // Only apply comments to text nodes
+        if (node.type === 'text') {
+            if (!node.marks) node.marks = [];
+            
+            // Add a mark for each active comment
+            activeIds.forEach(commentId => {
+                // Avoid duplicates if parsing logic is re-entrant
+                const exists = node.marks.some((m: any) => m.type === 'comment' && m.attrs?.commentId === commentId);
+                if (!exists) {
+                    node.marks.push({
+                        type: 'comment',
+                        attrs: { commentId }
+                    });
+                }
+            });
+        }
+    });
+}
+
 // --- PARAGRAPH PARSER (High Fidelity) ---
-async function parseParagraph(p: Element, ctx: ParseContext): Promise<any> {
+// Returns single Node or Array of Nodes (if split by pageBreak)
+async function parseParagraph(p: Element, ctx: ParseContext): Promise<any | any[]> {
   const pPr = p.getElementsByTagName("w:pPr")[0];
   const attrs: any = {};
   let type = 'paragraph';
@@ -136,7 +247,7 @@ async function parseParagraph(p: Element, ctx: ParseContext): Promise<any> {
         if (val === 'left') attrs.textAlign = 'left';
     }
 
-    // Spacing
+    // Spacing (CRITICAL FIX FOR LINE HEIGHT)
     const spacing = pPr.getElementsByTagName("w:spacing")[0];
     if (spacing) {
         const before = spacing.getAttribute("w:before");
@@ -146,16 +257,15 @@ async function parseParagraph(p: Element, ctx: ParseContext): Promise<any> {
 
         if (before) attrs.marginTop = twipsToPt(before) + "pt";
         if (after) attrs.marginBottom = twipsToPt(after) + "pt";
+        
         if (line) {
-            // "auto" lineRule uses 240 units = 1.0 lines
-            // "exact" or "atLeast" uses twips
-            if (lineRule === 'auto' || !lineRule) {
-                // Add 5% buffer for browser font rendering differences vs Word
-                attrs.lineHeight = ((parseInt(line) / 240) * 1.05).toFixed(2);
+            const lineVal = parseInt(line);
+            if (lineRule === 'exact') {
+                attrs.lineHeight = (lineVal / 240).toFixed(2); 
+            } else if (lineRule === 'atLeast') {
+                attrs.lineHeight = (lineVal / 240).toFixed(2);
             } else {
-                // Approximate pt value for fixed height
-                // Tiptap handles unitless as multiplier, so this is tricky. 
-                // We'll stick to standard multiplier logic for now.
+                attrs.lineHeight = (lineVal / 240).toFixed(2);
             }
         }
     }
@@ -163,7 +273,7 @@ async function parseParagraph(p: Element, ctx: ParseContext): Promise<any> {
     // Indentation (Complex)
     const ind = pPr.getElementsByTagName("w:ind")[0];
     if (ind) {
-        const left = ind.getAttribute("w:left") || ind.getAttribute("w:start"); // 'start' is newer
+        const left = ind.getAttribute("w:left") || ind.getAttribute("w:start");
         const right = ind.getAttribute("w:right") || ind.getAttribute("w:end");
         const firstLine = ind.getAttribute("w:firstLine");
         const hanging = ind.getAttribute("w:hanging");
@@ -172,13 +282,8 @@ async function parseParagraph(p: Element, ctx: ParseContext): Promise<any> {
         let rightPx = twipsToPx(right) || 0;
         
         if (hanging) {
-            // Hanging indent: The first line starts to the left of the rest.
-            // In CSS/Tiptap: text-indent is negative.
             const hangPx = twipsToPx(hanging) || 0;
             attrs.textIndent = `-${hangPx}px`;
-            // Word adds hanging to left margin implicitly for visual alignment of body
-            // but we keep left as is + hang logic in CSS usually requires margin-left padding.
-            // Tiptap ParagraphExtended handles textIndent directly.
         } else if (firstLine) {
             attrs.textIndent = `${twipsToPx(firstLine)}px`;
         }
@@ -194,186 +299,284 @@ async function parseParagraph(p: Element, ctx: ParseContext): Promise<any> {
         if (fill && fill !== 'auto') attrs.backgroundColor = `#${fill}`;
     }
 
-    // Pagination
-    if (pPr.getElementsByTagName("w:keepNext").length > 0) attrs.keepWithNext = true;
-    if (pPr.getElementsByTagName("w:keepLines").length > 0) attrs.keepLinesTogether = true;
-    if (pPr.getElementsByTagName("w:pageBreakBefore").length > 0) attrs.pageBreakBefore = true;
+    // Pagination - Use helper strict boolean check
+    if (isBoolPropertyOn(pPr, "w:keepNext")) attrs.keepWithNext = true;
+    if (isBoolPropertyOn(pPr, "w:keepLines")) attrs.keepLinesTogether = true;
+    
+    if (isBoolPropertyOn(pPr, "w:pageBreakBefore")) {
+        attrs.pageBreakBefore = true;
+    }
   }
 
-  // 3. Children (Runs & Hyperlinks)
-  const children: any[] = [];
+  // 3. Children (Runs, Hyperlinks, Comments)
+  const nodes: any[] = [];
+  
+  // Helper to push content
+  const pushContent = (content: any[]) => {
+      if (content.length > 0) {
+          nodes.push({
+              type,
+              attrs: { ...attrs },
+              content: [...content]
+          });
+      } else {
+          // Empty paragraph
+          nodes.push({ type, attrs: { ...attrs } });
+      }
+  };
+
+  let currentRunBuffer: any[] = [];
+
   for (let i = 0; i < p.childNodes.length; i++) {
     const child = p.childNodes[i] as Element;
     
-    if (child.nodeName === "w:r") {
-      const run = await parseRun(child, ctx, styleDef);
-      if (run) children.push(run);
+    // --- COMMENT RANGES ---
+    if (child.nodeName === "w:commentRangeStart") {
+        const id = child.getAttribute("w:id");
+        if (id) ctx.activeCommentIds.add(id);
     } 
+    else if (child.nodeName === "w:commentRangeEnd") {
+        const id = child.getAttribute("w:id");
+        if (id) ctx.activeCommentIds.delete(id);
+    }
+    // --- RUNS ---
+    else if (child.nodeName === "w:r") {
+      const parsed = await parseRun(child, ctx, styleDef);
+      
+      // Se parseRun retornar um array, pode conter [run, pageBreak, run...]
+      const items = Array.isArray(parsed) ? parsed : [parsed];
+      
+      for (const item of items) {
+          if (!item) continue;
+
+          // Aplica comentários ativos aos nós de texto encontrados neste run
+          applyActiveComments(item, ctx.activeCommentIds);
+
+          if (item.type === 'pageBreak') {
+              // Flush current buffer into a paragraph
+              pushContent(currentRunBuffer);
+              currentRunBuffer = [];
+              // Add page break as a separate block node
+              nodes.push({ type: 'pageBreak' });
+          } else {
+              currentRunBuffer.push(item);
+          }
+      }
+    } 
+    // --- HYPERLINKS ---
     else if (child.nodeName === "w:hyperlink") {
-       // Hyperlink is a wrapper around runs
        const rid = getVal(child, "r:id");
        let href = "#";
        if (rid && ctx.relsMap[rid]) {
            href = ctx.relsMap[rid];
-           // Fix internal targets usually broken in parsing
            if (!href.startsWith('http') && !href.startsWith('mailto')) href = `http://${href}`;
        }
 
        for (let k = 0; k < child.childNodes.length; k++) {
            const linkChild = child.childNodes[k] as Element;
-           if (linkChild.nodeName === "w:r") {
-               const run = await parseRun(linkChild, ctx, styleDef);
-               if (run) {
-                   if(!run.marks) run.marks = [];
-                   run.marks.push({ type: 'link', attrs: { href } });
-                   children.push(run);
+           
+           // Process comment tags inside hyperlinks too
+           if (linkChild.nodeName === "w:commentRangeStart") {
+               const id = linkChild.getAttribute("w:id");
+               if (id) ctx.activeCommentIds.add(id);
+           } 
+           else if (linkChild.nodeName === "w:commentRangeEnd") {
+               const id = linkChild.getAttribute("w:id");
+               if (id) ctx.activeCommentIds.delete(id);
+           }
+           else if (linkChild.nodeName === "w:r") {
+               const parsed = await parseRun(linkChild, ctx, styleDef);
+               const items = Array.isArray(parsed) ? parsed : [parsed];
+               
+               for (const item of items) {
+                   if (!item) continue;
+                   
+                   applyActiveComments(item, ctx.activeCommentIds);
+
+                   if (item.type === 'pageBreak') {
+                       pushContent(currentRunBuffer);
+                       currentRunBuffer = [];
+                       nodes.push({ type: 'pageBreak' });
+                   } else {
+                       if(!item.marks) item.marks = [];
+                       item.marks.push({ type: 'link', attrs: { href } });
+                       currentRunBuffer.push(item);
+                   }
                }
            }
        }
     }
   }
 
-  return {
-    type,
-    attrs,
-    content: children.length ? children : undefined
-  };
+  // Flush remaining
+  if (currentRunBuffer.length > 0 || nodes.length === 0) {
+      if (currentRunBuffer.length > 0 || nodes.length === 0) {
+          pushContent(currentRunBuffer);
+      }
+  }
+
+  return nodes.length === 1 ? nodes[0] : nodes;
 }
 
-// --- RUN PARSER (High Fidelity) ---
-async function parseRun(r: Element, ctx: ParseContext, pStyle?: any): Promise<any> {
+// --- RUN PARSER (Strict Mode - No Soft Breaks) ---
+async function parseRun(r: Element, ctx: ParseContext, pStyle?: any): Promise<any | any[]> {
   const rPr = r.getElementsByTagName("w:rPr")[0];
-  const t = r.getElementsByTagName("w:t")[0];
-  const drawing = r.getElementsByTagName("w:drawing")[0];
-  const br = r.getElementsByTagName("w:br")[0];
-  const tab = r.getElementsByTagName("w:tab")[0];
-
-  // --- IMAGES ---
-  if (drawing) {
-      const blip = drawing.getElementsByTagName("a:blip")[0];
-      const embedId = blip?.getAttribute("r:embed");
-      const extent = drawing.getElementsByTagName("wp:extent")[0];
+  
+  // Check for HARD Breaks FIRST (User hit Ctrl+Enter)
+  // Ensure we strictly check for w:type="page"
+  const brs = r.getElementsByTagName("w:br");
+  const hasPageBreak = Array.from(brs).some(br => br.getAttribute("w:type") === "page");
+  
+  // IGNORE LastRenderedPageBreak (Soft break from Word). 
+  // Trust Tiptap flow instead.
+  
+  // If strict page break found
+  if (hasPageBreak) {
+      const parts: any[] = [];
       
-      if (embedId && ctx.relsMap[embedId]) {
-          const imagePath = "word/" + ctx.relsMap[embedId]; // assuming standard structure
-          const file = ctx.zip.file(imagePath);
-          if (file) {
-              const base64 = await file.async("base64");
-              const mime = imagePath.toLowerCase().endsWith('png') ? 'image/png' : 'image/jpeg';
-              
-              let width = 400; // default
-              if (extent) {
-                  const cx = parseInt(extent.getAttribute("cx") || "0");
-                  if (cx > 0) width = emuToPx(cx) || 400;
-              }
-
-              return {
-                  type: 'image',
-                  attrs: {
-                      src: `data:${mime};base64,${base64}`,
-                      width: width
-                  }
-              };
+      for (let i = 0; i < r.childNodes.length; i++) {
+          const child = r.childNodes[i] as Element;
+          if (child.nodeName === "w:t") {
+              const textNode = await parseTextNode(child, rPr, pStyle);
+              if (textNode) parts.push(textNode);
+          } else if (child.nodeName === "w:br" && child.getAttribute("w:type") === "page") {
+              parts.push({ type: 'pageBreak' });
+          } else if (child.nodeName === "w:drawing") {
+              const img = await parseDrawing(child, ctx);
+              if (img) parts.push(img);
+          } else if (child.nodeName === "w:tab") {
+              parts.push({ type: 'text', text: '\t' });
           }
       }
+      return parts;
   }
 
-  // --- BREAKS ---
-  if (br) {
-      const type = br.getAttribute("w:type");
-      if (type === 'page') {
-          return { type: 'pageBreak' };
-      }
+  // Normal Run Processing
+  const drawing = r.getElementsByTagName("w:drawing")[0];
+  if (drawing) return parseDrawing(drawing, ctx);
+
+  const t = r.getElementsByTagName("w:t")[0];
+  if (t) return parseTextNode(t, rPr, pStyle);
+
+  // Fallback for simple line breaks (Shift+Enter) - <w:br/> without type="page"
+  if (brs.length > 0 && !hasPageBreak) {
+      // Check if it's strictly a soft break (no type or type != page)
+      // We already filtered page breaks above, so safe to add \n
       return { type: 'text', text: '\n' };
   }
-
-  // --- TABS ---
-  if (tab) {
-      return { type: 'text', text: '\t' };
-  }
-
-  // --- TEXT ---
-  if (t) {
-      const text = t.textContent || "";
-      if (!text) return null;
-
-      const marks: any[] = [];
-      const styleAttrs: any = {};
-
-      // Defaults from Paragraph Style
-      if (pStyle) {
-          if (pStyle.fontSize) styleAttrs.fontSize = pStyle.fontSize;
-          if (pStyle.color) styleAttrs.color = pStyle.color;
-          if (pStyle.fontFamily) styleAttrs.fontFamily = pStyle.fontFamily;
-          if (pStyle.bold) marks.push({ type: 'bold' });
-          if (pStyle.italic) marks.push({ type: 'italic' });
-          if (pStyle.underline) marks.push({ type: 'underline' });
-      }
-
-      // Direct Formatting Overrides
-      if (rPr) {
-          if (rPr.getElementsByTagName("w:b").length > 0) {
-              if (!marks.some(m => m.type === 'bold')) marks.push({ type: 'bold' });
-          }
-          if (rPr.getElementsByTagName("w:i").length > 0) {
-              if (!marks.some(m => m.type === 'italic')) marks.push({ type: 'italic' });
-          }
-          if (rPr.getElementsByTagName("w:u").length > 0) {
-              if (!marks.some(m => m.type === 'underline')) marks.push({ type: 'underline' });
-          }
-          if (rPr.getElementsByTagName("w:strike").length > 0) marks.push({ type: 'strike' });
-          
-          const sz = rPr.getElementsByTagName("w:sz")[0];
-          if (sz) styleAttrs.fontSize = halfPtToPt(getVal(sz));
-
-          const col = rPr.getElementsByTagName("w:color")[0];
-          if (col) styleAttrs.color = hexColor(getVal(col));
-
-          const rFonts = rPr.getElementsByTagName("w:rFonts")[0];
-          if (rFonts) {
-              const ascii = rFonts.getAttribute("w:ascii");
-              const hAnsi = rFonts.getAttribute("w:hAnsi");
-              styleAttrs.fontFamily = ascii || hAnsi;
-          }
-          
-          // Background Color (Highlight)
-          const highlight = rPr.getElementsByTagName("w:highlight")[0];
-          if (highlight) {
-              const hColor = getVal(highlight);
-              marks.push({ type: 'highlight', attrs: { color: hColor } });
-          } else {
-              const shd = rPr.getElementsByTagName("w:shd")[0];
-              if (shd) {
-                  const fill = getVal(shd, "w:fill");
-                  if (fill && fill !== 'auto') {
-                      // Map shd to highlight for text runs
-                      marks.push({ type: 'highlight', attrs: { color: `#${fill}` } });
-                  }
-              }
-          }
-
-          // Vert Align
-          const vertAlign = rPr.getElementsByTagName("w:vertAlign")[0];
-          if (vertAlign) {
-              const v = getVal(vertAlign);
-              if (v === 'superscript') marks.push({ type: 'superscript' });
-              if (v === 'subscript') marks.push({ type: 'subscript' });
-          }
-      }
-
-      // Add Text Style Mark if attributes exist
-      if (Object.keys(styleAttrs).length > 0) {
-          marks.push({ type: 'textStyle', attrs: styleAttrs });
-      }
-
-      return {
-          type: 'text',
-          text,
-          marks: marks.length > 0 ? marks : undefined
-      };
-  }
+  
+  const tab = r.getElementsByTagName("w:tab")[0];
+  if (tab) return { type: 'text', text: '\t' };
 
   return null;
+}
+
+// Helper for Text Extraction
+async function parseTextNode(t: Element, rPr: Element, pStyle?: any) {
+    const text = t.textContent || "";
+    if (!text) return null;
+
+    const marks: any[] = [];
+    const styleAttrs: any = {};
+
+    // Defaults from Paragraph Style
+    if (pStyle) {
+        if (pStyle.fontSize) styleAttrs.fontSize = pStyle.fontSize;
+        if (pStyle.color) styleAttrs.color = pStyle.color;
+        if (pStyle.fontFamily) styleAttrs.fontFamily = pStyle.fontFamily;
+        if (pStyle.bold) marks.push({ type: 'bold' });
+        if (pStyle.italic) marks.push({ type: 'italic' });
+        if (pStyle.underline) marks.push({ type: 'underline' });
+    }
+
+    // Direct Formatting
+    if (rPr) {
+        if (rPr.getElementsByTagName("w:b").length > 0) {
+            if (!marks.some(m => m.type === 'bold')) marks.push({ type: 'bold' });
+        }
+        if (rPr.getElementsByTagName("w:i").length > 0) {
+            if (!marks.some(m => m.type === 'italic')) marks.push({ type: 'italic' });
+        }
+        if (rPr.getElementsByTagName("w:u").length > 0) {
+            if (!marks.some(m => m.type === 'underline')) marks.push({ type: 'underline' });
+        }
+        if (rPr.getElementsByTagName("w:strike").length > 0) marks.push({ type: 'strike' });
+        
+        const sz = rPr.getElementsByTagName("w:sz")[0];
+        if (sz) styleAttrs.fontSize = halfPtToPt(getVal(sz));
+
+        const col = rPr.getElementsByTagName("w:color")[0];
+        if (col) styleAttrs.color = hexColor(getVal(col));
+
+        const rFonts = rPr.getElementsByTagName("w:rFonts")[0];
+        if (rFonts) {
+            const ascii = rFonts.getAttribute("w:ascii");
+            const hAnsi = rFonts.getAttribute("w:hAnsi");
+            styleAttrs.fontFamily = ascii || hAnsi;
+        }
+        
+        const highlight = rPr.getElementsByTagName("w:highlight")[0];
+        if (highlight) {
+            const hColor = getVal(highlight);
+            marks.push({ type: 'highlight', attrs: { color: hColor } });
+        } else {
+            const shd = rPr.getElementsByTagName("w:shd")[0];
+            if (shd) {
+                const fill = getVal(shd, "w:fill");
+                if (fill && fill !== 'auto') {
+                    marks.push({ type: 'highlight', attrs: { color: `#${fill}` } });
+                }
+            }
+        }
+
+        const vertAlign = rPr.getElementsByTagName("w:vertAlign")[0];
+        if (vertAlign) {
+            const v = getVal(vertAlign);
+            if (v === 'superscript') marks.push({ type: 'superscript' });
+            if (v === 'subscript') marks.push({ type: 'subscript' });
+        }
+    }
+
+    if (Object.keys(styleAttrs).length > 0) {
+        marks.push({ type: 'textStyle', attrs: styleAttrs });
+    }
+
+    return {
+        type: 'text',
+        text,
+        marks: marks.length > 0 ? marks : undefined
+    };
+}
+
+// Helper for Images
+async function parseDrawing(drawing: Element, ctx: ParseContext) {
+    const blip = drawing.getElementsByTagName("a:blip")[0];
+    const embedId = blip?.getAttribute("r:embed");
+    const extent = drawing.getElementsByTagName("wp:extent")[0];
+    
+    if (embedId && ctx.relsMap[embedId]) {
+        const imagePath = "word/" + ctx.relsMap[embedId];
+        const file = ctx.zip.file(imagePath);
+        if (file) {
+            const base64 = await file.async("base64");
+            const mime = imagePath.toLowerCase().endsWith('png') ? 'image/png' : 'image/jpeg';
+            
+            let width = 400; 
+            if (extent) {
+                const cx = parseInt(extent.getAttribute("cx") || "0");
+                if (cx > 0) width = emuToPx(cx) || 400;
+            }
+
+            return {
+                type: 'image',
+                attrs: {
+                    src: `data:${mime};base64,${base64}`,
+                    width: width
+                }
+            };
+        }
+    }
+    return null;
 }
 
 // --- TABLE PARSER (High Fidelity) ---
@@ -381,7 +584,6 @@ async function parseTable(tbl: Element, ctx: ParseContext): Promise<any> {
     const rows: any[] = [];
     const trs = tbl.getElementsByTagName("w:tr");
     
-    // Table Grid (Columns)
     const tblGrid = tbl.getElementsByTagName("w:tblGrid")[0];
     const colWidths: number[] = [];
     if (tblGrid) {
@@ -403,7 +605,6 @@ async function parseTable(tbl: Element, ctx: ParseContext): Promise<any> {
             const cellAttrs: any = {};
             
             if (tcPr) {
-                // Width
                 const tcW = tcPr.getElementsByTagName("w:tcW")[0];
                 if (tcW) {
                     const w = tcW.getAttribute("w:w");
@@ -415,25 +616,13 @@ async function parseTable(tbl: Element, ctx: ParseContext): Promise<any> {
                     cellAttrs.colwidth = [colWidths[j]];
                 }
 
-                // Grid Span (Colspan)
                 const gridSpan = tcPr.getElementsByTagName("w:gridSpan")[0];
                 if (gridSpan) cellAttrs.colspan = parseInt(getVal(gridSpan) || "1");
                 
-                // Vertical Merge (Rowspan) - Complex in DOCX ("restart" vs "continue")
-                // Skipping deep rowspan logic for V1, usually just works visually or splits cells
-                
-                // Shading / Background
                 const shd = tcPr.getElementsByTagName("w:shd")[0];
                 if (shd) {
                     const fill = getVal(shd, "w:fill");
                     if (fill && fill !== 'auto') cellAttrs.backgroundColor = `#${fill}`;
-                }
-
-                // Vertical Align
-                const vAlign = tcPr.getElementsByTagName("w:vAlign")[0];
-                if (vAlign) {
-                    // Tiptap doesn't natively support vAlign in starter-kit tableCell, requires custom extension
-                    // Ignoring for now to prevent schema errors
                 }
             }
 
@@ -442,7 +631,8 @@ async function parseTable(tbl: Element, ctx: ParseContext): Promise<any> {
                 const child = tc.childNodes[k] as Element;
                 if (child.nodeName === "w:p") {
                     const pNode = await parseParagraph(child, ctx);
-                    if (pNode) cellContent.push(pNode);
+                    if (Array.isArray(pNode)) cellContent.push(...pNode);
+                    else if(pNode) cellContent.push(pNode);
                 }
             }
             

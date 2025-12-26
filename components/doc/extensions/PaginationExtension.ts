@@ -100,6 +100,29 @@ export const PaginationExtension = Extension.create({
              return container;
           };
 
+          const getNodeHeight = (node: PMNode, offset: number) => {
+               // Tenta pegar altura do cache
+               let nodeHeight = heightCache.get(node);
+
+               // Cache Miss: Medir no DOM
+               if (nodeHeight === undefined) {
+                   const domNode = editorView.nodeDOM(offset) as HTMLElement;
+                   if (domNode && domNode.offsetHeight) {
+                       // Inclui margens no cálculo da altura do bloco
+                       const style = window.getComputedStyle(domNode);
+                       const marginTop = parseFloat(style.marginTop) || 0;
+                       const marginBottom = parseFloat(style.marginBottom) || 0;
+                       nodeHeight = domNode.offsetHeight + marginTop + marginBottom;
+                       
+                       heightCache.set(node, nodeHeight);
+                   } else {
+                       // Fallback conservador
+                       nodeHeight = 24; 
+                   }
+               }
+               return nodeHeight;
+          };
+
           let isCalculating = false;
           let frameId: number;
 
@@ -122,58 +145,82 @@ export const PaginationExtension = Extension.create({
             let currentY = 0;
             let pageCount = 1;
 
-            // PERFORMANCE: Iteração otimizada
-            // Varre apenas os nós de bloco de nível superior (parágrafos, títulos, tabelas, imagens)
-            // O(N) onde N é o número de blocos (muito menor que caracteres).
+            const nodesArray: { node: PMNode, offset: number, height: number }[] = [];
+
+            // 1. Pré-processamento: Coletar nós e alturas
             state.doc.forEach((node, offset) => {
-               if (!node.isBlock) return;
-
-               // Tenta pegar altura do cache
-               let nodeHeight = heightCache.get(node);
-
-               // Cache Miss: Medir no DOM
-               if (nodeHeight === undefined) {
-                   // nodeDOM retorna o nó DOM correspondente.
-                   // Para nós de texto/bloco padrão, funciona bem.
-                   const domNode = editorView.nodeDOM(offset) as HTMLElement;
-                   if (domNode && domNode.offsetHeight) {
-                       nodeHeight = domNode.offsetHeight;
-                       heightCache.set(node, nodeHeight);
-                   } else {
-                       // Fallback conservador para nós ainda não montados/visíveis
-                       // (ex: fora da viewport se usando content-visibility)
-                       nodeHeight = 24; 
-                   }
-               }
-
-               // Lógica de Quebra de Página
-               // Se adicionar este nó excede a altura útil da página atual...
-               if (currentY + nodeHeight > contentHeightPerBox) {
-                   // Calcular quanto espaço sobrou em branco na página atual
-                   const remainingSpaceOnPage = contentHeightPerBox - currentY;
-                   
-                   // A altura do widget deve preencher esse espaço restante + o salto padrão
-                   const widgetHeight = remainingSpaceOnPage + breakHeight;
-
-                   // Inserir Widget ANTES do nó atual
-                   decorations.push(
-                       Decoration.widget(offset, createPageBreakWidget(widgetHeight, pageCount + 1), { side: -1 })
-                   );
-
-                   // O nó atual agora começa no topo da próxima página
-                   currentY = nodeHeight;
-                   pageCount++;
-               } else {
-                   // O nó cabe na página atual
-                   currentY += nodeHeight;
-               }
+                if (!node.isBlock) return;
+                const height = getNodeHeight(node, offset);
+                nodesArray.push({ node, offset, height });
             });
 
+            // 2. Lógica de Paginação com Look-Ahead
+            for (let i = 0; i < nodesArray.length; i++) {
+                const { node, offset, height } = nodesArray[i];
+                
+                const isExplicitBreak = node.type.name === 'pageBreak' || node.attrs.pageBreakBefore;
+                const keepLines = node.attrs.keepLinesTogether;
+                const keepNext = node.attrs.keepWithNext;
+
+                let forceBreakHere = false;
+
+                // Regra 1: Quebra Explícita
+                if (isExplicitBreak) {
+                    if (currentY > 20) { // Ignora se já estiver no topo (deadzone)
+                        forceBreakHere = true;
+                    }
+                }
+                // Regra 2: Keep Lines Together (Evita quebrar o bloco no meio se ele couber inteiro na PRÓXIMA página)
+                // Se o bloco é maior que o espaço restante, mas menor que uma página inteira, joga pra próxima.
+                else if (keepLines && currentY + height > contentHeightPerBox && height < contentHeightPerBox) {
+                    forceBreakHere = true;
+                }
+                // Regra 3: Keep With Next (Se este + próximo não cabem, quebra ANTES deste)
+                else if (keepNext && i < nodesArray.length - 1) {
+                    const nextNode = nodesArray[i+1];
+                    // Se o nó atual + o próximo excederem a página, quebra aqui para mantê-los juntos na próxima
+                    // (Simplificação: assume que queremos pelo menos o início do próximo nó junto)
+                    if (currentY + height + (nextNode.height / 2) > contentHeightPerBox) {
+                        // Só aplica se não estivermos já no topo da página (evitar loop infinito)
+                        if (currentY > 0) {
+                            forceBreakHere = true;
+                        }
+                    }
+                }
+                // Regra 4: Overflow Natural
+                else if (currentY + height > contentHeightPerBox) {
+                    forceBreakHere = true;
+                }
+
+                if (forceBreakHere) {
+                    // Calcular quanto espaço sobrou nesta página para preencher com o gap
+                    const remainingSpaceOnPage = contentHeightPerBox - currentY;
+                    const widgetHeight = Math.max(0, remainingSpaceOnPage) + breakHeight;
+
+                    if (node.type.name === 'pageBreak') {
+                        // O nó pageBreak em si é o divisor, inserimos DEPOIS dele
+                        decorations.push(
+                            Decoration.widget(offset + node.nodeSize, createPageBreakWidget(widgetHeight, pageCount + 1), { side: -1 })
+                        );
+                        currentY = 0;
+                    } else {
+                        // Quebra ANTES do nó de conteúdo
+                        decorations.push(
+                            Decoration.widget(offset, createPageBreakWidget(widgetHeight, pageCount + 1), { side: -1 })
+                        );
+                        currentY = height; // O nó vai para a próxima página, então ocupa espaço lá
+                    }
+                    pageCount++;
+                } else {
+                    // Cabe na página atual
+                    if (node.type.name !== 'pageBreak') {
+                        currentY += height;
+                    }
+                }
+            }
+
             // --- LÓGICA DE PÁGINA FANTASMA (Final Filler) ---
-            // Adiciona um widget ao final do documento para preencher o espaço restante da última página.
-            // Isso força o DOM do editor a ter a mesma altura que o papel de fundo (Background DIV).
             const remainingSpaceLastPage = contentHeightPerBox - currentY;
-            // O filler deve cobrir o espaço restante do conteúdo + a margem inferior
             const fillerHeight = Math.max(0, remainingSpaceLastPage) + pageMarginBottom;
             
             if (fillerHeight > 0) {
@@ -186,12 +233,9 @@ export const PaginationExtension = Extension.create({
             if (!editorView.isDestroyed) {
                 const decoSet = DecorationSet.create(state.doc, decorations);
                 
-                // Evita disparar transação se nada mudou visualmente (opcional, mas bom pra performance)
-                // Aqui sempre disparamos para garantir sync com o React no DocEditor
                 const tr = editorView.state.tr.setMeta(key, { decorations: decoSet });
                 editorView.dispatch(tr);
 
-                // Notifica o React para renderizar os papéis de fundo corretos
                 const event = new CustomEvent('pagination-calculated', { detail: { count: pageCount } });
                 editorView.dom.dispatchEvent(event);
             }
@@ -210,7 +254,6 @@ export const PaginationExtension = Extension.create({
 
           return {
             update(view, prevState) {
-                // Só recalcula se o documento mudou ou se forçamos via comando
                 const docChanged = !view.state.doc.eq(prevState.doc);
                 const forceUpdate = view.state.tr.getMeta('pagination-force-update');
                 

@@ -164,6 +164,36 @@ export const useDocSaver = ({ fileId, accessToken, isLocalFile, currentName, fil
       }
   };
 
+  /**
+   * Força o download do DOCX gerado (Exportação)
+   */
+  const downloadDocx = async (editor: Editor, pageSettings?: PageSettings, comments?: CommentData[], references?: Reference[]) => {
+      setIsSaving(true);
+      try {
+          const jsonContent = editor.getJSON();
+          const nameToSave = currentName.endsWith('.docx') ? currentName : `${currentName}.docx`;
+          
+          const blob = await generateDocxBlob(jsonContent, pageSettings, comments, references, originalZip);
+          
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = nameToSave;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          
+          setSaveStatus('saved');
+      } catch (e) {
+          console.error("Download failed", e);
+          alert("Erro ao gerar o arquivo DOCX.");
+          setSaveStatus('error');
+      } finally {
+          setIsSaving(false);
+      }
+  };
+
   const saveAsLect = async (editor: Editor, pageSettings?: PageSettings, comments?: CommentData[]) => {
       setIsSaving(true);
       const jsonContent = editor.getJSON();
@@ -216,6 +246,7 @@ export const useDocSaver = ({ fileId, accessToken, isLocalFile, currentName, fil
 
   return {
     save,
+    downloadDocx,
     saveAsLect,
     isSaving,
     saveStatus,

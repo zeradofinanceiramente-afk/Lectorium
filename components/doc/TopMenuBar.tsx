@@ -47,15 +47,18 @@ interface Props {
   onLanguage: () => void;
   onSpellCheck: () => void;
   onFindReplace: () => void;
+  onColumns?: () => void; // Nova prop
   showRuler: boolean;
   setShowRuler: (s: boolean) => void;
   zoom: number;
   setZoom: (z: number) => void;
   onFitWidth: () => void;
-  viewMode: 'paged' | 'continuous';
-  setViewMode: (v: 'paged' | 'continuous') => void;
+  viewMode: 'slide' | 'continuous';
+  setViewMode: (v: 'slide' | 'continuous') => void;
   showComments?: boolean;
   setShowComments?: (v: boolean) => void;
+  
+  currentPage?: number;
   
   // New features
   suggestionMode: boolean;
@@ -106,7 +109,7 @@ const getInitialStyles = (): StyleConfig[] => [
     level: 2,
     fontFamily: 'Times New Roman',
     fontSize: 12,
-    fontWeight: 'bold', // Alterado para bold por convenção comum, embora NBR varie
+    fontWeight: 'bold', 
     fontStyle: 'normal',
     textTransform: 'uppercase',
     textAlign: 'left',
@@ -285,7 +288,6 @@ export const TopMenuBar: React.FC<Props> = (props) => {
       marginBottom: `${style.marginBottom}pt`,
       marginLeft: style.marginLeft || '0pt',
       textAlign: style.textAlign,
-      // For Heading extension override logic if needed
     };
 
     const chain = editor.chain().focus();
@@ -305,9 +307,6 @@ export const TopMenuBar: React.FC<Props> = (props) => {
 
     if (style.fontWeight === 'bold') chain.setBold(); else chain.unsetBold();
     if (style.fontStyle === 'italic') chain.setItalic(); else chain.unsetItalic();
-    
-    // We don't have a direct 'text-transform' extension in starter-kit, usually handled via specific node attributes or custom marks.
-    // For now we assume the HeadingExtended handles text-transform via CSS class or we skip visual transform in editor.
     
     chain.run();
     closeMenu();
@@ -397,7 +396,6 @@ export const TopMenuBar: React.FC<Props> = (props) => {
           <MenuItem icon={ListTree} label="Estrutura (Outline)" onClick={() => exec(props.toggleOutline)} isActive={props.isOutlineOpen} />
           <MenuDivider />
           <MenuItem icon={ZoomIn} label="Zoom" hasSubmenu onClick={() => setActiveSubMenu('Zoom')} />
-          <MenuItem icon={Printer} label="Layout de impressão" onClick={() => exec(() => props.setViewMode(props.viewMode === 'paged' ? 'continuous' : 'paged'))} isActive={props.viewMode === 'paged'} />
           <MenuItem icon={Ruler} label="Exibir régua" onClick={() => exec(() => props.setShowRuler(!props.showRuler))} isActive={props.showRuler} />
           <MenuDivider />
           <MenuItem icon={Maximize} label="Tela inteira" onClick={() => exec(() => { if (!document.fullscreenElement) document.documentElement.requestFullscreen(); else document.exitFullscreen(); })} />
@@ -405,7 +403,8 @@ export const TopMenuBar: React.FC<Props> = (props) => {
       ) : activeSubMenu === 'Zoom' ? (
         <>
           <MenuSubHeader label="Zoom" onBack={() => setActiveSubMenu(null)} />
-          <MenuItem icon={Maximize} label="Ajustar à largura" onClick={() => exec(props.onFitWidth)} />
+          {/* Opção "Ajustar à largura" removida para evitar comportamento quebrado */}
+          <MenuItem icon={Check} label="100% (Padrão)" onClick={() => exec(() => props.setZoom(1))} />
           <MenuDivider />
           {[50, 75, 100, 125, 150, 200].map(z => (
             <MenuItem 
@@ -442,7 +441,7 @@ export const TopMenuBar: React.FC<Props> = (props) => {
           />
 
           <MenuDivider />
-          <MenuItem icon={Columns} label="Colunas (2)" onClick={() => exec(() => (editor.chain().focus() as any).setColumns(2).run())} />
+          <MenuItem icon={Columns} label="Colunas" onClick={() => exec(props.onColumns)} />
           <MenuItem icon={SplitSquareHorizontal} label="Quebra de Seção (Próx. Pág.)" onClick={() => exec(() => (editor.chain().focus() as any).setSectionBreak({ orientation: 'landscape' }).run())} className="text-orange-400" />
           <MenuItem icon={MoveVertical} label="Quebra de página" onClick={() => exec(() => (editor.chain().focus() as any).setPageBreak().run())} />
           <MenuItem icon={Minus} label="Linha horizontal" onClick={() => exec(() => editor.chain().focus().setHorizontalRule().run())} />

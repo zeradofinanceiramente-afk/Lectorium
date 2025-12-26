@@ -16,8 +16,9 @@ export interface PageLayoutState {
 }
 
 export const usePageLayout = ({ editor, initialSettings, contentRef }: UsePageLayoutProps) => {
-  const [zoom, setZoom] = useState(1);
-  const [viewMode, setViewMode] = useState<'paged' | 'continuous'>('paged');
+  // Zoom padrão 1.1 (110%) para leitura confortável
+  const [zoom, setZoom] = useState(1.1);
+  const [viewMode, setViewMode] = useState<'slide' | 'continuous'>('slide');
   const [showRuler, setShowRuler] = useState(true);
   
   // Apenas a contagem de páginas importa agora, o conteúdo é gerenciado pela extensão
@@ -87,27 +88,11 @@ export const usePageLayout = ({ editor, initialSettings, contentRef }: UsePageLa
       return arr;
   }, [pageCount, currentPaper]);
 
+  // "Fit Width" agora apenas reseta para 100% (padrão real)
+  // Removemos a lógica de cálculo automático que estava quebrando o layout
   const handleFitWidth = useCallback(() => {
-    const isMobile = window.innerWidth < 768;
-    if (viewMode === 'paged' && isMobile) {
-      const padding = 32; 
-      const availableWidth = window.innerWidth - padding;
-      const requiredWidth = currentPaper.widthPx; 
-      let newZoom = availableWidth / requiredWidth;
-      newZoom = Math.max(0.25, Math.min(newZoom, 5.0));
-      setZoom(newZoom);
-    } else if (isMobile) {
-       setZoom(window.innerWidth / (currentPaper.widthPx + 40));
-    } else {
-       setZoom(1);
-    }
-  }, [viewMode, currentPaper]);
-
-  useEffect(() => {
-    handleFitWidth();
-    window.addEventListener('resize', handleFitWidth);
-    return () => window.removeEventListener('resize', handleFitWidth);
-  }, [handleFitWidth]);
+      setZoom(1);
+  }, []);
 
   return {
     zoom, setZoom,

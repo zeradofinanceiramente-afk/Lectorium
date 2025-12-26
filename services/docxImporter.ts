@@ -92,8 +92,9 @@ export const processDocxForImport = async (fileBlob: Blob): Promise<DocxImportRe
     const { content, settings } = await parseDocument(docXml, {
         zip,
         styles,
-        commentsMap: {}, // TODO: Link comments to ranges
-        relsMap: rels
+        commentsMap: {}, // No longer critical as we map IDs directly, but kept for context if needed
+        relsMap: rels,
+        activeCommentIds: new Set() // Initialize the active comments set
     });
 
     const tiptapJson = {

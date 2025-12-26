@@ -27,7 +27,7 @@ import { CollaborationCursor } from '@tiptap/extension-collaboration-cursor';
 import * as Y from 'yjs';
 import { WebrtcProvider } from 'y-webrtc';
 
-import { FontSize, LineHeight, Indent, PageBreak, FootnoteSeparator, MathExtension, MermaidExtension, QrCodeExtension, ParagraphExtended, HeadingExtended, SectionBreak, ABNTBlockquote, CodeBlockExtension, UniqueIdExtension, TrailingNodeExtension, ChartExtension } from '../components/doc/extensions/customExtensions';
+import { FontSize, LineHeight, Indent, PageBreak, FootnoteSeparator, MathExtension, MermaidExtension, QrCodeExtension, ParagraphExtended, HeadingExtended, SectionBreak, ABNTBlockquote, CodeBlockExtension, UniqueIdExtension, TrailingNodeExtension, ChartExtension, ColumnsExtension } from '../components/doc/extensions/customExtensions';
 import { CustomImage } from '../components/doc/extensions/CustomImage'; 
 import { PaginationExtension } from '../components/doc/extensions/PaginationExtension';
 import { TableOfContentsExtension } from '../components/doc/extensions/TableOfContentsExtension';
@@ -137,6 +137,7 @@ export const useDocEditorConfig = ({ onUpdate, fileId, userInfo, onTableDoubleCl
       MermaidExtension,
       QrCodeExtension,
       ChartExtension, 
+      ColumnsExtension,
       TableOfContentsExtension,
       FootnoteExtension,
       CommentExtension,

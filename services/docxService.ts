@@ -1,3 +1,4 @@
+
 import { 
   Document, 
   Packer, 
@@ -18,7 +19,10 @@ import {
   WidthType,
   ShadingType,
   Header,
-  Footer
+  Footer,
+  PageNumber,
+  TextWrappingType,
+  TextWrappingSide
 } from "docx";
 import JSZip from "jszip";
 import { MIME_TYPES, Reference } from "../types";
@@ -482,28 +486,61 @@ export const generateDocxBlob = async (
       const widthTwips = cmToTwips(size.widthCm);
       const heightTwips = cmToTwips(size.heightCm);
 
-      // Create Headers if text exists
+      // Create Headers if text exists or page number is enabled
+      const headerChildren: Paragraph[] = [];
+      const footerChildren: Paragraph[] = [];
+
+      // HEADERS
       if (pageSettings.headerText) {
-          headers.default = new Header({
+          headerChildren.push(new Paragraph({
+              children: [new TextRun(pageSettings.headerText)],
+              alignment: AlignmentType.CENTER
+          }));
+      }
+      
+      // Page Number (Header Position) - Simplified support for export (startAt)
+      if (pageSettings.pageNumber?.enabled && pageSettings.pageNumber.position === 'header') {
+          const alignment = pageSettings.pageNumber.alignment === 'left' ? AlignmentType.LEFT :
+                            pageSettings.pageNumber.alignment === 'right' ? AlignmentType.RIGHT : AlignmentType.CENTER;
+          
+          headerChildren.push(new Paragraph({
               children: [
-                  new Paragraph({
-                      children: [new TextRun(pageSettings.headerText)],
-                      alignment: AlignmentType.CENTER
-                  })
-              ]
-          });
+                  new TextRun({
+                      children: [PageNumber.CURRENT],
+                  }),
+              ],
+              alignment: alignment,
+          }));
       }
 
-      // Create Footers if text exists
+      if (headerChildren.length > 0) {
+          headers.default = new Header({ children: headerChildren });
+      }
+
+      // FOOTERS
       if (pageSettings.footerText) {
-          footers.default = new Footer({
+          footerChildren.push(new Paragraph({
+              children: [new TextRun(pageSettings.footerText)],
+              alignment: AlignmentType.CENTER
+          }));
+      }
+      // Page Number (Footer Position)
+      if (pageSettings.pageNumber?.enabled && pageSettings.pageNumber.position === 'footer') {
+          const alignment = pageSettings.pageNumber.alignment === 'left' ? AlignmentType.LEFT :
+                            pageSettings.pageNumber.alignment === 'right' ? AlignmentType.RIGHT : AlignmentType.CENTER;
+          
+          footerChildren.push(new Paragraph({
               children: [
-                  new Paragraph({
-                      children: [new TextRun(pageSettings.footerText)],
-                      alignment: AlignmentType.CENTER
-                  })
-              ]
-          });
+                  new TextRun({
+                      children: [PageNumber.CURRENT],
+                  }),
+              ],
+              alignment: alignment,
+          }));
+      }
+
+      if (footerChildren.length > 0) {
+          footers.default = new Footer({ children: footerChildren });
       }
 
       pageProperties = {
@@ -518,7 +555,14 @@ export const generateDocxBlob = async (
                   bottom: cmToTwips(pageSettings.marginBottom),
                   left: cmToTwips(pageSettings.marginLeft),
                   right: cmToTwips(pageSettings.marginRight)
-              }
+              },
+              // A simple "startAt" property handles basic re-numbering.
+              // Handling "displayFromPage" (visibility) requires complex section breaks which are risky to auto-generate here.
+              // For DOCX export, we assume standard flow or startAt override.
+              pageNumbers: pageSettings.pageNumber?.startAt ? {
+                  start: pageSettings.pageNumber.startAt,
+                  formatType: "decimal"
+              } : undefined
           }
       };
   }

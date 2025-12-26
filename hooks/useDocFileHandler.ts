@@ -191,7 +191,8 @@ export const useDocFileHandler = ({
     handleSave,
     handleRename,
     handleTrash,
-    handleDownload: (ps: any, c: any, r: any) => saver.save(editor!, ps, c, r),
+    // Alterado para usar downloadDocx explicitamente para exportação física
+    handleDownload: (ps: any, c: any, r: any) => saver.downloadDocx(editor!, ps, c, r),
     handleDownloadLect: (ps: any, c: any) => saver.saveAsLect(editor!, ps, c)
   };
 };
