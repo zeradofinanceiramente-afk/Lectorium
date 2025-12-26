@@ -23,10 +23,9 @@ import { AiBubbleMenu } from './doc/AiBubbleMenu';
 import { SuggestionBubbleMenu } from './doc/SuggestionBubbleMenu';
 import { FootnoteBubbleMenu } from './doc/FootnoteBubbleMenu';
 import { FindReplaceBar } from './doc/FindReplaceBar';
-import { FootnotesLayer } from './doc/FootnotesLayer';
 import { Ruler } from './doc/Ruler';
 import { VerticalRuler } from './doc/VerticalRuler';
-import { Loader2, ArrowLeft, FileText, Cloud, Sparkles, Users, Share2 } from 'lucide-react';
+import { Loader2, ArrowLeft, FileText, Cloud, Sparkles, Users, Share2, Lock } from 'lucide-react';
 import { Reference, EditorStats, MIME_TYPES } from '../../types';
 import { auth } from '../../firebase';
 import { generateDocxBlob } from '../../services/docxService';
@@ -106,6 +105,72 @@ export const DocEditor: React.FC<Props> = ({
       }
     }
   });
+
+  // --- AUTO-PAGINATION & REDIRECT LOGIC ---
+  useEffect(() => {
+    if (!editor || !isSlideMode) return;
+
+    const checkCursorPage = () => {
+        if (!editor || editor.isDestroyed || !editor.view) return;
+
+        const { selection, doc } = editor.state;
+        const { from } = selection;
+
+        // Safety: Ensure position is valid within document bounds
+        if (from < 0 || from > doc.content.size) return;
+
+        try {
+            // Obter coordenadas do cursor relativas à viewport
+            // Use 'side' param to avoid issues at boundaries
+            const coords = editor.view.coordsAtPos(from, -1);
+            
+            // Altura de uma página renderizada
+            const pageHeight = pageLayout.currentPaper.heightPx;
+            const pageGap = 20;
+            const totalUnit = pageHeight + pageGap;
+
+            // Encontrar o elemento DOM correspondente à seleção
+            // Usamos domAtPos com segurança
+            const domResult = editor.view.domAtPos(from);
+            const domNode = domResult.node;
+            const element = (domNode instanceof HTMLElement ? domNode : domNode.parentElement) as HTMLElement;
+            
+            if (element) {
+                // offsetTop do elemento em relação ao container do editor (que tem altura total do doc)
+                // Isso funciona porque o container interno do Tiptap cresce com o conteúdo
+                let offsetTop = element.offsetTop;
+                let currentEl = element;
+                
+                // Subir até encontrar o editor-content para ter o offset relativo correto
+                while(currentEl && !currentEl.classList.contains('ProseMirror') && currentEl.parentElement) {
+                    currentEl = currentEl.parentElement;
+                    offsetTop += currentEl.offsetTop;
+                }
+
+                // Calcular página baseada na posição Y absoluta
+                const calculatedPage = Math.floor(offsetTop / totalUnit) + 1;
+
+                // Se a página calculada for diferente da atual, REDIRECIONAR (Snap)
+                if (calculatedPage !== currentPage && calculatedPage >= 1 && calculatedPage <= pageLayout.totalPages) {
+                    setCurrentPage(calculatedPage);
+                    // Resetar scroll visual
+                    if (docScrollerRef.current) docScrollerRef.current.scrollTop = 0;
+                }
+            }
+        } catch (e) {
+            // Ignorar erros transientes de layout ou range
+        }
+    };
+
+    // Use 'update' instead of 'transaction' to ensure View/DOM is synced with State
+    editor.on('selectionUpdate', checkCursorPage);
+    editor.on('update', checkCursorPage);
+
+    return () => { 
+        editor.off('selectionUpdate', checkCursorPage); 
+        editor.off('update', checkCursorPage);
+    }
+  }, [editor, currentPage, pageLayout.currentPaper.heightPx, pageLayout.totalPages, isSlideMode]);
 
   const handleJumpToPage = useCallback((page: number) => {
       const target = Math.max(1, Math.min(page, pageLayout.totalPages));
@@ -279,11 +344,13 @@ export const DocEditor: React.FC<Props> = ({
              <FindReplaceBar editor={editor} isOpen={modals.findReplace} onClose={() => toggleModal('findReplace', false)} />
 
              <div 
-                className="relative my-8 transition-transform origin-top will-change-transform" 
+                className="relative my-8 transition-transform origin-top will-change-transform bg-transparent" 
                 style={{ 
                     transform: `scale(${pageLayout.zoom})`, 
                     width: pageLayout.currentPaper.widthPx,
-                    height: 'auto',
+                    height: pageLayout.currentPaper.heightPx, // Fixed height per page
+                    overflow: 'hidden', // Hide overflow to simulate single page
+                    boxShadow: '0 0 50px -10px rgba(0,0,0,0.5)'
                 }}
              >
                 {/* Horizontal Ruler (Global) */}
@@ -375,9 +442,6 @@ export const DocEditor: React.FC<Props> = ({
                         })}
                     </div>
                     
-                    {/* Footnotes Visual Layer - Hidden in slide mode by complexity/design choice usually, but keeping it visible if on current page */}
-                    {/* Simplified: Only showing if fits context, or could rely on Tiptap rendering */}
-
                     {/* Main Content (Shifted in Slide Mode to align text with viewport) */}
                     <div 
                         ref={contentRef} 
