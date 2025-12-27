@@ -8,7 +8,6 @@ import {
   getAuditRecord,
   saveAuditRecord
 } from '../services/storageService';
-import { syncAnnotationToCloud, deleteAnnotationFromCloud, subscribeToAnnotations } from '../services/firestoreService';
 import { PDFDocumentProxy } from 'pdfjs-dist';
 import { computeSparseHash } from '../utils/hashUtils';
 
@@ -27,7 +26,6 @@ export const usePdfAnnotations = (fileId: string, uid: string, pdfDoc: PDFDocume
   const [isCheckingIntegrity, setIsCheckingIntegrity] = useState(true);
   const [hasPageMismatch, setHasPageMismatch] = useState(false);
   
-  const cloudAnnsRef = useRef<Annotation[]>([]);
   const localAnnsRef = useRef<Annotation[]>([]);
   const embeddedAnnsRef = useRef<Annotation[]>([]);
 
@@ -131,25 +129,16 @@ export const usePdfAnnotations = (fileId: string, uid: string, pdfDoc: PDFDocume
     loadAndVerify();
   }, [fileId, uid, pdfDoc, currentBlob]); 
 
-  // 2. Sincronização em Tempo Real (Firestore)
-  useEffect(() => {
-    if (uid === 'guest' || !fileId) return;
-
-    const unsubscribe = subscribeToAnnotations(uid, fileId, (cloudAnns) => {
-      cloudAnnsRef.current = cloudAnns;
-      mergeAndSet();
-    });
-
-    return () => unsubscribe();
-  }, [fileId, uid]);
+  // Removed: useEffect hook for Firestore subscription
 
   const mergeAndSet = useCallback(() => {
     const map = new Map<string, Annotation>();
 
-    // Priority: Cloud > Local > Embedded
+    // Priority: Local > Embedded
+    // A lógica é: O que está no arquivo (Embedded) é a base.
+    // O que está no cache Local (IDB) são edições recentes ainda não salvas no arquivo.
     embeddedAnnsRef.current.forEach(a => { if (a.id) map.set(a.id, a); });
     localAnnsRef.current.forEach(a => { if (a.id) map.set(a.id, a); });
-    cloudAnnsRef.current.forEach(a => { if (a.id) map.set(a.id, a); });
 
     setAnnotations(Array.from(map.values()));
   }, []);
@@ -189,9 +178,9 @@ export const usePdfAnnotations = (fileId: string, uid: string, pdfDoc: PDFDocume
     localAnnsRef.current.push(newAnn);
 
     try {
+      // Salva apenas localmente (IndexedDB)
       await saveAnnotation(uid, fileId, newAnn);
-      if (navigator.onLine) await syncAnnotationToCloud(uid, fileId, newAnn);
-    } catch (e) { console.error("Sync error:", e); }
+    } catch (e) { console.error("Save error:", e); }
   }, [fileId, uid, isCheckingIntegrity, conflictDetected]);
 
   const removeAnnotation = useCallback(async (target: Annotation) => {
@@ -208,8 +197,8 @@ export const usePdfAnnotations = (fileId: string, uid: string, pdfDoc: PDFDocume
     localAnnsRef.current = localAnnsRef.current.filter(a => a.id !== id);
 
     try {
+      // Remove apenas localmente
       await deleteLocalAnnotation(id);
-      if (navigator.onLine) await deleteAnnotationFromCloud(uid, fileId, id);
     } catch (e) { console.error("Delete error:", e); }
   }, [uid, fileId, isCheckingIntegrity, conflictDetected]);
 
