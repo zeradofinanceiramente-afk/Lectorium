@@ -67,7 +67,8 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
     getUnburntOcrMap,
     markOcrAsSaved,
     setChatRequest,
-    showOcrModal, setShowOcrModal
+    showOcrModal, setShowOcrModal,
+    docPageOffset // Acessa o offset do contexto
   } = usePdfContext();
   
   const containerRef = useRef<HTMLDivElement>(null);
@@ -142,7 +143,8 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
      const sourceBlob = currentBlobRef.current || originalBlob;
      if (!sourceBlob) return;
      const ocrToBurn = getUnburntOcrMap();
-     const newBlob = await burnAnnotationsToPdf(sourceBlob, annotations, ocrToBurn);
+     // Passa o offset para ser salvo nos metadados
+     const newBlob = await burnAnnotationsToPdf(sourceBlob, annotations, ocrToBurn, docPageOffset);
      const url = URL.createObjectURL(newBlob);
      const a = document.createElement('a');
      a.href = url;
@@ -179,7 +181,8 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
         }
 
         const ocrToBurn = getUnburntOcrMap();
-        const newBlob = await burnAnnotationsToPdf(sourceBlob, annotations, ocrToBurn);
+        // Passa o offset para ser salvo nos metadados (persistência)
+        const newBlob = await burnAnnotationsToPdf(sourceBlob, annotations, ocrToBurn, docPageOffset);
         
         // Calcular novo hash para o Audit Log
         const newHash = await computeSparseHash(newBlob);
@@ -491,6 +494,9 @@ export const PdfViewer: React.FC<Props> = (props) => {
       pdfDoc={pdfDoc}
       onUpdateSourceBlob={setOriginalBlob}
       currentBlob={originalBlob}
+      // Page Offset Props
+      initialPageOffset={annotationsHook.pageOffset}
+      onSetPageOffset={annotationsHook.setPageOffset}
     >
        <PdfViewerContent 
          {...props} 

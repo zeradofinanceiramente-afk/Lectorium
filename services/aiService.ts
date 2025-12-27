@@ -117,62 +117,68 @@ export function extractPageRangeFromQuery(query: string): { start: number, end: 
 // --- AI FUNCTIONS ---
 
 /**
- * Gera embeddings vetoriais com Rate Limiting para evitar 429.
+ * Gera embeddings vetoriais com BATCH PROCESSING e Rate Limiting.
+ * Processa em blocos para evitar erro 429.
  */
 export async function generateEmbeddings(texts: string[]): Promise<Float32Array[]> {
   const ai = getAiClient();
   const model = "text-embedding-004";
   
-  const embeddings: Float32Array[] = [];
+  const embeddings: Float32Array[] = new Array(texts.length).fill(new Float32Array(0));
   
-  // Rate Limit: Free tier permite ~15-30 requests/min. 
-  // Adicionamos delay de 1.5s entre chamadas para segurança.
-  const DELAY_MS = 1500;
+  // CONFIGURAÇÃO TÁTICA DE BATCH
+  // Free Tier: ~15 RPM (Requests Per Minute)
+  // Batch de 3 requisições paralelas a cada 4 segundos = ~45 RPM (Risco Médio, mas com Backoff é seguro)
+  // Reduzido para 2 requisições a cada 2.5s para segurança total.
+  const BATCH_SIZE = 2;
+  const BATCH_DELAY_MS = 2500; 
 
-  for (let i = 0; i < texts.length; i++) {
-      const text = texts[i];
-      if (!text || typeof text !== 'string' || !text.trim()) {
-          embeddings.push(new Float32Array(0));
-          continue;
-      }
+  // Helper para processar um único texto com retry
+  const processSingle = async (text: string, index: number, retryCount = 0): Promise<void> => {
+      if (!text || !text.trim()) return;
 
       try {
-          // Pequeno delay entre requests para não estourar a cota
-          if (i > 0) await sleep(DELAY_MS);
-
           const result = await ai.models.embedContent({
               model: model,
               content: { parts: [{ text: text.trim() }] }
           });
           
           if (result.embedding && result.embedding.values) {
-              embeddings.push(new Float32Array(result.embedding.values));
-          } else {
-              console.warn("Embedding vazio retornado para:", text.slice(0, 20));
-              embeddings.push(new Float32Array(0)); 
+              embeddings[index] = new Float32Array(result.embedding.values);
           }
       } catch (e: any) {
-          // Se der erro 429, espera mais tempo e tenta uma vez
-          if (e.message?.includes('429')) {
-              console.warn("Rate limit hit (Embedding). Waiting 10s...");
-              await sleep(10000);
-              try {
-                  const retryResult = await ai.models.embedContent({
-                      model: model,
-                      content: { parts: [{ text: text.trim() }] }
-                  });
-                  if (retryResult.embedding && retryResult.embedding.values) {
-                      embeddings.push(new Float32Array(retryResult.embedding.values));
-                      continue;
-                  }
-              } catch (retryErr) {
-                  console.error("Retry failed:", retryErr);
-              }
+          const isRateLimit = e.message?.includes('429') || e.message?.includes('quota');
+          
+          if (isRateLimit && retryCount < 3) {
+              const backoff = Math.pow(2, retryCount + 1) * 2000; // 4s, 8s, 16s
+              console.warn(`[AI] Rate Limit (429) no item ${index}. Retentativa ${retryCount+1} em ${backoff}ms...`);
+              await sleep(backoff);
+              return processSingle(text, index, retryCount + 1);
           }
-          console.error("Erro ao gerar embedding:", e.message || e);
-          embeddings.push(new Float32Array(0));
+          console.error(`[AI] Falha no embedding (Item ${index}):`, e.message);
+          // Deixa como vetor zero em caso de falha final
+      }
+  };
+
+  // Processamento em Blocos
+  for (let i = 0; i < texts.length; i += BATCH_SIZE) {
+      const batchPromises = [];
+      
+      for (let j = 0; j < BATCH_SIZE; j++) {
+          const idx = i + j;
+          if (idx < texts.length) {
+              batchPromises.push(processSingle(texts[idx], idx));
+          }
+      }
+
+      await Promise.all(batchPromises);
+      
+      // Delay entre blocos (exceto no último)
+      if (i + BATCH_SIZE < texts.length) {
+          await sleep(BATCH_DELAY_MS);
       }
   }
+
   return embeddings;
 }
 
@@ -271,6 +277,24 @@ export async function extractNewspaperContent(base64Image: string, mimeType: str
 
 export async function refineOcrWords(words: string[]): Promise<string[]> {
   const ai = getAiClient();
+  
+  // Batching para refinamento de OCR se a lista for muito grande
+  if (words.length > 500) {
+      // Divide em blocos seguros
+      const chunks = [];
+      for (let i = 0; i < words.length; i += 500) {
+          chunks.push(words.slice(i, i + 500));
+      }
+      
+      const results = [];
+      for (const chunk of chunks) {
+          const refinedChunk = await refineOcrWords(chunk);
+          results.push(...refinedChunk);
+          await sleep(1000); // Delay tático
+      }
+      return results;
+  }
+
   const prompt = `Abaixo está uma lista de palavras de um documento antigo extraídas via OCR.
   O fluxo de leitura foi preservado respeitando as colunas originais do layout.
   Corrija erros de reconhecimento tipográfico (ex: 'f' lido como 's', '1' como 'l') mantendo o sentido acadêmico.
@@ -367,24 +391,24 @@ export async function* chatWithDocumentStream(contextString: string, history: Ch
 Sua missão: Processar conhecimento com precisão cirúrgica, mantendo a soberania dos dados do usuário e a integridade das normas ABNT.
 
 DIRETRIZES DE COMPORTAMENTO (PROTOCOLO STARK):
-1. Identidade: Você se chama Sexta-feira. Use pronomes femininos. Refira-se ao usuário como "Chefe", "Admin" ou diretamente, com um tom de lealdade técnica.
-2. Tom de Voz: Direta, eficiente, com leves toques de sagacidade (witty), mas extremamente competente. Evite floreios desnecessários. Respostas curtas e densas em informação.
-3. Fontes Híbridas (RAG + Web):
-   * Prioridade zero: CONTEXTO RELEVANTE fornecido (PDF do usuário).
-   * Enriquecimento: Use conhecimentos externos acadêmicos (livros, artigos clássicos) para expandir o tema, mas avise quando sair do documento.
+1. Identidade: Use pronomes femininos. Refira-se ao usuário como "Chefe", "Admin" ou diretamente. Tom: técnico, leal e levemente sagaz.
+2. Formatação: Texto limpo, sem floreios. Use listas e negrito para ênfase.
 
-PROTOCOLOS DE CITAÇÃO E REFERÊNCIA (RIGOROSO):
-1. Fontes Internas (PDF/Contexto): Use estritamente \`[Página X]\` para referenciar o texto do usuário.
+DIRETRIZES DE FONTES (PROTOCOLO HÍBRIDO):
+O contexto fornecido pode ser LIMITADO (contendo apenas os trechos que o usuário destacou/marcou no PDF).
+* **Prioridade 1: CONTEXTO DO USUÁRIO.** Se a resposta estiver no texto fornecido abaixo, use-o e cite a página explicitamente (Ex: [Página X]).
+* **Prioridade 2: BASE DE CONHECIMENTO INTERNA (ACADÊMICA).** Se a resposta NÃO estiver nos trechos fornecidos, você TEM PERMISSÃO para usar seu conhecimento externo (livros clássicos, teorias consolidadas), MAS deve deixar claro que a informação é externa.
+
+PROTOCOLOS DE CITAÇÃO:
+1. Fontes Internas (PDF): Use \`[Página X]\` ou \`[Nota do Usuário]\`.
 2. Fontes Externas (Seu Conhecimento):
-   * No texto: Use o padrão autor-data (SOBRENOME, Ano). Ex: (FOUCAULT, 1975).
-   * OBRIGATÓRIO: Se você citar ou usar conceitos de qualquer fonte externa que não esteja no contexto, adicione uma seção chamada "### Referências Táticas" ao final da resposta.
-   * Formato Bibliográfico: SOBRENOME, Nome. *Título da obra*. Edição. Cidade: Editora, Ano. (Use o formato ABNT padrão).
-3. Formatação: Texto plano limpo. Sem Markdown excessivo (** ou _). Use listas numeradas ou hifens.
+   * No texto: Use padrão autor-data (SOBRENOME, Ano). Ex: (FOUCAULT, 1975).
+   * Crie uma seção "### Referências Táticas" ao final se usar fontes externas.
 
-📚 CONTEXTO TÁTICO RELEVANTE (LOCAL-FIRST DATA):
-${contextString || "Documento vazio ou contexto não encontrado. Aguardando input visual ou textual."}
+📚 CONTEXTO TÁTICO FORNECIDO:
+${contextString || "Nenhum contexto específico. Use sua base de conhecimento."}
 
-Ao responder, integre conceitos de autores clássicos e contemporâneos relevantes ao tema, mas diferencie claramente o que está no PDF (Página X) do que vem de fora (Autor, Ano).`;
+Ao responder, integre conceitos externos se o contexto do usuário for insuficiente, mas diferencie claramente a origem.`;
 
   try {
     const chat = ai.chats.create({
@@ -413,8 +437,8 @@ Ao responder, integre conceitos de autores clássicos e contemporâneos relevant
                 throw err;
             }
             
-            // Backoff exponencial agressivo para 429: 2s, 5s, 10s
-            const waitTime = isQuotaError ? Math.pow(2.5, attempt) * 1000 : Math.pow(2, attempt) * 1000;
+            // Backoff exponencial agressivo para 429: 3s, 9s, 27s (mais lento para garantir recuperação)
+            const waitTime = isQuotaError ? Math.pow(3, attempt) * 1000 : Math.pow(2, attempt) * 1000;
             
             console.warn(`[SextaFeira] Conexão instável (${isQuotaError ? '429' : 'Err'}). Retentativa ${attempt}/${maxRetries} em ${waitTime}ms...`);
             await sleep(waitTime);
@@ -432,7 +456,7 @@ Ao responder, integre conceitos de autores clássicos e contemporâneos relevant
     if (errorMessage.includes('API key')) {
         yield "Erro: Chave de API inválida ou não configurada. Configure no menu lateral.";
     } else if (errorMessage.includes('429') || errorMessage.includes('quota') || errorMessage.includes('Cota')) {
-        yield "🚦 **Alerta de Tráfego (429):** Muitos dados enviados. \n\n**Solução:** Ative o modo **Memória Neural (RAG)** no topo do chat para não enviar o documento inteiro, ou aguarde alguns instantes.";
+        yield "🚦 **Alerta de Tráfego (429):** O processamento em blocos detectou alto volume. \n\n**Solução:** O sistema limitou o envio apenas aos seus destaques para economizar recursos. Aguarde alguns instantes.";
     } else {
         // Expose the real error for debugging
         yield `Erro na conexão neural [STATUS: FALHA].\nDetalhes do Erro: ${errorMessage}\n\nTentando restabelecer link...`;

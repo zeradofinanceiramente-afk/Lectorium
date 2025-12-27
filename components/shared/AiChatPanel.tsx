@@ -12,6 +12,7 @@ interface Props {
   className?: string;
   fileId?: string; // Optional for RAG
   onIndexRequest?: () => Promise<void>; // Request to build index
+  numPages?: number; // Nova prop para controle de features
 }
 
 const MessageItem: React.FC<{ m: ChatMessage }> = ({ m }) => {
@@ -49,7 +50,7 @@ const MessageItem: React.FC<{ m: ChatMessage }> = ({ m }) => {
     );
 };
 
-export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, className = "", fileId, onIndexRequest }) => {
+export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, className = "", fileId, onIndexRequest, numPages = 0 }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -60,15 +61,15 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
   const scrollRef = useRef<HTMLDivElement>(null);
   const { chatRequest, setChatRequest, ocrMap } = usePdfContext();
 
-  // Detecção de Documentos Grandes (> 30k chars ~ 10-15 páginas cheias)
-  const isLargeDoc = contextText.length > 30000;
+  // Limite rígido para modo direto
+  const isDirectReadingAllowed = numPages < 17;
 
   useEffect(() => {
-    // Força RAG para documentos grandes para evitar 429
-    if (isLargeDoc && fileId && onIndexRequest) {
+    // Força RAG/Semântico se o documento for longo (o "Leitura Direta" fica desativado)
+    if (!isDirectReadingAllowed && fileId) {
         setIsRagActive(true);
     }
-  }, [isLargeDoc, fileId]);
+  }, [isDirectReadingAllowed, fileId]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -152,15 +153,11 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
         // 1. Semantic Search (Vector RAG)
         if (!retrievalContext && fileId && isRagActive) {
             try {
-                // Se o doc é grande e não tem RAG ativado, tentamos ativar indexação sob demanda?
-                // Não, assumimos que o usuário clicou no botão.
-                
                 const results = await semanticSearch(fileId, userMessage);
                 if (results.length > 0) {
                     retrievalContext = results.map(r => `[Trecho Relevante - Pág ${r.page || '?'}] ${r.text}`).join("\n\n---\n\n");
                     mode = "NEURAL-RAG";
                 } else {
-                    // Fallback se RAG não achar nada
                     console.warn("RAG sem resultados, tentando fallback parcial.");
                 }
             } catch (e) {
@@ -168,15 +165,10 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
             }
         }
 
-        // 2. Fallback / Direct Mode (100% Context)
-        // CUIDADO: Se o doc for gigante, isso causa 429.
+        // 2. Fallback / Context Passed from Sidebar
+        // Se RAG não achou nada ou está desligado, usamos o contextText (que agora é inteligente: full ou highlights)
         if (!retrievalContext) {
-            if (isLargeDoc && !isRagActive) {
-                // Se for grande e RAG estiver desligado, enviamos um aviso ou um subset.
-                retrievalContext = "ALERTA DE SISTEMA: O documento é muito extenso para leitura direta completa. Ative o modo 'Memória Neural' (RAG) para melhores resultados. Usando resumo das primeiras 30 páginas.\n\n" + contextText.slice(0, 50000);
-            } else {
-                retrievalContext = contextText;
-            }
+            retrievalContext = contextText;
         }
 
         if (!retrievalContext) {
@@ -229,14 +221,16 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
               <span className="text-xs font-bold uppercase tracking-wider">Sexta-feira</span>
           </div>
           <div className="flex items-center gap-1">
-              {/* Direct Mode Toggle */}
-              <button 
-                onClick={() => setIsRagActive(false)} 
-                className={`p-1.5 rounded transition-colors ${!isRagActive ? 'text-brand bg-brand/10 ring-1 ring-brand/30 shadow-[0_0_10px_-3px_var(--brand)]' : 'text-text-sec hover:text-white hover:bg-white/5'} ${isLargeDoc ? 'opacity-50' : ''}`}
-                title={isLargeDoc ? "Não recomendado para documentos grandes" : "Modo Leitura Direta (100% Contexto)"}
-              >
-                  <BookOpen size={14} />
-              </button>
+              {/* Direct Mode Toggle (Hidden for Large Docs) */}
+              {isDirectReadingAllowed && (
+                  <button 
+                    onClick={() => setIsRagActive(false)} 
+                    className={`p-1.5 rounded transition-colors ${!isRagActive ? 'text-brand bg-brand/10 ring-1 ring-brand/30 shadow-[0_0_10px_-3px_var(--brand)]' : 'text-text-sec hover:text-white hover:bg-white/5'}`}
+                    title="Modo Leitura Direta (100% Contexto)"
+                  >
+                      <BookOpen size={14} />
+                  </button>
+              )}
 
               {/* Semantic Mode Toggle */}
               {onIndexRequest && (
@@ -264,7 +258,7 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
               <div className="flex flex-col items-center justify-center h-full text-center p-6 space-y-4 opacity-70">
                   <div className="relative">
                       <Sparkles size={48} className="text-brand animate-pulse" />
-                      {isLargeDoc && <div className="absolute -top-2 -right-2 bg-yellow-500 text-black text-[9px] font-bold px-1.5 py-0.5 rounded-full border border-yellow-300">Docs+</div>}
+                      {!isDirectReadingAllowed && <div className="absolute -top-2 -right-2 bg-yellow-500 text-black text-[9px] font-bold px-1.5 py-0.5 rounded-full border border-yellow-300">Resumo</div>}
                   </div>
                   <div className="space-y-1">
                       <p className="text-sm font-bold text-text">Sexta-feira online.</p>
@@ -274,13 +268,19 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
                   {/* Status Indicator */}
                   {isRagActive ? (
                       <div className="flex items-center gap-1 text-[10px] text-purple-400 bg-purple-500/10 px-2 py-1 rounded border border-purple-500/20">
-                          <BrainCircuit size={12} /> RAG Ativo {isLargeDoc ? '(Recomendado)' : ''}
+                          <BrainCircuit size={12} /> RAG Ativo {!isDirectReadingAllowed ? '(Obrigatório)' : ''}
                       </div>
                   ) : (
                       <div className="flex items-center gap-1 text-[10px] text-brand bg-brand/10 px-2 py-1 rounded border border-brand/20">
-                          <BookOpen size={12} /> Leitura Direta {isLargeDoc ? '(Cuidado: Alto Tráfego)' : ''}
+                          <BookOpen size={12} /> {isDirectReadingAllowed ? 'Leitura Direta' : 'Modo Destaques'}
                       </div>
                   )}
+
+                  <p className="text-[10px] text-gray-500 max-w-[200px]">
+                      {!isDirectReadingAllowed 
+                        ? "Documento extenso. Focarei nos seus destaques e no meu conhecimento acadêmico." 
+                        : "Pergunte sobre o conteúdo completo do documento."}
+                  </p>
 
                   {/* NotebookLM Style Action */}
                   <button 
@@ -305,7 +305,7 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
                   </div>
                   <div className="bg-surface border border-border rounded-2xl rounded-tl-none p-3 flex items-center gap-3">
                       <div className="text-xs text-text-sec italic">
-                          {isRagActive ? "Consultando vetores neurais..." : "Lendo documento..."}
+                          {isRagActive ? "Consultando vetores neurais..." : "Lendo destaques e contexto..."}
                       </div>
                       <div className="flex gap-1">
                           <div className="w-1.5 h-1.5 bg-brand rounded-full animate-bounce"></div>
@@ -330,7 +330,7 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
                         handleSend();
                     }
                 }}
-                placeholder={isRagActive ? "Busca semântica ativa..." : "Pergunte sobre o texto completo..."}
+                placeholder={isRagActive ? "Busca semântica ativa..." : "Pergunte sobre seus destaques..."}
                 className="w-full bg-bg border border-border rounded-xl py-3 pl-4 pr-12 text-sm text-text focus:border-brand focus:ring-1 focus:ring-brand outline-none transition-all resize-none max-h-32"
               />
               <button 
@@ -341,9 +341,10 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
                   <Send size={18} />
               </button>
           </div>
-          {isLargeDoc && !isRagActive && (
-              <div className="text-[10px] text-yellow-500/80 mt-2 text-center">
-                  ⚠️ Documento extenso. Ative o modo RAG (cérebro) para evitar erros de cota (429).
+          {!isDirectReadingAllowed && !isRagActive && (
+              <div className="text-[10px] text-gray-500 mt-2 text-center flex justify-center gap-1">
+                  <span>ℹ️</span>
+                  <span>Modo Econômico: Analisando apenas seus destaques e notas.</span>
               </div>
           )}
       </div>

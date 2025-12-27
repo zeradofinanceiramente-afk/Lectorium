@@ -26,6 +26,9 @@ export const usePdfAnnotations = (fileId: string, uid: string, pdfDoc: PDFDocume
   const [isCheckingIntegrity, setIsCheckingIntegrity] = useState(true);
   const [hasPageMismatch, setHasPageMismatch] = useState(false);
   
+  // Page Offset (Correction) State
+  const [pageOffset, setPageOffset] = useState(0);
+  
   const localAnnsRef = useRef<Annotation[]>([]);
   const embeddedAnnsRef = useRef<Annotation[]>([]);
 
@@ -51,6 +54,7 @@ export const usePdfAnnotations = (fileId: string, uid: string, pdfDoc: PDFDocume
       
       let embedded: Annotation[] = [];
       let metadataPageCount: number | undefined = undefined;
+      let loadedOffset = 0;
 
       // C. Extract Embedded Metadata
       try {
@@ -73,6 +77,7 @@ export const usePdfAnnotations = (fileId: string, uid: string, pdfDoc: PDFDocume
                     const parsed: PdfMetadataV2 = JSON.parse(jsonStr);
                     embedded = parsed.annotations || [];
                     metadataPageCount = parsed.pageCount;
+                    if (parsed.pageOffset !== undefined) loadedOffset = parsed.pageOffset;
                 }
             }
             else if (keywords.includes(v2Prefix)) {
@@ -81,6 +86,7 @@ export const usePdfAnnotations = (fileId: string, uid: string, pdfDoc: PDFDocume
                     const parsed: PdfMetadataV2 = JSON.parse(parts[1]);
                     embedded = parsed.annotations || [];
                     metadataPageCount = parsed.pageCount;
+                    if (parsed.pageOffset !== undefined) loadedOffset = parsed.pageOffset;
                 }
             } else if (keywords.includes(v1Prefix)) {
                 const parts = keywords.split(v1Prefix);
@@ -95,6 +101,7 @@ export const usePdfAnnotations = (fileId: string, uid: string, pdfDoc: PDFDocume
       } catch (e) { console.warn("Meta error:", e); }
       
       embeddedAnnsRef.current = embedded;
+      setPageOffset(loadedOffset);
 
       // D. Conflict Detection Logic
       let conflict = false;
@@ -148,6 +155,7 @@ export const usePdfAnnotations = (fileId: string, uid: string, pdfDoc: PDFDocume
           // Limpa estado Lectorium, usa o PDF como está
           setAnnotations([]); 
           localAnnsRef.current = [];
+          setPageOffset(0); // Reseta offset em caso de reset total
           // TODO: Limpar DB
       } 
       else if (action === 'merge') {
@@ -202,5 +210,5 @@ export const usePdfAnnotations = (fileId: string, uid: string, pdfDoc: PDFDocume
     } catch (e) { console.error("Delete error:", e); }
   }, [uid, fileId, isCheckingIntegrity, conflictDetected]);
 
-  return { annotations, addAnnotation, removeAnnotation, conflictDetected, resolveConflict, isCheckingIntegrity, hasPageMismatch };
+  return { annotations, addAnnotation, removeAnnotation, conflictDetected, resolveConflict, isCheckingIntegrity, hasPageMismatch, pageOffset, setPageOffset };
 };

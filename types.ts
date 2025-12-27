@@ -64,6 +64,7 @@ export interface PdfMetadataV2 {
   lectorium_v: string;
   last_sync: string;
   pageCount: number;
+  pageOffset?: number; // Diferença entre página física e lógica (Ex: capa)
   annotations: Annotation[];
 }
 

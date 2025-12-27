@@ -70,6 +70,9 @@ interface PdfContextState {
   setChatRequest: (msg: string | null) => void;
   // RAG Indexing
   generateSearchIndex: (fullText: string) => Promise<void>;
+  // Page Offset Correction
+  docPageOffset: number;
+  setDocPageOffset: (offset: number) => void;
 }
 
 const PdfContext = createContext<PdfContextState | null>(null);
@@ -93,6 +96,9 @@ interface PdfProviderProps {
   pdfDoc: PDFDocumentProxy | null;
   onUpdateSourceBlob: (blob: Blob) => void;
   currentBlob: Blob | null;
+  // Page Offset props
+  initialPageOffset: number;
+  onSetPageOffset: (offset: number) => void;
 }
 
 const DEFAULT_SETTINGS: PdfSettings = {
@@ -114,7 +120,7 @@ const DEFAULT_SETTINGS: PdfSettings = {
 
 export const PdfProvider: React.FC<PdfProviderProps> = ({ 
   children, initialScale, numPages, annotations, onAddAnnotation, onRemoveAnnotation, onJumpToPage, accessToken, fileId, pdfDoc,
-  onUpdateSourceBlob, currentBlob
+  onUpdateSourceBlob, currentBlob, initialPageOffset, onSetPageOffset
 }) => {
   const [scale, setScale] = useState(initialScale);
   const [currentPage, setCurrentPage] = useState(1);
@@ -388,8 +394,10 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
     updateSourceBlob: onUpdateSourceBlob, currentBlobRef, 
     getUnburntOcrMap, markOcrAsSaved,
     chatRequest, setChatRequest,
-    generateSearchIndex
-  }), [scale, currentPage, numPages, activeTool, settings, annotations, onAddAnnotation, onRemoveAnnotation, ocrMap, nativeTextMap, ocrStatusMap, setPageOcrData, updateOcrWord, triggerOcr, showOcrModal, refinePageOcr, hasUnsavedOcr, setHasUnsavedOcr, ocrNotification, jumpToPage, accessToken, fileId, isSpread, spreadSide, goNext, goPrev, onUpdateSourceBlob, getUnburntOcrMap, markOcrAsSaved, chatRequest, generateSearchIndex]);
+    generateSearchIndex,
+    docPageOffset: initialPageOffset, 
+    setDocPageOffset: onSetPageOffset
+  }), [scale, currentPage, numPages, activeTool, settings, annotations, onAddAnnotation, onRemoveAnnotation, ocrMap, nativeTextMap, ocrStatusMap, setPageOcrData, updateOcrWord, triggerOcr, showOcrModal, refinePageOcr, hasUnsavedOcr, setHasUnsavedOcr, ocrNotification, jumpToPage, accessToken, fileId, isSpread, spreadSide, goNext, goPrev, onUpdateSourceBlob, getUnburntOcrMap, markOcrAsSaved, chatRequest, generateSearchIndex, initialPageOffset, onSetPageOffset]);
 
   return <PdfContext.Provider value={value}>{children}</PdfContext.Provider>;
 };

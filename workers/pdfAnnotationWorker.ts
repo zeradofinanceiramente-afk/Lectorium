@@ -22,6 +22,7 @@ interface WorkerMessage {
   ocrMap?: Record<number, any[]>;
   pageNumber?: number;
   ocrData?: any[];
+  pageOffset?: number; // New param
 }
 
 // Helper seguro para Base64 Unicode
@@ -77,6 +78,7 @@ self.onmessage = async (e: MessageEvent) => {
             lectorium_v: "2.1", // Bumped version for Base64 support
             last_sync: new Date().toISOString(),
             pageCount: pages.length, // Crítico para validação de merge
+            pageOffset: data.pageOffset || 0, // Persist offset
             annotations: annotations.map(a => ({
                 ...a,
                 isBurned: true // Marca como "queimado" para lógica de UI

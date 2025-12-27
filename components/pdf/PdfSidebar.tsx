@@ -1,5 +1,6 @@
+
 import React, { useMemo, useState, useEffect } from 'react';
-import { X, Lock, FileText, Copy, Download, Sparkles, Loader2, Hash, PaintBucket, Eye, ImageOff, Columns, Highlighter, Pen, ScanLine, MessageSquare, Pipette, MoveHorizontal, MousePointer2, ScrollText, ScanFace, Cloud, CloudOff, AlertCircle, CheckCircle, Palette, Droplets, Binary, ChevronLeft, ChevronRight, PanelRightOpen, PanelRightClose, Move, Maximize } from 'lucide-react';
+import { X, Lock, FileText, Copy, Download, Sparkles, Loader2, Hash, PaintBucket, Eye, ImageOff, Columns, Highlighter, Pen, ScanLine, MessageSquare, Pipette, MoveHorizontal, MousePointer2, ScrollText, ScanFace, Cloud, CloudOff, AlertCircle, CheckCircle, Palette, Droplets, Binary, ChevronLeft, ChevronRight, PanelRightOpen, PanelRightClose, Move, Maximize, BookOpen } from 'lucide-react';
 import { Annotation } from '../../types';
 import { usePdfContext } from '../../context/PdfContext';
 import { AiChatPanel } from '../shared/AiChatPanel';
@@ -25,7 +26,7 @@ const PRESET_COLORS = [
 export const PdfSidebar: React.FC<Props> = ({
   isOpen, onClose, activeTab, onTabChange, sidebarAnnotations, fichamentoText, onCopyFichamento, onDownloadFichamento,
 }) => {
-  const { settings, updateSettings, jumpToPage, removeAnnotation, triggerOcr, currentPage, ocrMap, nativeTextMap, numPages, hasUnsavedOcr, fileId, generateSearchIndex } = usePdfContext();
+  const { settings, updateSettings, jumpToPage, removeAnnotation, triggerOcr, currentPage, ocrMap, nativeTextMap, numPages, hasUnsavedOcr, fileId, generateSearchIndex, docPageOffset, setDocPageOffset } = usePdfContext();
   const [isHoveringHandler, setIsHoveringHandler] = useState(false);
 
   // --- JARVIS PROTOCOL: SEMANTIC DEDUPLICATION (V2.1) ---
@@ -55,42 +56,50 @@ export const PdfSidebar: React.FC<Props> = ({
     });
   }, [sidebarAnnotations]);
 
-  const fullDocumentText = useMemo(() => {
-    let text = "";
+  const contextForAi = useMemo(() => {
+    // REGRA DE NEGÓCIO: Limitação de Contexto
+    // Se < 17 páginas: Envia texto completo + anotações (Leitura Direta permitida)
+    // Se >= 17 páginas: Envia APENAS destaques/notas (Foco Semântico do Usuário)
     
-    // Iterar por TODAS as páginas para construir o contexto completo
-    // Prioridade: OCR (mais recente/corrigido) > Texto Nativo > Nada
-    for (let i = 1; i <= numPages; i++) {
-        let pageContent = "";
-        
-        const ocrWords = ocrMap[i];
-        const nativeText = nativeTextMap[i];
+    const isShortDocument = numPages < 17;
+    let text = "";
 
-        if (Array.isArray(ocrWords) && ocrWords.length > 0) {
-            // Fonte 1: OCR Manual/IA
-            pageContent = ocrWords.map((w: any) => w.text).join(' ');
-        } else if (nativeText && nativeText.trim().length > 0) {
-            // Fonte 2: Texto Nativo do PDF
-            pageContent = nativeText;
-        }
+    // 1. Constrói a base de texto (apenas se for documento curto)
+    if (isShortDocument) {
+        for (let i = 1; i <= numPages; i++) {
+            let pageContent = "";
+            const ocrWords = ocrMap[i];
+            const nativeText = nativeTextMap[i];
 
-        if (pageContent) {
-            text += `\n[INÍCIO DO CONTEÚDO DA PÁGINA ${i}]\n${pageContent}\n[FIM DA PÁGINA ${i}]\n`;
+            if (Array.isArray(ocrWords) && ocrWords.length > 0) {
+                pageContent = ocrWords.map((w: any) => w.text).join(' ');
+            } else if (nativeText && nativeText.trim().length > 0) {
+                pageContent = nativeText;
+            }
+
+            if (pageContent) {
+                text += `\n[INÍCIO DA PÁGINA ${i}]\n${pageContent}\n[FIM DA PÁGINA ${i}]\n`;
+            }
         }
+    } else {
+        text += "[SISTEMA]: Documento extenso. O contexto abaixo contém APENAS os trechos explicitamente destacados pelo usuário.\n";
     }
 
-    // Adiciona anotações do usuário como contexto de alta prioridade
+    // 2. Adiciona anotações do usuário (Prioridade Máxima)
     const annotationsContent = uniqueAnnotations
         .filter(a => a.text && a.text.trim().length > 0)
-        .map(a => `[NOTA/DESTAQUE DO USUÁRIO NA PÁGINA ${a.page}]: ${a.text}`)
-        .join('\n');
+        .map(a => `[DESTAQUE/NOTA DE USUÁRIO NA PÁGINA ${a.page}]: "${a.text}"`)
+        .join('\n\n');
     
     if (annotationsContent) {
-        text += `\n--- SEÇÃO DE NOTAS PESSOAIS, RESUMO, FICHAMENTO E DESTAQUES FEITOS PELO USUÁRIO ---\n${annotationsContent}\n`;
+        text += `\n--- CONTEXTO DE INTERESSE (DESTAQUES DO USUÁRIO) ---\n${annotationsContent}\n`;
+    } else if (!isShortDocument) {
+        // Se for documento longo e não tiver destaques
+        text += "\n[AVISO]: O usuário ainda não destacou nenhum trecho. Utilize sua base de conhecimento interna para responder perguntas sobre o tema geral, mas avise que não está lendo o arquivo completo.";
     }
 
-    if (!text.trim()) {
-        return "O documento parece ser uma imagem digitalizada sem camada de texto. Use a ferramenta 'Extrair Texto' (OCR) na barra superior para permitir que a IA leia o conteúdo.";
+    if (!text.trim() && isShortDocument) {
+        return "O documento parece ser uma imagem digitalizada sem camada de texto. Use a ferramenta 'Extrair Texto' (OCR) na barra superior.";
     }
 
     return text;
@@ -197,11 +206,12 @@ export const PdfSidebar: React.FC<Props> = ({
                         </div>
                     ) : activeTab === 'chat' ? (
                         <AiChatPanel 
-                            contextText={fullDocumentText} 
+                            contextText={contextForAi} 
                             documentName="Documento PDF" 
                             className="bg-transparent"
                             fileId={fileId}
-                            onIndexRequest={() => generateSearchIndex(fullDocumentText)}
+                            onIndexRequest={() => generateSearchIndex(contextForAi)}
+                            numPages={numPages}
                         />
                     ) : activeTab === 'settings' ? (
                         <div className="flex-1 overflow-y-auto p-4 space-y-8 custom-scrollbar pb-10">
@@ -331,7 +341,7 @@ export const PdfSidebar: React.FC<Props> = ({
                                 </h4>
 
                                 <div className="flex flex-wrap gap-2 px-1">
-                                    {['#facc15', '#4ade80', '#3b82f6', '#ec4899', '#f97316'].map(c => (
+                                    {['#facc15', '#4ade80', '#3b82f6', '#ec4899', '#f97316', '#a855f7'].map(c => (
                                         <button 
                                             key={c}
                                             onClick={() => updateSettings({ highlightColor: c })}
@@ -367,6 +377,35 @@ export const PdfSidebar: React.FC<Props> = ({
                                         <Columns size={16} className={settings.detectColumns ? "text-brand" : "text-gray-600"}/> Pág. Dupla
                                     </span>
                                     <button onClick={() => updateSettings({ detectColumns: !settings.detectColumns })} className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${settings.detectColumns ? 'bg-brand' : 'bg-white/10'}`}><span className={`inline-block h-3 w-3 transform rounded-full bg-black transition ${settings.detectColumns ? 'translate-x-5' : 'translate-x-1'}`} /></button>
+                                </div>
+
+                                {/* Pagination Correction */}
+                                <div className="space-y-2 mb-4 p-3 bg-brand/5 rounded-xl border border-brand/20">
+                                    <div className="flex items-center gap-2 text-brand">
+                                        <BookOpen size={14} />
+                                        <span className="text-[10px] font-bold uppercase">Correção de Paginação</span>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-[9px] text-gray-400">Definir página atual ({currentPage}) como:</label>
+                                        <div className="flex items-center gap-2">
+                                            <input 
+                                                type="number" 
+                                                className="bg-black/40 border border-white/10 rounded px-2 py-1 text-xs text-white w-20 text-center focus:border-brand outline-none"
+                                                value={currentPage + docPageOffset}
+                                                onChange={(e) => {
+                                                    const val = parseInt(e.target.value);
+                                                    if (!isNaN(val)) {
+                                                        // offset = target - current
+                                                        setDocPageOffset(val - currentPage);
+                                                    }
+                                                }}
+                                            />
+                                            <span className="text-[9px] text-gray-500">(Offset: {docPageOffset > 0 ? '+' : ''}{docPageOffset})</span>
+                                        </div>
+                                        <p className="text-[9px] text-gray-500 leading-tight pt-1">
+                                            Use isso para sincronizar a contagem com o livro físico (ex: pular capas e sumário).
+                                        </p>
+                                    </div>
                                 </div>
 
                                 <div className="space-y-4 px-1">

@@ -13,15 +13,23 @@ export const PdfToolbar: React.FC<Props> = ({ onFitWidth }) => {
     currentPage, jumpToPage, numPages,
     scale, setScale,
     goNext, goPrev,
-    settings // Consumindo settings para layout
+    settings, // Consumindo settings para layout
+    docPageOffset // Consuming offset
   } = usePdfContext();
 
   const [isEditingPage, setIsEditingPage] = useState(false);
   const [tempPageInput, setTempPageInput] = useState("1");
 
+  // Display Logic: If offset exists, show Logical (Physical)
+  const displayPage = currentPage + docPageOffset;
+  const hasOffset = docPageOffset !== 0;
+
   useEffect(() => {
     if (!isEditingPage) {
-      setTempPageInput((currentPage ?? 1).toString());
+      // Input always works on physical page for direct jump consistency
+      // But let's show the physical one in input for clarity, or logical?
+      // Convention: Input jumps to physical page index usually.
+      setTempPageInput(currentPage.toString());
     }
   }, [currentPage, isEditingPage]);
 
@@ -31,7 +39,7 @@ export const PdfToolbar: React.FC<Props> = ({ onFitWidth }) => {
     if (!isNaN(page) && page >= 1 && page <= numPages) {
       jumpToPage(page);
     } else {
-      setTempPageInput((currentPage ?? 1).toString());
+      setTempPageInput(currentPage.toString());
     }
     setIsEditingPage(false);
   };
@@ -91,7 +99,8 @@ export const PdfToolbar: React.FC<Props> = ({ onFitWidth }) => {
                     <ChevronLeft size={20}/>
                 </button>
                 
-                <div className="flex items-center bg-[#010409] border border-[#30363d] rounded-lg px-2 py-1 gap-2 min-w-[100px] justify-center shadow-inner">
+                <div className="flex items-center bg-[#010409] border border-[#30363d] rounded-lg px-2 py-1 gap-2 min-w-[100px] justify-center shadow-inner relative">
+                    
                     {isEditingPage ? (
                     <form onSubmit={handlePageSubmit} className="flex items-center justify-center">
                         <input 
@@ -108,12 +117,12 @@ export const PdfToolbar: React.FC<Props> = ({ onFitWidth }) => {
                     ) : (
                     <button 
                         onClick={() => {
-                        setTempPageInput((currentPage ?? 1).toString());
+                        setTempPageInput(currentPage.toString());
                         setIsEditingPage(true);
                         }}
-                        className="font-mono text-sm font-bold text-white hover:text-brand transition-colors w-8 text-center"
+                        className="font-mono text-sm font-bold text-white hover:text-brand transition-colors text-center px-1"
                     >
-                        {currentPage}
+                        {hasOffset ? displayPage : currentPage}
                     </button>
                     )}
                     <span className="text-[#484f58] text-xs font-mono select-none">/</span>

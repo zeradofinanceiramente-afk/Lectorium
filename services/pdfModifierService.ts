@@ -8,7 +8,8 @@ import { Annotation } from '../types';
 export async function burnAnnotationsToPdf(
     originalBlob: Blob, 
     annotations: Annotation[], 
-    ocrMap?: Record<number, any[]>
+    ocrMap?: Record<number, any[]>,
+    pageOffset?: number // New Param
 ): Promise<Blob> {
     const arrayBuffer = await originalBlob.arrayBuffer();
     
@@ -36,7 +37,7 @@ export async function burnAnnotationsToPdf(
             };
 
             worker.postMessage(
-                { command: 'burn-all', pdfBytes: arrayBuffer, annotations, ocrMap }, 
+                { command: 'burn-all', pdfBytes: arrayBuffer, annotations, ocrMap, pageOffset }, 
                 [arrayBuffer]
             );
         } catch (err) {
