@@ -22,6 +22,7 @@ import { LegalModal, LegalTab } from './components/modals/LegalModal';
 import { generateMindMapAi } from './services/aiService';
 import { GlobalProvider, useGlobalContext } from './context/GlobalContext';
 import { OcrCompletionModal } from './components/modals/OcrCompletionModal';
+import { SecretThemeModal } from './components/SecretThemeModal';
 
 const DriveBrowser = lazy(() => import('./components/DriveBrowser').then(m => ({ default: m.DriveBrowser })));
 const PdfViewer = lazy(() => import('./components/PdfViewer').then(m => ({ default: m.PdfViewer })));
@@ -102,6 +103,9 @@ const AppContent = () => {
   const [legalModalTab, setLegalModalTab] = useState<LegalTab>('privacy');
   const [aiLoadingMessage, setAiLoadingMessage] = useState<string | null>(null);
   const [isImmersive, setIsImmersive] = useState(false);
+  
+  // Secret God Mode State
+  const [showSecretThemeModal, setShowSecretThemeModal] = useState(false);
 
   // Global Context for OCR control
   const { isOcrRunning, addNotification } = useGlobalContext();
@@ -154,10 +158,35 @@ const AppContent = () => {
   // Init & Auth Listeners
   useEffect(() => {
     const init = async () => {
+        // --- GOD MODE TRIGGER ---
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('protocol') === 'genesis') {
+            setShowSecretThemeModal(true);
+            // Stealth Mode: Limpa a URL imediatamente
+            window.history.replaceState({}, document.title, "/");
+        }
+
+        // --- THEME LOADING ---
+        const godModeTheme = localStorage.getItem('god_mode_theme');
+        if (godModeTheme) {
+            try {
+                const parsed = JSON.parse(godModeTheme);
+                if (parsed.vars) {
+                    const root = document.documentElement;
+                    Object.entries(parsed.vars).forEach(([key, value]) => {
+                        root.style.setProperty(key, value as string);
+                    });
+                    root.classList.add('custom'); // Garante que classes CSS saibam que é custom
+                }
+            } catch (e) { console.warn("Erro ao carregar tema secreto"); }
+        } else {
+            // Normal behavior
+            const savedTheme = localStorage.getItem('app-theme') || 'forest';
+            if (savedTheme !== 'forest') document.documentElement.classList.add(savedTheme);
+        }
+
         await performAppUpdateCleanup();
         await runJanitor(); 
-        const savedTheme = localStorage.getItem('app-theme') || 'forest';
-        if (savedTheme !== 'forest') document.documentElement.classList.add(savedTheme);
         const storedHandle = await getLocalDirectoryHandle();
         if (storedHandle) setSavedLocalDirHandle(storedHandle);
         setTimeout(() => getOcrWorker().catch(() => {}), 2000);
@@ -281,6 +310,10 @@ const AppContent = () => {
     <>
       <GlobalToastContainer />
       <OcrCompletionModal />
+      
+      {/* GOD MODE MODAL */}
+      <SecretThemeModal isOpen={showSecretThemeModal} onClose={() => setShowSecretThemeModal(false)} />
+
       <div className="flex h-screen w-full bg-bg overflow-hidden relative selection:bg-brand/30">
         <Sidebar 
             activeTab={activeTab} 
