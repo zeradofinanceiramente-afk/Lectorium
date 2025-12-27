@@ -26,8 +26,8 @@ export const FootnoteExtension = Node.create({
   addAttributes() {
     return {
       id: {
-        default: 1,
-        parseHTML: element => parseInt(element.getAttribute('data-id') || '1'),
+        default: 0, // Inicia com 0, o plugin corrigirá para 1, 2, 3...
+        parseHTML: element => parseInt(element.getAttribute('data-id') || '0'),
         renderHTML: attributes => ({
           'data-id': attributes.id,
         }),
@@ -55,9 +55,9 @@ export const FootnoteExtension = Node.create({
       'sup',
       mergeAttributes(this.options.HTMLAttributes, HTMLAttributes, { 
           'data-footnote': '',
-          'style': 'cursor: pointer; color: var(--brand); font-weight: bold;' // Destaque visual para o editor
+          'style': 'cursor: pointer; color: var(--brand); font-weight: bold; vertical-align: super; font-size: 0.7em;'
       }),
-      `${node.attrs.id}`,
+      `${node.attrs.id > 0 ? node.attrs.id : '?'}`, // Mostra ? temporariamente se ID for 0
     ];
   },
 
@@ -66,7 +66,6 @@ export const FootnoteExtension = Node.create({
       new Plugin({
         key: new PluginKey('footnote-renumbering'),
         appendTransaction: (transactions, oldState, newState) => {
-          // Otimização: Só recalcula se o doc mudou
           const docChanged = transactions.some(tr => tr.docChanged);
           if (!docChanged) return null;
 
@@ -74,7 +73,7 @@ export const FootnoteExtension = Node.create({
           const tr = newState.tr;
           let counter = 1;
 
-          // Varre o documento e reordena sequencialmente (1, 2, 3...)
+          // Varre o documento para garantir numeração sequencial (1, 2, 3...)
           newState.doc.descendants((node, pos) => {
             if (node.type.name === 'footnote') {
               if (node.attrs.id !== counter) {
@@ -98,39 +97,33 @@ export const FootnoteExtension = Node.create({
     return {
       setFootnote:
         () =>
-        ({ chain, state }: any) => {
-          // Calcula o próximo ID estimado
-          let countBefore = 0;
-          state.doc.descendants((node: any, pos: number) => {
-             if (node.type.name === this.name && pos < state.selection.from) {
-                 countBefore++;
-             }
-          });
-          const nextId = countBefore + 1;
+        ({ state, dispatch }: any) => {
+          const { schema, tr } = state;
+          const type = schema.nodes[this.name];
+          
+          if (!type) return false;
 
-          return chain()
-            .insertContent({
-              type: this.name,
-              attrs: {
-                id: nextId, 
-                content: '',
-              },
-            })
-            // Força seleção imediata do nó inserido para abrir o BubbleMenu
-            .command(({ tr, dispatch }: any) => {
-              if (dispatch) {
-                const { selection } = tr;
-                // O nó inserido está logo antes do cursor
-                const nodeBefore = selection.$from.nodeBefore;
-                if (nodeBefore && nodeBefore.type.name === this.name) {
-                  const pos = selection.from - nodeBefore.nodeSize;
-                  tr.setSelection(NodeSelection.create(tr.doc, pos));
-                  return true;
-                }
-              }
-              return false;
-            })
-            .run();
+          // Cria o nó com ID 0. O plugin de renumeração ajustará o ID automaticamente.
+          const node = type.create({ id: 0, content: '' });
+          
+          if (dispatch) {
+            const { from } = state.selection;
+            
+            // 1. Insere o nó na posição do cursor
+            tr.insert(from, node);
+            
+            // 2. Força a seleção do nó recém-criado (NodeSelection)
+            // Isso é CRÍTICO para que o BubbleMenu detecte 'isActive' e abra.
+            const selection = NodeSelection.create(tr.doc, from);
+            tr.setSelection(selection);
+            
+            // 3. Rola até a visualização
+            tr.scrollIntoView();
+            
+            dispatch(tr);
+          }
+          
+          return true;
         },
     } as any;
   },

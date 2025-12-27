@@ -16,6 +16,7 @@ import { CitationModal } from './doc/modals/CitationModal';
 import { ShareModal } from './doc/modals/ShareModal';
 import { TablePropertiesModal } from './doc/modals/TablePropertiesModal';
 import { HeaderFooterModal } from './doc/modals/HeaderFooterModal';
+import { VersionHistoryModal } from './doc/modals/VersionHistoryModal';
 import { ImageOptionsSidebar } from './doc/ImageOptionsSidebar';
 import { TableBubbleMenu } from './doc/TableBubbleMenu';
 import { ImageBubbleMenu } from './doc/ImageBubbleMenu';
@@ -258,6 +259,13 @@ export const DocEditor: React.FC<Props> = ({
     }
   };
 
+  const handleVersionRestore = useCallback((content: any) => {
+      if (editor) {
+          editor.commands.setContent(content);
+          // Opcional: salvar imediatamente como uma nova versão para manter rastro
+      }
+  }, [editor]);
+
   if (!editor) return <ViewLoader />;
 
   // Translate content to simulate slide view
@@ -298,7 +306,7 @@ export const DocEditor: React.FC<Props> = ({
                     <div className="text-text-sec">{(fileHandler.isSaving || isSharing) ? <Loader2 size={20} className="animate-spin" /> : <Cloud size={20} />}</div>
                     <button onClick={() => toggleSidebar('aiChat')} className={`p-2 rounded-full ${sidebars.aiChat ? 'bg-brand/20 text-brand' : 'text-text-sec'}`}><Sparkles size={20} /></button>
                     <button onClick={() => toggleSidebar('comments')} className={`p-2 rounded-full ${sidebars.comments ? 'bg-brand/20 text-brand' : 'text-text-sec'}`}><Users size={20} /></button>
-                    <button onClick={handleNativeShare} disabled={isSharing} className="flex items-center gap-2 bg-[#c2e7ff] text-[#0b141a] px-4 py-2 rounded-full font-medium text-sm hover:brightness-110 transition-all disabled:opacity-50">
+                    <button onClick={() => toggleModal('share', true)} className="flex items-center gap-2 bg-[#c2e7ff] text-[#0b141a] px-4 py-2 rounded-full font-medium text-sm hover:brightness-110 transition-all disabled:opacity-50">
                         {isSharing ? <Loader2 size={16} className="animate-spin"/> : <Share2 size={16} />}
                         <span>Compartilhar</span>
                     </button>
@@ -486,6 +494,13 @@ export const DocEditor: React.FC<Props> = ({
        <CitationModal isOpen={modals.citation} onClose={() => toggleModal('citation', false)} onInsert={ref => setReferences(prev => [...prev, ref])} references={references} />
        <ShareModal isOpen={modals.share} onClose={() => toggleModal('share', false)} fileId={fileId} fileName={fileName} isLocal={isLocalFile} />
        <ColumnsModal isOpen={modals.columns} onClose={() => toggleModal('columns', false)} onApply={handleApplyColumns} />
+       <VersionHistoryModal 
+          isOpen={modals.history} 
+          onClose={() => toggleModal('history', false)} 
+          fileId={fileId}
+          onRestore={handleVersionRestore}
+          currentContent={editor.getJSON()}
+       />
     </div>
   );
 };

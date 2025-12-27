@@ -102,10 +102,15 @@ export async function generateEmbeddings(texts: string[]): Promise<Float32Array[
   const embeddings: Float32Array[] = [];
   
   for (const text of texts) {
+      if (!text || typeof text !== 'string' || !text.trim()) {
+          embeddings.push(new Float32Array(0));
+          continue;
+      }
+
       try {
           const result = await ai.models.embedContent({
               model: model,
-              content: { parts: [{ text }] }
+              content: { parts: [{ text: text.trim() }] }
           });
           
           if (result.embedding && result.embedding.values) {
@@ -116,8 +121,8 @@ export async function generateEmbeddings(texts: string[]): Promise<Float32Array[
               console.warn("Embedding vazio retornado para:", text.slice(0, 20));
               embeddings.push(new Float32Array(0)); 
           }
-      } catch (e) {
-          console.error("Erro ao gerar embedding:", e);
+      } catch (e: any) {
+          console.error("Erro ao gerar embedding:", e.message || e);
           embeddings.push(new Float32Array(0));
       }
   }

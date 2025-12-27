@@ -15,7 +15,7 @@ interface DashboardProps {
   onCreateMindMap: () => void;
   onCreateDocument: () => void;
   onCreateFileFromBlob: (blob: Blob, name: string, mimeType: string) => void;
-  onChangeView: (view: 'browser' | 'offline') => void;
+  onChangeView: (view: 'browser' | 'offline' | 'mindmaps') => void;
   onToggleMenu: () => void;
   storageMode?: string;
   onToggleStorageMode?: (mode: string) => void;
@@ -315,15 +315,29 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 <div className="w-1.5 h-1.5 rounded-full bg-brand"></div> Ações de Workflow
               </h2>
               <div className={`grid grid-cols-2 ${styles.gap}`}>
-                <button onClick={() => onChangeView('browser')} className={`${styles.p} rounded-[2rem] bg-black/40 backdrop-blur-[8px] hover:bg-black/60 transition-all group text-left border border-brand/30 hover:border-brand/60 flex flex-col items-start gap-6 shadow-2xl hover:scale-[1.02] active:scale-[0.98]`}>
-                  <div className={`${styles.iconWrap} rounded-2xl bg-brand/10 text-brand flex items-center justify-center group-hover:scale-110 transition-transform border border-brand/20 shadow-inner`}>
-                    {isOnline ? <FileText size={styles.iconSize} /> : <WifiOff size={styles.iconSize} />}
-                  </div>
-                  <div>
-                    <h3 className={`${styles.title} font-bold mb-1 text-white`}>Meus Arquivos</h3>
-                    <p className={`${styles.desc} text-white/40 leading-relaxed`}>Navegar pelo acervo unificado da nuvem e local.</p>
-                  </div>
-                </button>
+                
+                {/* CONDICIONAL: Se visitante, mostra Mapas Mentais. Se logado, Meus Arquivos */}
+                {isVisitor ? (
+                    <button onClick={() => onChangeView('mindmaps')} className={`${styles.p} rounded-[2rem] bg-black/40 backdrop-blur-[8px] hover:bg-black/60 transition-all group text-left border border-purple-500/30 hover:border-purple-500/60 flex flex-col items-start gap-6 shadow-2xl hover:scale-[1.02] active:scale-[0.98]`}>
+                      <div className={`${styles.iconWrap} rounded-2xl bg-purple-500/10 text-purple-400 flex items-center justify-center group-hover:scale-110 transition-transform border border-purple-500/20 shadow-inner`}>
+                        <Workflow size={styles.iconSize} />
+                      </div>
+                      <div>
+                        <h3 className={`${styles.title} font-bold mb-1 text-white`}>Mapas Mentais</h3>
+                        <p className={`${styles.desc} text-white/40 leading-relaxed`}>Organizar ideias e projetos sem login.</p>
+                      </div>
+                    </button>
+                ) : (
+                    <button onClick={() => onChangeView('browser')} className={`${styles.p} rounded-[2rem] bg-black/40 backdrop-blur-[8px] hover:bg-black/60 transition-all group text-left border border-brand/30 hover:border-brand/60 flex flex-col items-start gap-6 shadow-2xl hover:scale-[1.02] active:scale-[0.98]`}>
+                      <div className={`${styles.iconWrap} rounded-2xl bg-brand/10 text-brand flex items-center justify-center group-hover:scale-110 transition-transform border border-brand/20 shadow-inner`}>
+                        {isOnline ? <FileText size={styles.iconSize} /> : <WifiOff size={styles.iconSize} />}
+                      </div>
+                      <div>
+                        <h3 className={`${styles.title} font-bold mb-1 text-white`}>Meus Arquivos</h3>
+                        <p className={`${styles.desc} text-white/40 leading-relaxed`}>Navegar pelo acervo unificado da nuvem e local.</p>
+                      </div>
+                    </button>
+                )}
 
                 {(!hasNativeFS || isEmbedded) ? (
                     <label className={`${styles.p} rounded-[2rem] bg-black/40 backdrop-blur-[8px] hover:bg-black/60 transition-all group text-left border border-brand/30 hover:border-brand/60 cursor-pointer flex flex-col items-start gap-6 shadow-2xl hover:scale-[1.02] active:scale-[0.98]`}>

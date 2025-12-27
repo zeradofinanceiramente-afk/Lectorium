@@ -55,7 +55,7 @@ export const PdfToolbar: React.FC<Props> = ({ onFitWidth }) => {
 
   return (
     <div 
-        className="fixed left-1/2 z-[100] animate-in slide-in-from-bottom-6 fade-in duration-500 origin-bottom"
+        className="fixed left-1/2 z-[50] animate-in slide-in-from-bottom-6 fade-in duration-500 origin-bottom"
         style={{
             bottom: `${32 + settings.toolbarYOffset}px`,
             transform: `translateX(-50%) scale(${settings.toolbarScale})`

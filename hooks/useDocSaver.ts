@@ -1,17 +1,18 @@
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Editor } from '@tiptap/react';
 import JSZip from 'jszip';
 import { updateDriveFile, uploadFileToDrive } from '../services/driveService';
 import { 
   saveOfflineFile, addToSyncQueue, cacheDocumentData, 
-  acquireFileLock, releaseFileLock 
+  acquireFileLock, releaseFileLock, saveDocVersion 
 } from '../services/storageService';
 import { generateDocxBlob } from '../services/docxService';
 import { packLectoriumFile } from '../services/lectService';
 import { MIME_TYPES, Reference } from '../types';
 import { PageSettings } from '../components/doc/modals/PageSetupModal';
 import { CommentData } from '../components/doc/CommentsSidebar';
+import { auth } from '../firebase';
 
 interface UseDocSaverProps {
   fileId: string;
@@ -27,6 +28,9 @@ export const useDocSaver = ({ fileId, accessToken, isLocalFile, currentName, fil
   const [saveStatus, setSaveStatus] = useState<'saved' | 'unsaved' | 'error'>('saved');
   const [isOfflineSaved, setIsOfflineSaved] = useState(false);
   const [originalZip, setOriginalZip] = useState<JSZip | undefined>(undefined);
+  
+  // Rate limit para versões (evita criar versão a cada auto-save de 3s)
+  const lastVersionTime = useRef(0);
 
   const save = async (editor: Editor, pageSettings?: PageSettings, comments?: CommentData[], references?: Reference[]) => {
       setIsSaving(true);
@@ -66,6 +70,16 @@ export const useDocSaver = ({ fileId, accessToken, isLocalFile, currentName, fil
           setIsSaving(false);
           setSaveStatus('error');
           return;
+      }
+
+      // --- VERSIONING SNAPSHOT ---
+      // Salva uma versão se passaram-se mais de 5 minutos desde a última ou se é a primeira
+      const now = Date.now();
+      if (now - lastVersionTime.current > 5 * 60 * 1000) {
+          const author = auth.currentUser?.displayName || 'Você';
+          // Fire and forget, não bloqueia o save principal
+          saveDocVersion(fileId, jsonContent, author, "Salvamento Automático").catch(e => console.warn("Failed to save version snapshot", e));
+          lastVersionTime.current = now;
       }
 
       // Caso 1: Arquivo Local (Sem necessidade de locks complexos por enquanto)

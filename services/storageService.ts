@@ -20,8 +20,17 @@ interface OcrRecord {
     updatedAt: number;
 }
 
-// Upgrade to version 15 for vector_store
-const dbPromise = openDB("pwa-drive-annotator", 15, {
+export interface DocVersion {
+  id: string;
+  fileId: string;
+  timestamp: number;
+  author: string;
+  content: any; // Tiptap JSON
+  name?: string; // "Manual Save", "Auto-save", etc.
+}
+
+// Upgrade to version 16 for document_versions
+const dbPromise = openDB("pwa-drive-annotator", 16, {
   upgrade(db, oldVersion) {
     if (!db.objectStoreNames.contains("annotations")) {
       const store = db.createObjectStore("annotations", { keyPath: "id" });
@@ -60,8 +69,54 @@ const dbPromise = openDB("pwa-drive-annotator", 15, {
     if (!db.objectStoreNames.contains("vector_store")) {
       db.createObjectStore("vector_store", { keyPath: "fileId" });
     }
+    // Version History Store
+    if (!db.objectStoreNames.contains("document_versions")) {
+      const store = db.createObjectStore("document_versions", { keyPath: "id" });
+      store.createIndex("fileId", "fileId", { unique: false });
+      store.createIndex("timestamp", "timestamp", { unique: false });
+    }
   }
 });
+
+// --- VERSION HISTORY METHODS ---
+
+export async function saveDocVersion(fileId: string, content: any, author: string, name: string = "Salvamento Automático"): Promise<void> {
+  const idb = await dbPromise;
+  
+  // Limite de versões por arquivo (ex: manter as últimas 50)
+  const MAX_VERSIONS = 50;
+  
+  const version: DocVersion = {
+    id: `ver-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+    fileId,
+    timestamp: Date.now(),
+    author,
+    content,
+    name
+  };
+
+  await idb.put("document_versions", version);
+
+  // Limpeza de versões antigas
+  const index = idb.transaction("document_versions").store.index("fileId");
+  let versions = await index.getAll(fileId);
+  if (versions.length > MAX_VERSIONS) {
+    versions.sort((a, b) => a.timestamp - b.timestamp); // Mais antigas primeiro
+    const toDelete = versions.slice(0, versions.length - MAX_VERSIONS);
+    const tx = idb.transaction("document_versions", "readwrite");
+    for (const v of toDelete) {
+      await tx.store.delete(v.id);
+    }
+    await tx.done;
+  }
+}
+
+export async function getDocVersions(fileId: string): Promise<DocVersion[]> {
+  const idb = await dbPromise;
+  const versions = await idb.getAllFromIndex("document_versions", "fileId", fileId);
+  // Retorna do mais recente para o mais antigo
+  return versions.sort((a, b) => b.timestamp - a.timestamp);
+}
 
 // --- RAG / VECTOR METHODS ---
 
@@ -155,10 +210,11 @@ export async function runJanitor(): Promise<void> {
 
     if (currentUsage < BLOB_CACHE_LIMIT) return;
 
-    const tx = idb.transaction(["offlineFiles", "ocrCache", "vector_store"], "readwrite");
+    const tx = idb.transaction(["offlineFiles", "ocrCache", "vector_store", "document_versions"], "readwrite");
     const offlineStore = tx.objectStore("offlineFiles");
     const ocrStore = tx.objectStore("ocrCache");
     const vectorStore = tx.objectStore("vector_store");
+    const versionStore = tx.objectStore("document_versions");
     
     const index = offlineStore.index("lastAccessed");
     
@@ -181,6 +237,14 @@ export async function runJanitor(): Promise<void> {
 
         // Limpa Vetores
         await vectorStore.delete(file.id);
+
+        // Limpa Histórico de Versões
+        const verIndex = versionStore.index("fileId");
+        let verCursor = await verIndex.openCursor(IDBKeyRange.only(file.id));
+        while (verCursor) {
+            await verCursor.delete();
+            verCursor = await verCursor.continue();
+        }
 
         await cursor.delete();
       }
@@ -287,14 +351,24 @@ export async function deleteOfflineFile(fileId: string): Promise<void> {
   await idb.delete("audit_log", fileId); // Clean up audit log
   await idb.delete("vector_store", fileId); // Clean up vectors
   
-  const tx = idb.transaction("ocrCache", "readwrite");
-  const index = tx.objectStore("ocrCache").index("fileId");
+  // Limpa Histórico de Versões
+  const tx = idb.transaction("document_versions", "readwrite");
+  const verIndex = tx.objectStore("document_versions").index("fileId");
+  let verCursor = await verIndex.openCursor(IDBKeyRange.only(fileId));
+  while (verCursor) {
+      await verCursor.delete();
+      verCursor = await verCursor.continue();
+  }
+  await tx.done;
+  
+  const ocrTx = idb.transaction("ocrCache", "readwrite");
+  const index = ocrTx.objectStore("ocrCache").index("fileId");
   let cursor = await index.openCursor(IDBKeyRange.only(fileId));
   while (cursor) {
       await cursor.delete();
       cursor = await cursor.continue();
   }
-  await tx.done;
+  await ocrTx.done;
 }
 
 export async function isFileOffline(fileId: string): Promise<boolean> {
