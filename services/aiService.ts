@@ -328,16 +328,40 @@ Ao responder, integre conceitos de autores clássicos e contemporâneos relevant
       config: { systemInstruction, temperature: 0.2 }
     });
     
-    const responseStream = await chat.sendMessageStream({ message });
+    // RETRY LOGIC (Auto-Recovery Protocol)
+    let stream;
+    let attempt = 0;
+    const maxRetries = 3;
+
+    while (true) {
+        try {
+            stream = await chat.sendMessageStream({ message });
+            break; // Success
+        } catch (err: any) {
+            attempt++;
+            if (attempt >= maxRetries) throw err; // Exhausted retries
+            
+            // Exponential backoff: 1s, 2s, 4s
+            console.warn(`[SextaFeira] Conexão instável. Retentativa ${attempt}/${maxRetries} em ${Math.pow(2, attempt)}s...`);
+            await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
+        }
+    }
     
-    for await (const chunk of responseStream) {
-      yield chunk.text || "";
+    if (stream) {
+        for await (const chunk of stream) {
+            yield chunk.text || "";
+        }
     }
   } catch (e: any) {
-    if (e.message.includes('API key')) {
+    const errorMessage = e.message || String(e);
+    
+    if (errorMessage.includes('API key')) {
         yield "Erro: Chave de API inválida ou não configurada. Configure no menu lateral.";
+    } else if (errorMessage.includes('429') || errorMessage.includes('quota')) {
+        yield "Alerta de Tráfego: Cota de requisições excedida (429). Aguarde alguns instantes antes de tentar novamente.";
     } else {
-        yield "Erro na conexão neural. Tentando restabelecer link...";
+        // Expose the real error for debugging
+        yield `Erro na conexão neural [STATUS: FALHA].\nDetalhes do Erro: ${errorMessage}\n\nTentando restabelecer link...`;
     }
   }
 }

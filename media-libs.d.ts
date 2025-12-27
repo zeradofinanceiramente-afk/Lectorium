@@ -1,4 +1,2 @@
-
-declare module 'heic2any';
-declare module 'daikon';
-declare module 'unrar-js';
+// DELETED: Types merged into vite-env.d.ts.
+// Please delete this file.

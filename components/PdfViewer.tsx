@@ -268,6 +268,7 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
       const seen = new Set<string>();
       return sidebarAnnotations
         .filter(ann => ann.text && ann.text.trim().length > 0)
+        .filter(ann => ann.type !== 'note') // EXCLUDE NOTES
         .filter(ann => {
             const signature = `${ann.page}-${ann.text!.trim()}`;
             if (seen.has(signature)) return false;

@@ -1,4 +1,3 @@
-
 import React, { useMemo, useState, useEffect } from 'react';
 import { X, Lock, FileText, Copy, Download, Sparkles, Loader2, Hash, PaintBucket, Eye, ImageOff, Columns, Highlighter, Pen, ScanLine, MessageSquare, Pipette, MoveHorizontal, MousePointer2, ScrollText, ScanFace, Cloud, CloudOff, AlertCircle, CheckCircle, Palette, Droplets, Binary, ChevronLeft, ChevronRight, PanelRightOpen, PanelRightClose, Move, Maximize } from 'lucide-react';
 import { Annotation } from '../../types';
@@ -151,8 +150,8 @@ export const PdfSidebar: React.FC<Props> = ({
                 {/* Tabs */}
                 <div className="flex border-b border-white/5 p-1 mx-2 mt-2 gap-1 bg-black/20 rounded-xl relative z-10">
                     {[
-                        { id: 'annotations', label: 'Notas', icon: FileText },
-                        { id: 'fichamento', label: 'Resumo', icon: ScrollText },
+                        { id: 'annotations', label: 'Anotações', icon: FileText },
+                        { id: 'fichamento', label: 'Fichamento', icon: ScrollText },
                         { id: 'chat', label: 'IA Chat', icon: MessageSquare },
                         { id: 'settings', label: 'Config', icon: PaintBucket }
                     ].map(tab => (
@@ -181,7 +180,7 @@ export const PdfSidebar: React.FC<Props> = ({
                                     <div className="flex items-center gap-2 mb-2">
                                         <span className="w-2 h-2 rounded-full shadow-[0_0_5px_currentColor]" style={{ backgroundColor: ann.color || '#4ade80', color: ann.color || '#4ade80' }} />
                                         <span className="text-[10px] text-gray-400 font-mono">PÁG {ann.page.toString().padStart(2, '0')}</span>
-                                        {ann.isBurned && <span className="text-[9px] bg-white/5 border border-white/10 px-1.5 py-0.5 rounded text-gray-400 ml-auto flex items-center gap-1"><Lock size={8}/> HARDCODED</span>}
+                                        {ann.isBurned && <span className="text-[9px] bg-white/5 border border-white/10 px-1.5 py-0.5 rounded text-gray-400 ml-auto flex items-center gap-1"><Lock size={8}/> GRAVADO</span>}
                                     </div>
                                     <p className="text-sm text-gray-200 line-clamp-2 leading-relaxed font-medium">{ann.text || <span className="italic opacity-50 text-xs">Anotação usando caneta</span>}</p>
                                     {!ann.isBurned && <button onClick={(e) => { e.stopPropagation(); removeAnnotation(ann); }} className="absolute top-2 right-2 text-gray-500 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 hover:bg-white/5 rounded-lg"><X size={14} /></button>}

@@ -1,3 +1,2 @@
-
-// This file has been emptied to remove LibArchive support.
-export {};
+// DELETED: Legacy LibArchive support removed.
+// Please delete this file.

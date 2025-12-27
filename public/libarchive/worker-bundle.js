@@ -1,2 +1,2 @@
-
-// This file has been emptied to remove LibArchive support.
+// DELETED: Legacy LibArchive worker removed.
+// Please delete this file.

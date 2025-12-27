@@ -95,6 +95,23 @@ interface PdfProviderProps {
   currentBlob: Blob | null;
 }
 
+const DEFAULT_SETTINGS: PdfSettings = {
+  pageOffset: 1, 
+  disableColorFilter: false, 
+  detectColumns: false, 
+  showOcrDebug: false,
+  showConfidenceOverlay: false,
+  pageColor: "#ffffff", 
+  textColor: "#000000", 
+  highlightColor: "#4ade80",
+  highlightOpacity: 0.4, 
+  inkColor: "#a855f7", 
+  inkStrokeWidth: 42, 
+  inkOpacity: 0.35,
+  toolbarScale: 1, 
+  toolbarYOffset: 0
+};
+
 export const PdfProvider: React.FC<PdfProviderProps> = ({ 
   children, initialScale, numPages, annotations, onAddAnnotation, onRemoveAnnotation, onJumpToPage, accessToken, fileId, pdfDoc,
   onUpdateSourceBlob, currentBlob
@@ -121,12 +138,17 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
 
   const burnedPagesRef = useRef<Set<number>>(new Set());
 
-  const [settings, setSettings] = useState<PdfSettings>({
-    pageOffset: 1, disableColorFilter: false, detectColumns: false, showOcrDebug: false,
-    showConfidenceOverlay: false,
-    pageColor: "#ffffff", textColor: "#000000", highlightColor: "#4ade80",
-    highlightOpacity: 0.4, inkColor: "#a855f7", inkStrokeWidth: 42, inkOpacity: 0.35,
-    toolbarScale: 1, toolbarYOffset: 0
+  const [settings, setSettings] = useState<PdfSettings>(() => {
+    try {
+        const saved = localStorage.getItem('pdf_tool_preferences');
+        if (saved) {
+            const parsed = JSON.parse(saved);
+            return { ...DEFAULT_SETTINGS, ...parsed };
+        }
+    } catch (e) {
+        console.warn("Falha ao carregar preferências do PDF:", e);
+    }
+    return DEFAULT_SETTINGS;
   });
 
   // --- NATIVE TEXT EXTRACTION ENGINE (Background) ---
@@ -238,7 +260,15 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
   }, [pdfDoc, fileId, showOcrNotification]);
 
   const updateSettings = useCallback((newSettings: Partial<PdfSettings>) => {
-    setSettings(prev => ({ ...prev, ...newSettings }));
+    setSettings(prev => {
+        const next = { ...prev, ...newSettings };
+        try {
+            localStorage.setItem('pdf_tool_preferences', JSON.stringify(next));
+        } catch (e) {
+            console.warn("Failed to persist PDF preferences", e);
+        }
+        return next;
+    });
   }, []);
 
   const jumpToPage = useCallback((page: number) => {
