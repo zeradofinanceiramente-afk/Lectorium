@@ -25,6 +25,7 @@ import { FootnoteBubbleMenu } from './doc/FootnoteBubbleMenu';
 import { FindReplaceBar } from './doc/FindReplaceBar';
 import { Ruler } from './doc/Ruler';
 import { VerticalRuler } from './doc/VerticalRuler';
+import { FootnotesLayer } from './doc/FootnotesLayer';
 import { Loader2, ArrowLeft, FileText, Cloud, Sparkles, Users, Share2, Lock } from 'lucide-react';
 import { Reference, EditorStats, MIME_TYPES } from '../../types';
 import { auth } from '../../firebase';
@@ -366,7 +367,12 @@ export const DocEditor: React.FC<Props> = ({
                 )}
 
                 {/* --- CONTENT LAYER --- */}
-                <div>
+                <div 
+                    className="transition-transform duration-300 ease-out relative" 
+                    style={{ 
+                        transform: `translateY(${contentTranslateY}px)` 
+                    }}
+                >
                     {/* Page Backgrounds & Vertical Rulers */}
                     <div className="absolute inset-0 pointer-events-none z-0">
                         {pageLayout.pages.map((page, i) => {
@@ -442,6 +448,16 @@ export const DocEditor: React.FC<Props> = ({
                         })}
                     </div>
                     
+                    {/* Footnotes Layer (Placed inside transformed container to move with content) */}
+                    <FootnotesLayer 
+                        editor={editor}
+                        pageHeight={pageLayout.currentPaper.heightPx}
+                        pageGap={20} // Match usePageLayout default gap
+                        marginBottom={pageLayout.pageSettings.marginBottom}
+                        marginLeft={pageLayout.pageSettings.marginLeft}
+                        marginRight={pageLayout.pageSettings.marginRight}
+                    />
+
                     {/* Main Content (Shifted in Slide Mode to align text with viewport) */}
                     <div 
                         ref={contentRef} 
