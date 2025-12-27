@@ -1,8 +1,8 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Sparkles, Loader2, User, Bot, Trash2, MessageSquare, FileSearch, Copy, Check, BrainCircuit, Database } from 'lucide-react';
+import { Send, Sparkles, Loader2, User, Bot, Trash2, MessageSquare, FileSearch, Copy, Check, BrainCircuit, Database, BookOpen } from 'lucide-react';
 import { ChatMessage } from '../../types';
-import { chatWithDocumentStream, findRelevantChunks } from '../../services/aiService';
+import { chatWithDocumentStream, findRelevantChunks, extractPageRangeFromQuery } from '../../services/aiService';
 import { semanticSearch } from '../../services/ragService';
 import { usePdfContext } from '../../context/PdfContext';
 
@@ -57,7 +57,7 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
   const [isIndexing, setIsIndexing] = useState(false);
   
   const scrollRef = useRef<HTMLDivElement>(null);
-  const { chatRequest, setChatRequest } = usePdfContext();
+  const { chatRequest, setChatRequest, ocrMap } = usePdfContext();
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -95,8 +95,38 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
         let retrievalContext = "";
         let mode = "TEXT-MATCH";
 
-        // 1. Try Semantic Search (Vector RAG)
-        if (fileId && isRagActive) {
+        // 0. INTENT CHECK: Page Specific Request
+        // O usuário pediu algo como "Resuma a página 5" ou "Explique da pg 10 a 12"?
+        const pageIntent = extractPageRangeFromQuery(userMessage);
+        
+        if (pageIntent && ocrMap && Object.keys(ocrMap).length > 0) {
+            mode = "PAGE-SPECIFIC";
+            const { start, end } = pageIntent;
+            
+            // Extrai o conteúdo direto do OCR Map para as páginas solicitadas
+            const pagesContent: string[] = [];
+            
+            // Loop seguro (handle reverse range too)
+            const min = Math.min(start, end);
+            const max = Math.max(start, end);
+
+            for (let i = min; i <= max; i++) {
+                const pageWords = ocrMap[i];
+                if (pageWords && Array.isArray(pageWords)) {
+                    const text = pageWords.map(w => w.text).join(' ');
+                    pagesContent.push(`[CONTEÚDO DA PÁGINA ${i}]:\n${text}`);
+                } else {
+                    pagesContent.push(`[PÁGINA ${i}]: (Sem texto detectado/OCR pendente)`);
+                }
+            }
+            
+            if (pagesContent.length > 0) {
+                retrievalContext = `O usuário solicitou uma análise específica das páginas ${min} a ${max}. Aqui está o conteúdo exato dessas páginas:\n\n${pagesContent.join('\n\n---\n\n')}`;
+            }
+        }
+
+        // 1. Try Semantic Search (Vector RAG) - Apenas se não for um pedido de página específica
+        if (!retrievalContext && fileId && isRagActive) {
             try {
                 const results = await semanticSearch(fileId, userMessage);
                 if (results.length > 0) {
@@ -116,7 +146,7 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
 
         // 3. Fallback message
         if (!retrievalContext) {
-            retrievalContext = "Documento vazio ou sem texto extraído disponível.";
+            retrievalContext = "Documento vazio ou sem texto extraído disponível. Sugira ao usuário realizar o OCR nas páginas desejadas.";
         }
 
         console.log(`[LectoriumAI] Mode: ${mode} | Context Length: ${retrievalContext.length}`);
@@ -198,9 +228,13 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
                           <Database size={12} /> Ativar Busca Semântica
                       </button>
                   )}
-                  {isRagActive && (
+                  {isRagActive ? (
                       <div className="flex items-center gap-1 text-[10px] text-purple-400 bg-purple-500/10 px-2 py-1 rounded border border-purple-500/20">
                           <BrainCircuit size={12} /> Memória Neural Ativa
+                      </div>
+                  ) : (
+                      <div className="flex items-center gap-1 text-[10px] text-gray-500 bg-white/5 px-2 py-1 rounded">
+                          <BookOpen size={12} /> Modo Leitura Direta
                       </div>
                   )}
               </div>
@@ -242,7 +276,7 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
                         handleSend();
                     }
                 }}
-                placeholder="Perguntar sobre o arquivo..."
+                placeholder="Ex: Resuma a página 10, O que é entropia?"
                 className="w-full bg-bg border border-border rounded-xl py-3 pl-4 pr-12 text-sm text-text focus:border-brand focus:ring-1 focus:ring-brand outline-none transition-all resize-none max-h-32"
               />
               <button 

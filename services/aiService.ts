@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { ChatMessage, MindMapData } from "../types";
 import { getStoredApiKey } from "../utils/apiKeyUtils";
@@ -85,6 +84,30 @@ export function findRelevantChunks(documentText: string, query: string, topK = 4
   const hasMatches = scoredChunks.some(c => c.score > 0);
   const relevant = hasMatches ? scoredChunks.filter(c => c.score > 0) : scoredChunks;
   return relevant.slice(0, topK).map(c => c.text);
+}
+
+/**
+ * Detecta intenção de leitura de página específica na query.
+ * Suporta: "página 10", "pg 5-8", "pág 2 a 4", "pag 12 ate 15"
+ */
+export function extractPageRangeFromQuery(query: string): { start: number, end: number } | null {
+  const clean = query.toLowerCase();
+  // Regex robusto para capturar padrões de página
+  // Grupo 1: Página inicial
+  // Grupo 2: Página final (opcional)
+  const regex = /(?:p[áa]gina|p[áa]g|pg)\.?\s*(\d+)(?:\s*(?:a|at[ée]| |-)\s*(\d+))?/i;
+  
+  const match = clean.match(regex);
+  if (match) {
+     const start = parseInt(match[1]);
+     // Se não houver segundo grupo, o final é igual ao inicial (página única)
+     const end = match[2] ? parseInt(match[2]) : start;
+     
+     if (!isNaN(start)) {
+         return { start, end: isNaN(end) ? start : end };
+     }
+  }
+  return null;
 }
 
 // --- AI FUNCTIONS ---
