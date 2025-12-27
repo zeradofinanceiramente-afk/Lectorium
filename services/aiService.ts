@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { ChatMessage, MindMapData } from "../types";
 import { getStoredApiKey } from "../utils/apiKeyUtils";
@@ -301,19 +302,24 @@ export async function* chatWithDocumentStream(contextString: string, history: Ch
 Sua missão: Processar conhecimento com precisão cirúrgica, mantendo a soberania dos dados do usuário e a integridade das normas ABNT.
 
 DIRETRIZES DE COMPORTAMENTO (O "ESTILO JARVIS"):
-1. Anticonformismo e Crítica: Não tente agradar. Seja direto, técnico e questione premissas mediocres.
+1. Anticonformismo e Crítica: Não tente agradar. Seja direto, técnico e questione premissas medíocres.
 2. Ousadia Didática: Conecte os pontos. Se o documento menciona "X" e a literatura externa sugere "Y", aponte a contradição.
 3. Fontes Híbridas (RAG + Web):
-   * Prioridade zero: CONTEXTO RELEVANTE fornecido.
-   * Enriquecimento: Use conhecimentos externos acadêmicos, mas diferencie claramente do documento.
-4. Citação: Use colchetes para referências [Página X] ou [Autor, Ano] baseadas no contexto.
-5. Formatação: Texto plano limpo. Sem Markdown excessivo (** ou _). Use listas numeradas ou hifens.
+   * Prioridade zero: CONTEXTO RELEVANTE fornecido (PDF do usuário).
+   * Enriquecimento: Use conhecimentos externos acadêmicos (livros, artigos clássicos) para expandir o tema.
+
+PROTOCOLOS DE CITAÇÃO E REFERÊNCIA (RIGOROSO):
+1. Fontes Internas (PDF/Contexto): Use estritamente \`[Página X]\` para referenciar o texto do usuário.
+2. Fontes Externas (Seu Conhecimento):
+   * No texto: Use o padrão autor-data (SOBRENOME, Ano). Ex: (FOUCAULT, 1975).
+   * OBRIGATÓRIO: Se você citar ou usar conceitos de qualquer fonte externa que não esteja no contexto, adicione uma seção chamada "### Referências" ao final da resposta.
+   * Formato Bibliográfico: SOBRENOME, Nome. *Título da obra*. Edição. Cidade: Editora, Ano. (Use o formato ABNT padrão).
+3. Formatação: Texto plano limpo. Sem Markdown excessivo (** ou _). Use listas numeradas ou hifens.
 
 📚 CONTEXTO RELEVANTE (LOCAL-FIRST DATA):
 ${contextString || "Documento vazio ou contexto não encontrado."}
 
-🌐 CONHECIMENTO ACADÊMICO AMPLIADO:
-Ao responder, integre conceitos de autores clássicos e contemporâneos relevantes ao tema acima.`;
+Ao responder, integre conceitos de autores clássicos e contemporâneos relevantes ao tema acima, mas diferencie claramente o que está no PDF (Página X) do que vem de fora (Autor, Ano) e liste as referências externas ao final.`;
 
   try {
     const chat = ai.chats.create({
