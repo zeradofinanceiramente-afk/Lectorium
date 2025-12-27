@@ -17,6 +17,9 @@ const getAiClient = () => {
   throw new Error("Chave de API não configurada. Por favor, adicione sua chave nas configurações.");
 };
 
+// Utils
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 // --- RAG UTILS (Local Search) ---
 
 // Stopwords básicas em Português e Inglês para melhorar a busca
@@ -114,24 +117,29 @@ export function extractPageRangeFromQuery(query: string): { start: number, end: 
 // --- AI FUNCTIONS ---
 
 /**
- * Gera embeddings vetoriais para uma lista de textos usando o modelo text-embedding-004.
- * Retorna uma lista de vetores (Float32Array) correspondentes.
+ * Gera embeddings vetoriais com Rate Limiting para evitar 429.
  */
 export async function generateEmbeddings(texts: string[]): Promise<Float32Array[]> {
   const ai = getAiClient();
   const model = "text-embedding-004";
   
-  // Limita o batch para evitar erros de limite da API
-  // O modelo embedding suporta batch, mas vamos ser conservadores
   const embeddings: Float32Array[] = [];
   
-  for (const text of texts) {
+  // Rate Limit: Free tier permite ~15-30 requests/min. 
+  // Adicionamos delay de 1.5s entre chamadas para segurança.
+  const DELAY_MS = 1500;
+
+  for (let i = 0; i < texts.length; i++) {
+      const text = texts[i];
       if (!text || typeof text !== 'string' || !text.trim()) {
           embeddings.push(new Float32Array(0));
           continue;
       }
 
       try {
+          // Pequeno delay entre requests para não estourar a cota
+          if (i > 0) await sleep(DELAY_MS);
+
           const result = await ai.models.embedContent({
               model: model,
               content: { parts: [{ text: text.trim() }] }
@@ -140,17 +148,74 @@ export async function generateEmbeddings(texts: string[]): Promise<Float32Array[
           if (result.embedding && result.embedding.values) {
               embeddings.push(new Float32Array(result.embedding.values));
           } else {
-              // Fallback vetor zero ou skip? Melhor skip para não sujar a busca.
-              // Mas para manter índice alinhado, pushamos null ou zero.
               console.warn("Embedding vazio retornado para:", text.slice(0, 20));
               embeddings.push(new Float32Array(0)); 
           }
       } catch (e: any) {
+          // Se der erro 429, espera mais tempo e tenta uma vez
+          if (e.message?.includes('429')) {
+              console.warn("Rate limit hit (Embedding). Waiting 10s...");
+              await sleep(10000);
+              try {
+                  const retryResult = await ai.models.embedContent({
+                      model: model,
+                      content: { parts: [{ text: text.trim() }] }
+                  });
+                  if (retryResult.embedding && retryResult.embedding.values) {
+                      embeddings.push(new Float32Array(retryResult.embedding.values));
+                      continue;
+                  }
+              } catch (retryErr) {
+                  console.error("Retry failed:", retryErr);
+              }
+          }
           console.error("Erro ao gerar embedding:", e.message || e);
           embeddings.push(new Float32Array(0));
       }
   }
   return embeddings;
+}
+
+/**
+ * Gera um Briefing estilo NotebookLM (Resumo Estruturado).
+ * Processa apenas uma amostra significativa se o texto for muito longo.
+ */
+export async function generateDocumentBriefing(fullText: string): Promise<string> {
+    const ai = getAiClient();
+    
+    // Se o texto for absurdamente grande (> 50k chars), pegamos amostras para o resumo inicial
+    // para evitar estourar tokens logo de cara.
+    let textToAnalyze = fullText;
+    if (fullText.length > 50000) {
+        const start = fullText.slice(0, 15000); // Intro
+        const middle = fullText.slice(Math.floor(fullText.length / 2) - 10000, Math.floor(fullText.length / 2) + 10000);
+        const end = fullText.slice(fullText.length - 15000); // Conclusão/Anexos
+        textToAnalyze = `[INÍCIO DO DOCUMENTO]\n${start}\n...\n[MEIO DO DOCUMENTO]\n${middle}\n...\n[FIM DO DOCUMENTO]\n${end}`;
+    }
+
+    const prompt = `Analise o seguinte documento acadêmico/técnico e crie um "Briefing Tático" (Estilo NotebookLM).
+    
+    Estruture a resposta em Markdown com estas seções exatas:
+    1. **Resumo Executivo**: Um parágrafo denso explicando o propósito central do documento.
+    2. **Tópicos Chave**: Lista bullet-point dos 5-7 temas mais importantes.
+    3. **Perguntas Sugeridas**: 3 perguntas complexas que este documento responde (para o usuário clicar e perguntar).
+    
+    TEXTO DO DOCUMENTO:
+    ${textToAnalyze}`;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: prompt,
+            config: {
+                temperature: 0.3
+            }
+        });
+        return response.text || "Não foi possível gerar o briefing.";
+    } catch (e: any) {
+        if (e.message?.includes('429')) return "Tráfego intenso. Tente gerar o briefing novamente em alguns instantes.";
+        throw e;
+    }
 }
 
 export async function extractNewspaperContent(base64Image: string, mimeType: string) {
@@ -339,11 +404,20 @@ Ao responder, integre conceitos de autores clássicos e contemporâneos relevant
             break; // Success
         } catch (err: any) {
             attempt++;
-            if (attempt >= maxRetries) throw err; // Exhausted retries
             
-            // Exponential backoff: 1s, 2s, 4s
-            console.warn(`[SextaFeira] Conexão instável. Retentativa ${attempt}/${maxRetries} em ${Math.pow(2, attempt)}s...`);
-            await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
+            // Check specifically for 429 (Quota Exceeded)
+            const isQuotaError = err.message?.includes('429') || err.message?.includes('quota');
+            
+            if (attempt >= maxRetries) {
+                if (isQuotaError) throw new Error("Cota de tráfego excedida (429). Tente novamente em 1 minuto.");
+                throw err;
+            }
+            
+            // Backoff exponencial agressivo para 429: 2s, 5s, 10s
+            const waitTime = isQuotaError ? Math.pow(2.5, attempt) * 1000 : Math.pow(2, attempt) * 1000;
+            
+            console.warn(`[SextaFeira] Conexão instável (${isQuotaError ? '429' : 'Err'}). Retentativa ${attempt}/${maxRetries} em ${waitTime}ms...`);
+            await sleep(waitTime);
         }
     }
     
@@ -357,8 +431,8 @@ Ao responder, integre conceitos de autores clássicos e contemporâneos relevant
     
     if (errorMessage.includes('API key')) {
         yield "Erro: Chave de API inválida ou não configurada. Configure no menu lateral.";
-    } else if (errorMessage.includes('429') || errorMessage.includes('quota')) {
-        yield "Alerta de Tráfego: Cota de requisições excedida (429). Aguarde alguns instantes antes de tentar novamente.";
+    } else if (errorMessage.includes('429') || errorMessage.includes('quota') || errorMessage.includes('Cota')) {
+        yield "🚦 **Alerta de Tráfego (429):** Muitos dados enviados. \n\n**Solução:** Ative o modo **Memória Neural (RAG)** no topo do chat para não enviar o documento inteiro, ou aguarde alguns instantes.";
     } else {
         // Expose the real error for debugging
         yield `Erro na conexão neural [STATUS: FALHA].\nDetalhes do Erro: ${errorMessage}\n\nTentando restabelecer link...`;

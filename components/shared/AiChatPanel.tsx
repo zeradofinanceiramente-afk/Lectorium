@@ -1,8 +1,8 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Sparkles, Loader2, User, Bot, Trash2, MessageSquare, FileSearch, Copy, Check, BrainCircuit, Database, BookOpen } from 'lucide-react';
+import { Send, Sparkles, Loader2, User, Bot, Trash2, MessageSquare, FileSearch, Copy, Check, BrainCircuit, Database, BookOpen, Podcast } from 'lucide-react';
 import { ChatMessage } from '../../types';
-import { chatWithDocumentStream, findRelevantChunks, extractPageRangeFromQuery } from '../../services/aiService';
+import { chatWithDocumentStream, findRelevantChunks, extractPageRangeFromQuery, generateDocumentBriefing } from '../../services/aiService';
 import { semanticSearch } from '../../services/ragService';
 import { usePdfContext } from '../../context/PdfContext';
 
@@ -55,9 +55,20 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
   const [isLoading, setIsLoading] = useState(false);
   const [isRagActive, setIsRagActive] = useState(false);
   const [isIndexing, setIsIndexing] = useState(false);
+  const [isGeneratingBriefing, setIsGeneratingBriefing] = useState(false);
   
   const scrollRef = useRef<HTMLDivElement>(null);
   const { chatRequest, setChatRequest, ocrMap } = usePdfContext();
+
+  // Detecção de Documentos Grandes (> 30k chars ~ 10-15 páginas cheias)
+  const isLargeDoc = contextText.length > 30000;
+
+  useEffect(() => {
+    // Força RAG para documentos grandes para evitar 429
+    if (isLargeDoc && fileId && onIndexRequest) {
+        setIsRagActive(true);
+    }
+  }, [isLargeDoc, fileId]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -79,6 +90,22 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
       }
   };
 
+  const handleGenerateBriefing = async () => {
+      if (isGeneratingBriefing || !contextText) return;
+      
+      setIsGeneratingBriefing(true);
+      setMessages(prev => [...prev, { role: 'user', text: "Gere um Briefing Tático (Resumo e Tópicos) deste documento." }]);
+      
+      try {
+          const summary = await generateDocumentBriefing(contextText);
+          setMessages(prev => [...prev, { role: 'model', text: summary }]);
+      } catch (e: any) {
+          setMessages(prev => [...prev, { role: 'model', text: "Erro ao gerar briefing: " + e.message }]);
+      } finally {
+          setIsGeneratingBriefing(false);
+      }
+  };
+
   // Main sending logic
   const handleSend = async (textOverride?: string) => {
     const textToSend = textOverride || input;
@@ -96,17 +123,14 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
         let mode = "TEXT-MATCH";
 
         // 0. INTENT CHECK: Page Specific Request
-        // O usuário pediu algo como "Resuma a página 5" ou "Explique da pg 10 a 12"?
         const pageIntent = extractPageRangeFromQuery(userMessage);
         
         if (pageIntent && ocrMap && Object.keys(ocrMap).length > 0) {
             mode = "PAGE-SPECIFIC";
             const { start, end } = pageIntent;
             
-            // Extrai o conteúdo direto do OCR Map para as páginas solicitadas
+            // Extrai o conteúdo direto do OCR Map
             const pagesContent: string[] = [];
-            
-            // Loop seguro (handle reverse range too)
             const min = Math.min(start, end);
             const max = Math.max(start, end);
 
@@ -121,33 +145,42 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
             }
             
             if (pagesContent.length > 0) {
-                retrievalContext = `O usuário solicitou uma análise específica das páginas ${min} a ${max}. Aqui está o conteúdo exato dessas páginas:\n\n${pagesContent.join('\n\n---\n\n')}`;
+                retrievalContext = `O usuário solicitou análise específica das páginas ${min}-${max}.\n\n${pagesContent.join('\n\n---\n\n')}`;
             }
         }
 
-        // 1. Try Semantic Search (Vector RAG) - Apenas se não for um pedido de página específica
+        // 1. Semantic Search (Vector RAG)
         if (!retrievalContext && fileId && isRagActive) {
             try {
+                // Se o doc é grande e não tem RAG ativado, tentamos ativar indexação sob demanda?
+                // Não, assumimos que o usuário clicou no botão.
+                
                 const results = await semanticSearch(fileId, userMessage);
                 if (results.length > 0) {
-                    retrievalContext = results.map(r => `[Página ${r.page || '?'}] ${r.text}`).join("\n\n---\n\n");
+                    retrievalContext = results.map(r => `[Trecho Relevante - Pág ${r.page || '?'}] ${r.text}`).join("\n\n---\n\n");
                     mode = "NEURAL-RAG";
+                } else {
+                    // Fallback se RAG não achar nada
+                    console.warn("RAG sem resultados, tentando fallback parcial.");
                 }
             } catch (e) {
-                console.warn("RAG failed, falling back to text match", e);
+                console.warn("RAG failed", e);
             }
         }
 
         // 2. Fallback / Direct Mode (100% Context)
-        if (!retrievalContext && contextText) {
-            // Prioridade: Se não estamos em RAG, enviamos o texto completo (Leitura Direta)
-            // Isso garante que o modelo tenha acesso a "100%" do documento disponível.
-            retrievalContext = contextText;
+        // CUIDADO: Se o doc for gigante, isso causa 429.
+        if (!retrievalContext) {
+            if (isLargeDoc && !isRagActive) {
+                // Se for grande e RAG estiver desligado, enviamos um aviso ou um subset.
+                retrievalContext = "ALERTA DE SISTEMA: O documento é muito extenso para leitura direta completa. Ative o modo 'Memória Neural' (RAG) para melhores resultados. Usando resumo das primeiras 30 páginas.\n\n" + contextText.slice(0, 50000);
+            } else {
+                retrievalContext = contextText;
+            }
         }
 
-        // 3. Fallback message
         if (!retrievalContext) {
-            retrievalContext = "Documento vazio ou sem texto extraído disponível. Sugira ao usuário realizar o OCR nas páginas desejadas.";
+            retrievalContext = "Documento vazio ou sem texto extraído. Sugira ao usuário realizar o OCR.";
         }
 
         console.log(`[SextaFeira] Mode: ${mode} | Context Length: ${retrievalContext.length}`);
@@ -199,8 +232,8 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
               {/* Direct Mode Toggle */}
               <button 
                 onClick={() => setIsRagActive(false)} 
-                className={`p-1.5 rounded transition-colors ${!isRagActive ? 'text-brand bg-brand/10 ring-1 ring-brand/30 shadow-[0_0_10px_-3px_var(--brand)]' : 'text-text-sec hover:text-white hover:bg-white/5'}`}
-                title="Modo Leitura Direta (100% Contexto)"
+                className={`p-1.5 rounded transition-colors ${!isRagActive ? 'text-brand bg-brand/10 ring-1 ring-brand/30 shadow-[0_0_10px_-3px_var(--brand)]' : 'text-text-sec hover:text-white hover:bg-white/5'} ${isLargeDoc ? 'opacity-50' : ''}`}
+                title={isLargeDoc ? "Não recomendado para documentos grandes" : "Modo Leitura Direta (100% Contexto)"}
               >
                   <BookOpen size={14} />
               </button>
@@ -228,23 +261,36 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar bg-black/20">
           {messages.length === 0 && (
-              <div className="flex flex-col items-center justify-center h-full text-center p-6 space-y-4 opacity-40">
-                  <Sparkles size={48} className="text-brand animate-pulse" />
+              <div className="flex flex-col items-center justify-center h-full text-center p-6 space-y-4 opacity-70">
+                  <div className="relative">
+                      <Sparkles size={48} className="text-brand animate-pulse" />
+                      {isLargeDoc && <div className="absolute -top-2 -right-2 bg-yellow-500 text-black text-[9px] font-bold px-1.5 py-0.5 rounded-full border border-yellow-300">Docs+</div>}
+                  </div>
                   <div className="space-y-1">
                       <p className="text-sm font-bold text-text">Sexta-feira online.</p>
                       <p className="text-xs text-text-sec">Analisando: {documentName}</p>
                   </div>
                   
-                  {/* Status Indicator (Non-interactive here, now controlled via Header) */}
+                  {/* Status Indicator */}
                   {isRagActive ? (
                       <div className="flex items-center gap-1 text-[10px] text-purple-400 bg-purple-500/10 px-2 py-1 rounded border border-purple-500/20">
-                          <BrainCircuit size={12} /> Modo RAG Ativo
+                          <BrainCircuit size={12} /> RAG Ativo {isLargeDoc ? '(Recomendado)' : ''}
                       </div>
                   ) : (
                       <div className="flex items-center gap-1 text-[10px] text-brand bg-brand/10 px-2 py-1 rounded border border-brand/20">
-                          <BookOpen size={12} /> Modo Leitura Direta
+                          <BookOpen size={12} /> Leitura Direta {isLargeDoc ? '(Cuidado: Alto Tráfego)' : ''}
                       </div>
                   )}
+
+                  {/* NotebookLM Style Action */}
+                  <button 
+                    onClick={handleGenerateBriefing}
+                    disabled={isGeneratingBriefing}
+                    className="mt-4 flex items-center gap-2 bg-[#2c2c2c] hover:bg-[#3c3c3c] border border-gray-600 px-4 py-2 rounded-xl text-xs font-bold text-white transition-all shadow-lg group"
+                  >
+                      {isGeneratingBriefing ? <Loader2 size={14} className="animate-spin" /> : <Podcast size={14} className="text-pink-400 group-hover:scale-110 transition-transform" />}
+                      Gerar Guia de Estudo
+                  </button>
               </div>
           )}
 
@@ -259,7 +305,7 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
                   </div>
                   <div className="bg-surface border border-border rounded-2xl rounded-tl-none p-3 flex items-center gap-3">
                       <div className="text-xs text-text-sec italic">
-                          {isRagActive ? "Consultando vetores..." : "Lendo documento..."}
+                          {isRagActive ? "Consultando vetores neurais..." : "Lendo documento..."}
                       </div>
                       <div className="flex gap-1">
                           <div className="w-1.5 h-1.5 bg-brand rounded-full animate-bounce"></div>
@@ -295,6 +341,11 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
                   <Send size={18} />
               </button>
           </div>
+          {isLargeDoc && !isRagActive && (
+              <div className="text-[10px] text-yellow-500/80 mt-2 text-center">
+                  ⚠️ Documento extenso. Ative o modo RAG (cérebro) para evitar erros de cota (429).
+              </div>
+          )}
       </div>
     </div>
   );
