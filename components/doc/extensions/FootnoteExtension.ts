@@ -6,7 +6,6 @@ export interface FootnoteOptions {
   HTMLAttributes: Record<string, any>;
 }
 
-// Fix: Remove generic <FootnoteOptions>
 export const FootnoteExtension = Node.create({
   name: 'footnote',
 
@@ -54,8 +53,11 @@ export const FootnoteExtension = Node.create({
   renderHTML({ HTMLAttributes, node }) {
     return [
       'sup',
-      mergeAttributes(this.options.HTMLAttributes, HTMLAttributes, { 'data-footnote': '' }),
-      `[${node.attrs.id}]`,
+      mergeAttributes(this.options.HTMLAttributes, HTMLAttributes, { 
+          'data-footnote': '',
+          'style': 'cursor: pointer; color: var(--brand); font-weight: bold;' // Destaque visual para o editor
+      }),
+      `${node.attrs.id}`,
     ];
   },
 
@@ -64,7 +66,7 @@ export const FootnoteExtension = Node.create({
       new Plugin({
         key: new PluginKey('footnote-renumbering'),
         appendTransaction: (transactions, oldState, newState) => {
-          // Check if any transaction modified the document structure
+          // Otimização: Só recalcula se o doc mudou
           const docChanged = transactions.some(tr => tr.docChanged);
           if (!docChanged) return null;
 
@@ -72,7 +74,7 @@ export const FootnoteExtension = Node.create({
           const tr = newState.tr;
           let counter = 1;
 
-          // Scan the document for footnotes and ensure IDs are sequential
+          // Varre o documento e reordena sequencialmente (1, 2, 3...)
           newState.doc.descendants((node, pos) => {
             if (node.type.name === 'footnote') {
               if (node.attrs.id !== counter) {
@@ -97,9 +99,7 @@ export const FootnoteExtension = Node.create({
       setFootnote:
         () =>
         ({ chain, state }: any) => {
-          // Calculate the correct next ID based on cursor position
-          // This avoids the renumbering plugin from modifying *this* node immediately, 
-          // which preserves the selection and ensures the bubble menu opens.
+          // Calcula o próximo ID estimado
           let countBefore = 0;
           state.doc.descendants((node: any, pos: number) => {
              if (node.type.name === this.name && pos < state.selection.from) {
@@ -116,10 +116,11 @@ export const FootnoteExtension = Node.create({
                 content: '',
               },
             })
-            // Select the inserted node to open the bubble menu
+            // Força seleção imediata do nó inserido para abrir o BubbleMenu
             .command(({ tr, dispatch }: any) => {
               if (dispatch) {
                 const { selection } = tr;
+                // O nó inserido está logo antes do cursor
                 const nodeBefore = selection.$from.nodeBefore;
                 if (nodeBefore && nodeBefore.type.name === this.name) {
                   const pos = selection.from - nodeBefore.nodeSize;
