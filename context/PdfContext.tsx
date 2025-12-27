@@ -6,6 +6,7 @@ import { PDFDocumentProxy } from 'pdfjs-dist';
 import { OcrManager, OcrStatus } from '../services/ocrManager';
 import { refineOcrWords } from '../services/aiService';
 import { indexDocumentForSearch } from '../services/ragService';
+import { scheduleWork, cancelWork } from '../utils/scheduler';
 
 export type ToolType = 'cursor' | 'text' | 'ink' | 'eraser' | 'note';
 
@@ -47,6 +48,7 @@ interface PdfContextState {
   addAnnotation: (ann: Annotation) => void;
   removeAnnotation: (ann: Annotation) => void;
   ocrMap: Record<number, any[]>;
+  nativeTextMap: Record<number, string>; // Novo: Mapa de texto nativo
   ocrStatusMap: Record<number, OcrStatus>;
   setPageOcrData: (page: number, words: any[]) => void;
   updateOcrWord: (page: number, wordIndex: number, newText: string) => void;
@@ -101,6 +103,7 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
   const [currentPage, setCurrentPage] = useState(1);
   const [activeTool, setActiveTool] = useState<ToolType>('cursor');
   const [ocrMap, setOcrMap] = useState<Record<number, any[]>>({});
+  const [nativeTextMap, setNativeTextMap] = useState<Record<number, string>>({}); // State for native text
   const [ocrStatusMap, setOcrStatusMap] = useState<Record<number, OcrStatus>>({});
   const [hasUnsavedOcr, setHasUnsavedOcr] = useState(false);
   const [ocrNotification, setOcrNotificationState] = useState<string | null>(null);
@@ -125,6 +128,51 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
     highlightOpacity: 0.4, inkColor: "#a855f7", inkStrokeWidth: 42, inkOpacity: 0.35,
     toolbarScale: 1, toolbarYOffset: 0
   });
+
+  // --- NATIVE TEXT EXTRACTION ENGINE (Background) ---
+  useEffect(() => {
+    if (!pdfDoc || numPages === 0) return;
+
+    // Cancela extração anterior se o doc mudar
+    setNativeTextMap({});
+    
+    let workId: number;
+    let pageIndex = 1;
+    let isCancelled = false;
+
+    const extractNextPage = async (deadline: { timeRemaining: () => number, didTimeout: boolean }) => {
+        if (isCancelled) return;
+
+        // Processa enquanto houver tempo no frame
+        while (pageIndex <= numPages && (deadline.timeRemaining() > 1 || deadline.didTimeout)) {
+            try {
+                // Checa se já temos OCR (prioridade) para pular, ou se já extraímos
+                // (Opcional: Podemos extrair mesmo com OCR para ter backup, aqui extraímos sempre)
+                const page = await pdfDoc.getPage(pageIndex);
+                const textContent = await page.getTextContent();
+                const text = textContent.items.map((item: any) => item.str).join(' ');
+                
+                if (text.trim().length > 0) {
+                    setNativeTextMap(prev => ({ ...prev, [pageIndex]: text }));
+                }
+            } catch (e) {
+                // Silently fail for individual page errors (e.g. image only)
+            }
+            pageIndex++;
+        }
+
+        if (pageIndex <= numPages) {
+            workId = scheduleWork(extractNextPage);
+        }
+    };
+
+    workId = scheduleWork(extractNextPage);
+
+    return () => {
+        isCancelled = true;
+        cancelWork(workId);
+    };
+  }, [pdfDoc, numPages]);
 
   const getUnburntOcrMap = useCallback(() => {
       const fullMap = ocrMap || {};
@@ -303,7 +351,7 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
   const value = useMemo(() => ({
     scale, setScale, currentPage, setCurrentPage, numPages, activeTool, setActiveTool,
     settings, updateSettings, annotations, addAnnotation: onAddAnnotation, removeAnnotation: onRemoveAnnotation,
-    ocrMap, ocrStatusMap, setPageOcrData, updateOcrWord, 
+    ocrMap, nativeTextMap, ocrStatusMap, setPageOcrData, updateOcrWord, 
     triggerOcr, showOcrModal, setShowOcrModal,
     refinePageOcr, hasUnsavedOcr, setHasUnsavedOcr, ocrNotification,
     jumpToPage, accessToken, fileId, isSpread, setIsSpread, spreadSide, setSpreadSide, goNext, goPrev,
@@ -311,7 +359,7 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
     getUnburntOcrMap, markOcrAsSaved,
     chatRequest, setChatRequest,
     generateSearchIndex
-  }), [scale, currentPage, numPages, activeTool, settings, annotations, onAddAnnotation, onRemoveAnnotation, ocrMap, ocrStatusMap, setPageOcrData, updateOcrWord, triggerOcr, showOcrModal, refinePageOcr, hasUnsavedOcr, setHasUnsavedOcr, ocrNotification, jumpToPage, accessToken, fileId, isSpread, spreadSide, goNext, goPrev, onUpdateSourceBlob, getUnburntOcrMap, markOcrAsSaved, chatRequest, generateSearchIndex]);
+  }), [scale, currentPage, numPages, activeTool, settings, annotations, onAddAnnotation, onRemoveAnnotation, ocrMap, nativeTextMap, ocrStatusMap, setPageOcrData, updateOcrWord, triggerOcr, showOcrModal, refinePageOcr, hasUnsavedOcr, setHasUnsavedOcr, ocrNotification, jumpToPage, accessToken, fileId, isSpread, spreadSide, goNext, goPrev, onUpdateSourceBlob, getUnburntOcrMap, markOcrAsSaved, chatRequest, generateSearchIndex]);
 
   return <PdfContext.Provider value={value}>{children}</PdfContext.Provider>;
 };

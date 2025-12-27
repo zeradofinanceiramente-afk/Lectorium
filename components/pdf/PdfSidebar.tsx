@@ -26,7 +26,7 @@ const PRESET_COLORS = [
 export const PdfSidebar: React.FC<Props> = ({
   isOpen, onClose, activeTab, onTabChange, sidebarAnnotations, fichamentoText, onCopyFichamento, onDownloadFichamento,
 }) => {
-  const { settings, updateSettings, jumpToPage, removeAnnotation, triggerOcr, currentPage, ocrMap, hasUnsavedOcr, fileId, generateSearchIndex } = usePdfContext();
+  const { settings, updateSettings, jumpToPage, removeAnnotation, triggerOcr, currentPage, ocrMap, nativeTextMap, numPages, hasUnsavedOcr, fileId, generateSearchIndex } = usePdfContext();
   const [isHoveringHandler, setIsHoveringHandler] = useState(false);
 
   // --- JARVIS PROTOCOL: SEMANTIC DEDUPLICATION (V2.1) ---
@@ -58,18 +58,29 @@ export const PdfSidebar: React.FC<Props> = ({
 
   const fullDocumentText = useMemo(() => {
     let text = "";
-    const processedPages = Object.keys(ocrMap).map(Number).sort((a, b) => a - b);
+    
+    // Iterar por TODAS as páginas para construir o contexto completo
+    // Prioridade: OCR (mais recente/corrigido) > Texto Nativo > Nada
+    for (let i = 1; i <= numPages; i++) {
+        let pageContent = "";
+        
+        const ocrWords = ocrMap[i];
+        const nativeText = nativeTextMap[i];
 
-    if (processedPages.length > 0) {
-        processedPages.forEach(page => {
-            const words = ocrMap[page];
-            if (Array.isArray(words) && words.length > 0) {
-                const pageContent = words.map((w: any) => w.text).join(' ');
-                text += `\n[INÍCIO DO CONTEÚDO DA PÁGINA ${page}]\n${pageContent}\n[FIM DA PÁGINA ${page}]\n`;
-            }
-        });
+        if (Array.isArray(ocrWords) && ocrWords.length > 0) {
+            // Fonte 1: OCR Manual/IA
+            pageContent = ocrWords.map((w: any) => w.text).join(' ');
+        } else if (nativeText && nativeText.trim().length > 0) {
+            // Fonte 2: Texto Nativo do PDF
+            pageContent = nativeText;
+        }
+
+        if (pageContent) {
+            text += `\n[INÍCIO DO CONTEÚDO DA PÁGINA ${i}]\n${pageContent}\n[FIM DA PÁGINA ${i}]\n`;
+        }
     }
 
+    // Adiciona anotações do usuário como contexto de alta prioridade
     const annotationsContent = uniqueAnnotations
         .filter(a => a.text && a.text.trim().length > 0)
         .map(a => `[NOTA/DESTAQUE DO USUÁRIO NA PÁGINA ${a.page}]: ${a.text}`)
@@ -79,8 +90,12 @@ export const PdfSidebar: React.FC<Props> = ({
         text += `\n--- SEÇÃO DE NOTAS PESSOAIS, RESUMO, FICHAMENTO E DESTAQUES FEITOS PELO USUÁRIO ---\n${annotationsContent}\n`;
     }
 
-    return text || "O documento está sendo lido ou é um PDF de imagem sem processamento. Use a ferramenta 'Extrair Texto' para dar contexto ao Gemini.";
-  }, [ocrMap, uniqueAnnotations]);
+    if (!text.trim()) {
+        return "O documento parece ser uma imagem digitalizada sem camada de texto. Use a ferramenta 'Extrair Texto' (OCR) na barra superior para permitir que a IA leia o conteúdo.";
+    }
+
+    return text;
+  }, [ocrMap, nativeTextMap, uniqueAnnotations, numPages]);
 
   return (
     <>
@@ -388,7 +403,7 @@ export const PdfSidebar: React.FC<Props> = ({
                         <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
                             <div className="p-3 bg-brand/5 border border-brand/20 rounded-lg">
                                 <p className="text-[10px] text-brand font-bold uppercase mb-1">Status da IA</p>
-                                <p className="text-[10px] text-gray-400 leading-tight">O Gemini tem acesso a todas as páginas marcadas como "Leitura Concluída". Clique no selo verde na página para conferir o que ele está lendo.</p>
+                                <p className="text-[10px] text-gray-400 leading-tight">O Gemini agora lê automaticamente o texto nativo do documento. Para textos em imagem (scans antigos), continue usando a ferramenta "Extrair Texto".</p>
                             </div>
                         </div>
                     )}

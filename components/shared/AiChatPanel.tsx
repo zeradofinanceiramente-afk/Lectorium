@@ -138,10 +138,11 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
             }
         }
 
-        // 2. Fallback to Keyword Match (Classic) if RAG failed or empty
+        // 2. Fallback / Direct Mode (100% Context)
         if (!retrievalContext && contextText) {
-            const chunks = findRelevantChunks(contextText, userMessage);
-            retrievalContext = chunks.join("\n\n---\n\n");
+            // Prioridade: Se não estamos em RAG, enviamos o texto completo (Leitura Direta)
+            // Isso garante que o modelo tenha acesso a "100%" do documento disponível.
+            retrievalContext = contextText;
         }
 
         // 3. Fallback message
@@ -149,7 +150,7 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
             retrievalContext = "Documento vazio ou sem texto extraído disponível. Sugira ao usuário realizar o OCR nas páginas desejadas.";
         }
 
-        console.log(`[LectoriumAI] Mode: ${mode} | Context Length: ${retrievalContext.length}`);
+        console.log(`[SextaFeira] Mode: ${mode} | Context Length: ${retrievalContext.length}`);
 
         const stream = chatWithDocumentStream(retrievalContext, messages, userMessage);
         let assistantText = "";
@@ -192,20 +193,33 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
       <div className="p-3 border-b border-border flex items-center justify-between bg-surface/50">
           <div className="flex items-center gap-2 text-brand">
               <MessageSquare size={16} />
-              <span className="text-xs font-bold uppercase tracking-wider">Lectorium AI</span>
+              <span className="text-xs font-bold uppercase tracking-wider">Sexta-feira</span>
           </div>
           <div className="flex items-center gap-1">
+              {/* Direct Mode Toggle */}
+              <button 
+                onClick={() => setIsRagActive(false)} 
+                className={`p-1.5 rounded transition-colors ${!isRagActive ? 'text-brand bg-brand/10 ring-1 ring-brand/30 shadow-[0_0_10px_-3px_var(--brand)]' : 'text-text-sec hover:text-white hover:bg-white/5'}`}
+                title="Modo Leitura Direta (100% Contexto)"
+              >
+                  <BookOpen size={14} />
+              </button>
+
+              {/* Semantic Mode Toggle */}
               {onIndexRequest && (
                   <button 
                     onClick={handleIndex} 
-                    disabled={isIndexing || isRagActive}
-                    className={`p-1.5 rounded transition-colors ${isRagActive ? 'text-purple-400' : 'text-text-sec hover:text-white'}`}
-                    title={isRagActive ? "Memória Neural Ativa" : "Criar Índice Semântico"}
+                    disabled={isIndexing}
+                    className={`p-1.5 rounded transition-colors ${isRagActive ? 'text-purple-400 bg-purple-500/10 ring-1 ring-purple-500/30 shadow-[0_0_10px_-3px_#a855f7]' : 'text-text-sec hover:text-white hover:bg-white/5'}`}
+                    title={isRagActive ? "Memória Neural Ativa" : "Ativar Busca Semântica (RAG)"}
                   >
                       {isIndexing ? <Loader2 size={14} className="animate-spin"/> : <BrainCircuit size={14} />}
                   </button>
               )}
-              <button onClick={clearChat} className="p-1.5 text-text-sec hover:text-red-400 transition-colors" title="Limpar Chat">
+              
+              <div className="w-px h-4 bg-white/10 mx-1"></div>
+
+              <button onClick={clearChat} className="p-1.5 text-text-sec hover:text-red-400 transition-colors hover:bg-white/5 rounded" title="Limpar Chat">
                   <Trash2 size={14} />
               </button>
           </div>
@@ -217,23 +231,17 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
               <div className="flex flex-col items-center justify-center h-full text-center p-6 space-y-4 opacity-40">
                   <Sparkles size={48} className="text-brand animate-pulse" />
                   <div className="space-y-1">
-                      <p className="text-sm font-bold text-text">Pergunte ao Documento</p>
+                      <p className="text-sm font-bold text-text">Sexta-feira online.</p>
                       <p className="text-xs text-text-sec">Analisando: {documentName}</p>
                   </div>
-                  {onIndexRequest && !isRagActive && !isIndexing && (
-                      <button 
-                        onClick={handleIndex}
-                        className="bg-brand/10 border border-brand/20 px-3 py-1.5 rounded-full text-[10px] text-brand hover:bg-brand/20 transition-colors flex items-center gap-2"
-                      >
-                          <Database size={12} /> Ativar Busca Semântica
-                      </button>
-                  )}
+                  
+                  {/* Status Indicator (Non-interactive here, now controlled via Header) */}
                   {isRagActive ? (
                       <div className="flex items-center gap-1 text-[10px] text-purple-400 bg-purple-500/10 px-2 py-1 rounded border border-purple-500/20">
-                          <BrainCircuit size={12} /> Memória Neural Ativa
+                          <BrainCircuit size={12} /> Modo RAG Ativo
                       </div>
                   ) : (
-                      <div className="flex items-center gap-1 text-[10px] text-gray-500 bg-white/5 px-2 py-1 rounded">
+                      <div className="flex items-center gap-1 text-[10px] text-brand bg-brand/10 px-2 py-1 rounded border border-brand/20">
                           <BookOpen size={12} /> Modo Leitura Direta
                       </div>
                   )}
@@ -251,7 +259,7 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
                   </div>
                   <div className="bg-surface border border-border rounded-2xl rounded-tl-none p-3 flex items-center gap-3">
                       <div className="text-xs text-text-sec italic">
-                          {isRagActive ? "Consultando vetores..." : "Lendo contexto..."}
+                          {isRagActive ? "Consultando vetores..." : "Lendo documento..."}
                       </div>
                       <div className="flex gap-1">
                           <div className="w-1.5 h-1.5 bg-brand rounded-full animate-bounce"></div>
@@ -276,7 +284,7 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
                         handleSend();
                     }
                 }}
-                placeholder="Ex: Resuma a página 10, O que é entropia?"
+                placeholder={isRagActive ? "Busca semântica ativa..." : "Pergunte sobre o texto completo..."}
                 className="w-full bg-bg border border-border rounded-xl py-3 pl-4 pr-12 text-sm text-text focus:border-brand focus:ring-1 focus:ring-brand outline-none transition-all resize-none max-h-32"
               />
               <button 
