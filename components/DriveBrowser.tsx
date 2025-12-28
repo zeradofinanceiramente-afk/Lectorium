@@ -4,7 +4,7 @@ import {
   Folder, FileText, MoreVertical, Trash2, Edit2, Download, 
   Share2, ArrowLeft, Loader2, WifiOff, RefreshCw, Menu,
   X, Image as ImageIcon, Activity, CheckCircle, CloudOff, Package, Pin, PinOff,
-  Workflow, Zap, Plus, HardDrive, BookOpen, FolderInput, Cloud, Sparkles, FolderOpen, ChevronRight
+  Workflow, Zap, Plus, HardDrive, BookOpen, FolderInput, Cloud, Sparkles, FolderOpen, ChevronRight, Lock, LogIn
 } from 'lucide-react';
 import { DriveFile, MIME_TYPES } from '../types';
 import { 
@@ -266,6 +266,7 @@ export const DriveBrowser: React.FC<Props> = ({
   const [pinnedFileIds, setPinnedFileIds] = useState<Set<string>>(new Set());
   const [moveFileModalOpen, setMoveFileModalOpen] = useState(false);
   const [fileToMove, setFileToMove] = useState<DriveFile | null>(null);
+  const [authError, setAuthError] = useState(false);
 
   const updateCacheStatus = useCallback(async () => {
     try {
@@ -277,6 +278,7 @@ export const DriveBrowser: React.FC<Props> = ({
 
   const loadFiles = useCallback(async () => {
     setLoading(true);
+    setAuthError(false);
     try {
       let fetchedFiles: DriveFile[] = [];
       if (mode === 'offline') fetchedFiles = await listOfflineFiles();
@@ -284,7 +286,13 @@ export const DriveBrowser: React.FC<Props> = ({
       else if (mode === 'local' && localDirectoryHandle) fetchedFiles = await listLocalFiles(localDirectoryHandle);
       else fetchedFiles = await listDriveContents(accessToken, currentFolder);
       setFiles(fetchedFiles);
-    } catch (e: any) { if (e.message.includes('401')) onAuthError(); } finally { setLoading(false); }
+    } catch (e: any) { 
+        console.error("Browser load error:", e);
+        if (e.message.includes('401') || e.message === 'DRIVE_TOKEN_EXPIRED') {
+            setAuthError(true);
+            onAuthError(); // Dispara o Toast no App
+        }
+    } finally { setLoading(false); }
   }, [accessToken, currentFolder, mode, onAuthError, localDirectoryHandle]);
 
   useEffect(() => { loadFiles(); updateCacheStatus(); }, [loadFiles, updateCacheStatus]);
@@ -441,9 +449,38 @@ export const DriveBrowser: React.FC<Props> = ({
              <button onClick={loadFiles} className="p-2 text-text-sec hover:text-text rounded-full hover:bg-white/5"><RefreshCw size={20} className={loading ? "animate-spin" : ""} /></button>
          </div>
       </div>
+      
       <div className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar relative">
-         {loading && files.length === 0 ? <div className="flex items-center justify-center h-64"><Loader2 size={32} className="animate-spin text-brand" /></div> : <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">{files.map(file => <FileItem key={file.id} file={file} onSelect={handleSelect} onTogglePin={handleTogglePin} onDelete={handleDelete} onShare={handleShare} onMove={handleMove} onRename={handleRename} isOffline={offlineFileIds.has(file.id)} isPinned={pinnedFileIds.has(file.id)} isActiveMenu={activeMenuId === file.id} setActiveMenu={setActiveMenuId} isLocalMode={mode === 'local'} accessToken={accessToken} />)}{files.length === 0 && !loading && <div className="col-span-full text-center py-12 text-text-sec opacity-50">{mode === 'mindmaps' ? 'Nenhum mapa mental encontrado.' : 'Esta pasta está vazia.'}</div>}</div>}
+         {authError ? (
+             <div className="flex flex-col items-center justify-center h-full py-12 animate-in fade-in text-center">
+                 <div className="bg-yellow-500/10 p-6 rounded-full mb-4 border border-yellow-500/20">
+                     <Lock className="text-yellow-500" size={48} />
+                 </div>
+                 <h3 className="text-xl font-bold text-white mb-2">Conexão Expirada</h3>
+                 <p className="text-sm text-text-sec max-w-sm mb-6">
+                     Por segurança, o acesso ao Google Drive expirou. Reconecte sua conta para continuar visualizando seus arquivos.
+                 </p>
+                 <button 
+                    onClick={onAuthError} 
+                    className="flex items-center gap-2 bg-brand text-[#0b141a] px-6 py-3 rounded-xl font-bold hover:brightness-110 transition-all shadow-lg"
+                 >
+                     <LogIn size={18} /> Reconectar Agora
+                 </button>
+             </div>
+         ) : loading && files.length === 0 ? (
+             <div className="flex items-center justify-center h-64"><Loader2 size={32} className="animate-spin text-brand" /></div>
+         ) : (
+             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                 {files.map(file => (
+                     <FileItem key={file.id} file={file} onSelect={handleSelect} onTogglePin={handleTogglePin} onDelete={handleDelete} onShare={handleShare} onMove={handleMove} onRename={handleRename} isOffline={offlineFileIds.has(file.id)} isPinned={pinnedFileIds.has(file.id)} isActiveMenu={activeMenuId === file.id} setActiveMenu={setActiveMenuId} isLocalMode={mode === 'local'} accessToken={accessToken} />
+                 ))}
+                 {files.length === 0 && !loading && (
+                     <div className="col-span-full text-center py-12 text-text-sec opacity-50">{mode === 'mindmaps' ? 'Nenhum mapa mental encontrado.' : 'Esta pasta está vazia.'}</div>
+                 )}
+             </div>
+         )}
       </div>
+      
       {actionLoading && !openingFileId && <div className="absolute inset-0 z-50 bg-bg/50 backdrop-blur-sm flex items-center justify-center"><Loader2 size={40} className="animate-spin text-brand" /></div>}
       {openingFileId && <div className="absolute inset-0 z-[60] bg-bg/90 backdrop-blur-md flex flex-col items-center justify-center animate-in fade-in duration-300"><div className="relative mb-6"><div className="absolute inset-0 bg-brand/20 rounded-full blur-xl animate-pulse"></div><div className="relative bg-surface p-4 rounded-full border border-brand/30 shadow-2xl"><Cloud size={40} className="text-brand animate-pulse" /></div><div className="absolute -bottom-2 -right-2 bg-bg rounded-full p-1 border border-border"><Loader2 size={20} className="animate-spin text-white" /></div></div><h3 className="text-xl font-bold text-white mb-2">Abrindo Arquivo</h3><p className="text-sm text-text-sec max-w-xs text-center truncate px-4">{openingFileName || "Carregando..."}</p><div className="mt-8 flex gap-2"><div className="w-2 h-2 rounded-full bg-brand animate-bounce [animation-delay:-0.3s]"></div><div className="w-2 h-2 rounded-full bg-brand animate-bounce [animation-delay:-0.15s]"></div><div className="w-2 h-2 rounded-full bg-brand animate-bounce"></div></div></div>}
       <MoveFileModal isOpen={moveFileModalOpen} onClose={() => setMoveFileModalOpen(false)} fileToMove={fileToMove} accessToken={accessToken} onMoveSuccess={() => { loadFiles(); setFileToMove(null); }} />

@@ -110,7 +110,13 @@ const AppContent = () => {
   // Global Context for OCR control
   const { isOcrRunning, addNotification } = useGlobalContext();
 
-  const handleAuthError = useCallback(() => setAccessToken(null), []);
+  const handleAuthError = useCallback(() => {
+      // Quando o token expira, limpamos o token local MAS exibimos o Toast para permitir reconexão
+      // Não mudamos a aba ativa para não perder o contexto do usuário se ele estiver no meio de algo
+      setAccessToken(null);
+      setShowReauthToast(true);
+  }, []);
+
   const handleToggleSyncStrategy = useCallback((strategy: 'smart' | 'online') => { setSyncStrategy(strategy); localStorage.setItem('sync_strategy', strategy); }, []);
 
   const handleLogin = useCallback(async () => {
@@ -336,6 +342,7 @@ const AppContent = () => {
               {activeContent}
           </Suspense>
         </main>
+        {/* Mostra ReauthToast se o token expirou (disparado por handleAuthError) */}
         {showReauthToast && <ReauthToast onReauth={handleReauth} onClose={() => setShowReauthToast(false)} />}
         <LegalModal isOpen={showLegalModal} onClose={() => setShowLegalModal(false)} initialTab={legalModalTab} />
         {aiLoadingMessage && (
