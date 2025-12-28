@@ -1,3 +1,4 @@
+
 import React, { useRef, useState, useEffect, useMemo, useCallback } from 'react';
 import { Loader2, Sparkles, ScanLine, X, Save, RefreshCw, Columns, ArrowLeft, ArrowRight, CheckCircle2, FileSearch, AlertCircle, Wand2, Check } from 'lucide-react';
 import { renderCustomTextLayer } from '../../utils/pdfRenderUtils';
@@ -108,8 +109,15 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
   const [showOcrDebug, setShowOcrDebug] = useState(false);
   const [isRefining, setIsRefining] = useState(false);
   
+  // Ink Tool State
   const isDrawing = useRef(false);
   const [currentPoints, setCurrentPoints] = useState<number[][]>([]);
+  
+  // Brush Tool State (Hybrid State/Ref for performance and stability)
+  const isBrushingRef = useRef(false);
+  const brushStartRef = useRef<{x: number, y: number} | null>(null);
+  const [brushSelection, setBrushSelection] = useState<{ start: {x: number, y: number}, current: {x: number, y: number} } | null>(null);
+
   const [draftNote, setDraftNote] = useState<{x: number, y: number, text: string} | null>(null);
 
   const isDarkPage = useMemo(() => {
@@ -305,29 +313,150 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
 
   const handlePointerDown = (e: React.PointerEvent) => {
     const target = e.target as HTMLElement;
+    const { x, y } = getRelativeCoords(e);
+
+    // Brush Tool Logic (Fixed: Use Refs for stability)
+    if (activeTool === 'brush') {
+        e.preventDefault(); // Stop native drag
+        e.stopPropagation();
+        e.currentTarget.setPointerCapture(e.pointerId);
+        
+        isBrushingRef.current = true;
+        brushStartRef.current = { x, y };
+        
+        // Initial State for Render
+        setBrushSelection({ start: {x,y}, current: {x,y} });
+        return;
+    }
+
     if (activeTool === 'cursor' && (target.closest('.textLayer') || target.classList.contains('ocr-word-span'))) {
         return;
     }
     if (activeTool === 'note') {
         if (target.closest('.annotation-item, .note-editor')) return;
-        const { x, y } = getRelativeCoords(e);
         setDraftNote({ x, y, text: '' });
         return;
     }
     if (activeTool !== 'ink') return;
     isDrawing.current = true;
-    const { x, y } = getRelativeCoords(e);
     setCurrentPoints([[x, y]]);
     e.currentTarget.setPointerCapture(e.pointerId);
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
-    if (!isDrawing.current) return;
     const { x, y } = getRelativeCoords(e);
+
+    if (isBrushingRef.current && brushStartRef.current) {
+        setBrushSelection({ start: brushStartRef.current, current: {x,y} });
+        return;
+    }
+
+    if (!isDrawing.current) return;
     setCurrentPoints(prev => [...prev, [x, y]]);
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
+    // Brush Tool Logic
+    if (isBrushingRef.current && brushStartRef.current) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+        isBrushingRef.current = false;
+        
+        const { x: currX, y: currY } = getRelativeCoords(e);
+        const startX = brushStartRef.current.x;
+        const startY = brushStartRef.current.y;
+        
+        // Calculate BBox (Internal unscaled PDF coordinates)
+        const x = Math.min(startX, currX);
+        const y = Math.min(startY, currY);
+        const w = Math.abs(currX - startX);
+        const h = Math.abs(currY - startY);
+
+        // Ignore tiny accidental clicks (< 5px)
+        if (w > 5 && h > 5) {
+            // Find text inside the box
+            let capturedText = "";
+            if (textLayerRef.current) {
+                const spans = textLayerRef.current.querySelectorAll('span');
+                const selectedSpans: { text: string, x: number, y: number }[] = [];
+
+                spans.forEach(span => {
+                    // IMPORTANT: The data-pdf-* attributes are SCALED because they come from viewport rendering
+                    // We must divide by `scale` to match the `brushStart` coordinate system
+                    const sx = parseFloat(span.dataset.pdfX || '0') / scale;
+                    const sy = parseFloat(span.dataset.pdfTop || '0') / scale;
+                    const sw = parseFloat(span.dataset.pdfWidth || '0') / scale;
+                    const sh = parseFloat(span.dataset.pdfHeight || '0') / scale;
+                    
+                    // --- GEOMETRIC SLICING LOGIC ---
+                    // Verifica se a linha (span) está verticalmente dentro da caixa de seleção
+                    const spanCenterY = sy + (sh / 2);
+                    const isVerticallyInside = spanCenterY >= y && spanCenterY <= y + h;
+
+                    if (isVerticallyInside) {
+                        // Calcula a interseção horizontal
+                        const brushRight = x + w;
+                        const spanRight = sx + sw;
+
+                        const overlapLeft = Math.max(x, sx);
+                        const overlapRight = Math.min(brushRight, spanRight);
+
+                        // Se houver sobreposição horizontal válida
+                        if (overlapRight > overlapLeft) {
+                            const rawText = span.textContent || "";
+                            
+                            // Calcula a porcentagem de sobreposição para cortar o texto
+                            // Ex: Se o pincel cobre os primeiros 50% da linha, pegamos 50% do texto
+                            const startRatio = Math.max(0, (overlapLeft - sx) / sw);
+                            const endRatio = Math.min(1, (overlapRight - sx) / sw);
+
+                            const startChar = Math.floor(startRatio * rawText.length);
+                            const endChar = Math.ceil(endRatio * rawText.length);
+
+                            const extractedSlice = rawText.substring(startChar, endChar).trim();
+
+                            if (extractedSlice.length > 0) {
+                                selectedSpans.push({
+                                    text: extractedSlice,
+                                    x: sx + (startRatio * sw), // Ajusta X para ordenação correta
+                                    y: sy
+                                });
+                            }
+                        }
+                    }
+                });
+
+                // Ordenação Espacial Robusta (Y-Major, X-Minor)
+                // Agrupa linhas com tolerância de altura
+                selectedSpans.sort((a, b) => {
+                    const diffY = a.y - b.y;
+                    // Tolerância vertical (aproximadamente meia linha)
+                    // Se estiverem na mesma "linha" visual, ordena por X
+                    if (Math.abs(diffY) < (Math.min(12, h/2))) { 
+                        return a.x - b.x;
+                    }
+                    return diffY;
+                });
+
+                capturedText = selectedSpans.map(s => s.text).join(' ').trim();
+            }
+
+            addAnnotation({
+                id: `hl-${Date.now()}`,
+                page: pageNumber,
+                bbox: [x, y, w, h],
+                type: 'highlight',
+                text: capturedText,
+                color: settings.highlightColor,
+                opacity: settings.highlightOpacity,
+                createdAt: new Date().toISOString()
+            });
+        }
+        
+        brushStartRef.current = null;
+        setBrushSelection(null);
+        return;
+    }
+
     if (!isDrawing.current) return;
     isDrawing.current = false;
     e.currentTarget.releasePointerCapture(e.pointerId);
@@ -356,12 +485,23 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
   return (
     <div 
         className="pdf-page-wrapper mx-auto mb-8 relative shadow-2xl rounded-sm bg-[#18181b]" 
-        style={{ width: outerWidth, height: pageDimensions?.height || 1100, overflow: 'hidden' }}
+        style={{ 
+            width: outerWidth, 
+            height: pageDimensions?.height || 1100, 
+            overflow: 'hidden',
+            cursor: activeTool === 'brush' ? 'crosshair' : 'default' 
+        }}
     >
         <div 
             ref={pageContainerRef}
             className={`pdf-page pdf-page-content relative transition-transform duration-300 ease-out origin-top-left bg-white ${activeTool === 'cursor' ? 'select-text' : 'select-none'}`}
-            style={{ width: pageDimensions?.width || 800, height: pageDimensions?.height || 1100, transform: innerTransform }}
+            style={{ 
+                width: pageDimensions?.width || 800, 
+                height: pageDimensions?.height || 1100, 
+                transform: innerTransform,
+                // Critical Fix: Prevent browser scroll when dragging brush
+                touchAction: activeTool === 'brush' ? 'none' : 'pan-x pan-y'
+            }}
             data-page-number={pageNumber}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
@@ -409,6 +549,19 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
                             />
                         ))}
                 </div>
+            )}
+
+            {/* Brush Selection Overlay */}
+            {brushSelection && (
+                <div 
+                    className="absolute z-50 bg-brand/20 border border-brand pointer-events-none shadow-[0_0_15px_rgba(var(--brand),0.3)] backdrop-blur-[1px]"
+                    style={{
+                        left: Math.min(brushSelection.start.x, brushSelection.current.x) * scale,
+                        top: Math.min(brushSelection.start.y, brushSelection.current.y) * scale,
+                        width: Math.abs(brushSelection.current.x - brushSelection.start.x) * scale,
+                        height: Math.abs(brushSelection.current.y - brushSelection.start.y) * scale,
+                    }}
+                />
             )}
 
             {/* ANNOTATIONS LAYER */}

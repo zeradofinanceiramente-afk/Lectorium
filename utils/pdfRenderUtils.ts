@@ -111,7 +111,8 @@ export const renderCustomTextLayer = (textContent: any, container: HTMLElement, 
     return yDiff; 
   });
 
-  // 3. Merge / De-fragmentation Pass
+  // 3. Merge / De-fragmentation Pass (Granularidade: Palavras)
+  // Otimização para Brush Tool: Agrupa apenas fragmentos de palavras, mas separa palavras por espaço.
   const mergedItems: any[] = [];
   if (rawItems.length > 0) {
     let current = rawItems[0];
@@ -125,19 +126,25 @@ export const renderCustomTextLayer = (textContent: any, container: HTMLElement, 
       const expectedNextX = current.x + current.width;
       const gap = next.x - expectedNextX;
       
-      const spaceWidth = current.fontSize * 0.25;
+      // Limiar para considerar como espaço em branco (separação de palavras)
+      const spaceWidth = current.fontSize * 0.20;
       
-      const maxGap = detectColumns ? (current.fontSize * 1.5) : (current.fontSize * 4.0);
-      
-      const isConsecutive = gap > -(current.fontSize * 0.5) && gap < maxGap;
+      const isWordBreak = gap > spaceWidth;
       const isWhitespace = current.str.trim().length === 0 || next.str.trim().length === 0;
 
-      if (sameLine && sameFont && (isConsecutive || isWhitespace)) {
+      // Merge APENAS se não houver um gap significativo (quebra de palavra) 
+      // ou se estivermos lidando com caracteres de espaço soltos (que devem colar na palavra)
+      const shouldMerge = sameLine && sameFont && (!isWordBreak || isWhitespace);
+
+      if (shouldMerge) {
+        // Se estamos forçando merge mas existe um pequeno gap visual que o PDF não marcou com espaço,
+        // e nenhum dos lados tem espaço, adicionamos um para garantir a semântica na cópia.
         if (gap > spaceWidth && !current.str.endsWith(' ') && !next.str.startsWith(' ')) {
              current.str += ' ';
         }
 
         current.str += next.str;
+        // Expande a largura para incluir o próximo item
         current.width = (next.x + next.width) - current.x;
       } else {
         mergedItems.push(current);
@@ -226,7 +233,8 @@ export const renderCustomTextLayer = (textContent: any, container: HTMLElement, 
         }
         else if (nextPart.x > (part.x + part.width)) {
              const gap = nextPart.x - (part.x + part.width);
-             if (gap > part.fontSize * 0.1) {
+             // Se houver gap visual significativo, insira espaço textual para copy/paste correto
+             if (gap > part.fontSize * 0.15) {
                  container.appendChild(document.createTextNode(' '));
              }
         }

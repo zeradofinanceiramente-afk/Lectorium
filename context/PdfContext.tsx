@@ -8,7 +8,7 @@ import { refineOcrWords } from '../services/aiService';
 import { indexDocumentForSearch } from '../services/ragService';
 import { scheduleWork, cancelWork } from '../utils/scheduler';
 
-export type ToolType = 'cursor' | 'text' | 'ink' | 'eraser' | 'note';
+export type ToolType = 'cursor' | 'text' | 'ink' | 'eraser' | 'note' | 'brush';
 
 interface PdfSettings {
   pageOffset: number;

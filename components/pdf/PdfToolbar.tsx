@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { MousePointer2, StickyNote, Pen, Eraser, ChevronLeft, ChevronRight, MoveHorizontal, Minus, Plus, Search, ZoomIn } from 'lucide-react';
+import { MousePointer2, StickyNote, Pen, Eraser, ChevronLeft, ChevronRight, MoveHorizontal, Minus, Plus, Search, ZoomIn, Paintbrush } from 'lucide-react';
 import { usePdfContext } from '../../context/PdfContext';
 
 interface Props {
@@ -81,6 +81,7 @@ export const PdfToolbar: React.FC<Props> = ({ onFitWidth }) => {
             {/* Zone 1: Tools (Console Style) */}
             <div className="flex items-center gap-1 bg-[#161b22] p-1 rounded-xl border border-[#30363d]">
                 <ToolbarBtn active={activeTool === 'cursor'} onClick={() => setActiveTool('cursor')} icon={MousePointer2} title="Selecionar" />
+                <ToolbarBtn active={activeTool === 'brush'} onClick={() => setActiveTool('brush')} icon={Paintbrush} title="Pincel de Destaque (Área)" />
                 <ToolbarBtn active={activeTool === 'note'} onClick={() => setActiveTool('note')} icon={StickyNote} title="Nota" />
                 <ToolbarBtn active={activeTool === 'ink'} onClick={() => setActiveTool('ink')} icon={Pen} title="Desenhar" />
                 <ToolbarBtn active={activeTool === 'eraser'} onClick={() => setActiveTool('eraser')} icon={Eraser} title="Apagar" />
