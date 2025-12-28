@@ -42,7 +42,7 @@ body.is-native {
 
 /* Permitir seleção apenas no editor */
 body.is-native .ProseMirror,
-body.is-native .textLayer,
+body.is-native .textLayer span,
 body.is-native input,
 body.is-native textarea {
   user-select: text;
@@ -173,6 +173,9 @@ html.custom {
   /* PERFORMANCE CRITICAL: Isolamento de renderização para milhares de spans */
   /* 'strict' remove a camada do fluxo de layout global, evitando recálculos pesados */
   contain: strict; 
+  /* SELECTOR FIX: Impede que o contêiner vazio seja selecionado, forçando a seleção nos filhos */
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 /* Estilo para spans de OCR */
@@ -182,6 +185,10 @@ html.custom {
   white-space: pre;
   cursor: text;
   transform-origin: 0% 0%;
+  /* SELECTOR FIX: Reabilita seleção apenas no texto real */
+  user-select: text;
+  -webkit-user-select: text;
+  pointer-events: auto;
 }
 
 /* Forçar destaque azul da seleção mesmo em texto transparente */

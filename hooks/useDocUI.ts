@@ -31,7 +31,8 @@ export const useDocUI = () => {
 
   const [modes, setModes] = useState({
     suggestion: false,
-    dictation: false
+    dictation: false,
+    focus: false
   });
 
   const toggleModal = useCallback((name: keyof typeof modals, value?: boolean) => {

@@ -27,6 +27,7 @@ interface Props {
   onToggleMenu: () => void;
   onAuthError?: () => void;
   onBack?: () => void;
+  fileParents?: string[];
 }
 
 const ViewLoader = () => (
@@ -38,7 +39,7 @@ const ViewLoader = () => (
 
 export const DocEditor: React.FC<Props> = ({ 
   fileId, fileName, fileBlob, accessToken, 
-  onToggleMenu, onAuthError, onBack 
+  onToggleMenu, onAuthError, onBack, fileParents
 }) => {
   const isLocalFile = fileId.startsWith('local-') || !accessToken;
   const { modals, sidebars, modes, toggleModal, toggleSidebar, toggleMode } = useDocUI();
@@ -63,7 +64,7 @@ export const DocEditor: React.FC<Props> = ({
   });
 
   const fileHandler = useDocFileHandler({
-    editor, fileId, fileName, fileBlob, accessToken, isLocalFile, onAuthError, onBack,
+    editor, fileId, fileName, fileBlob, accessToken, isLocalFile, fileParents, onAuthError, onBack,
     onFitWidth: pageLayout.handleFitWidth, onLoadSettings: pageLayout.setPageSettings,
     onLoadComments: setComments, onLoadReferences: setReferences
   });
@@ -105,7 +106,7 @@ export const DocEditor: React.FC<Props> = ({
                         <TopMenuBar 
                             editor={editor} fileName={fileHandler.currentName} onSave={() => fileHandler.handleSave(pageLayout.pageSettings, comments, references)}
                             onShare={() => toggleModal('share', true)} onNew={onToggleMenu} onWordCount={() => toggleModal('wordCount', true)}
-                            onDownload={fileHandler.handleDownload} onDownloadLect={fileHandler.handleDownloadLect} onExportPdf={() => window.print()}
+                            onDownload={() => fileHandler.handleDownload(pageLayout.pageSettings, comments, references)} onDownloadLect={() => fileHandler.handleDownloadLect(pageLayout.pageSettings, comments)} onExportPdf={() => window.print()}
                             onInsertImage={() => {}} onTrash={fileHandler.handleTrash} onPageSetup={() => toggleModal('pageSetup', true)}
                             onPageNumber={() => toggleModal('pageNumber', true)} onHeader={() => {}} onFooter={() => {}} onAddFootnote={() => (editor.chain().focus() as any).setFootnote().run()}
                             onAddCitation={() => toggleModal('citation', true)} onPrint={() => window.print()} onLanguage={() => toggleModal('language', true)}

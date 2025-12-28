@@ -25,7 +25,6 @@ export const PageNumberModal: React.FC<Props> = ({ isOpen, onClose, onApply }) =
       position,
       alignment,
       displayFromPage, // Propriedade nova
-      showOnFirstPage: displayFromPage === 1, // Retrocompatibilidade (opcional)
       startAt: startValue
     });
     onClose();

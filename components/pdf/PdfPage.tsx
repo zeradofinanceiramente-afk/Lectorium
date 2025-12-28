@@ -457,7 +457,7 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
 
             <div 
                 ref={textLayerRef} 
-                className="textLayer notranslate select-text" 
+                className="textLayer notranslate" 
                 style={{ 
                     zIndex: 30, 
                     pointerEvents: activeTool === 'cursor' ? 'auto' : 'none', 

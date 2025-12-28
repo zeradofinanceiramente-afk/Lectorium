@@ -26,6 +26,7 @@ interface Props {
   onToggleMenu: () => void;
   onAuthError?: () => void;
   onBack?: () => void;
+  fileParents?: string[];
 }
 
 const ViewLoader = () => (
@@ -37,7 +38,7 @@ const ViewLoader = () => (
 
 export const DocEditor: React.FC<Props> = ({ 
   fileId, fileName, fileBlob, accessToken, 
-  onToggleMenu, onAuthError, onBack 
+  onToggleMenu, onAuthError, onBack, fileParents 
 }) => {
   const isLocalFile = fileId.startsWith('local-') || !accessToken;
   const { modals, sidebars, modes, toggleModal, toggleSidebar, toggleMode } = useDocUI();
@@ -62,7 +63,7 @@ export const DocEditor: React.FC<Props> = ({
   });
 
   const fileHandler = useDocFileHandler({
-    editor, fileId, fileName, fileBlob, accessToken, isLocalFile, onAuthError, onBack,
+    editor, fileId, fileName, fileBlob, accessToken, isLocalFile, fileParents, onAuthError, onBack,
     onFitWidth: pageLayout.handleFitWidth, onLoadSettings: pageLayout.setPageSettings,
     onLoadComments: setComments, onLoadReferences: setReferences
   });
@@ -81,6 +82,15 @@ export const DocEditor: React.FC<Props> = ({
      return { words, chars: editor.storage.characterCount.characters(), charsNoSpace: words, readTime: Math.ceil(words / 200) };
   }, [editor]);
 
+  const handleApplyColumns = (count: number) => {
+    if (!editor) return;
+    if (count === 1) {
+        (editor.chain().focus() as any).unsetColumns().run();
+    } else {
+        (editor.chain().focus() as any).setColumns(count).run();
+    }
+  };
+
   if (!editor) return <ViewLoader />;
 
   return (
@@ -95,11 +105,12 @@ export const DocEditor: React.FC<Props> = ({
                         <TopMenuBar 
                             editor={editor} fileName={fileHandler.currentName} onSave={() => fileHandler.handleSave(pageLayout.pageSettings, comments, references)}
                             onShare={() => toggleModal('share', true)} onNew={onToggleMenu} onWordCount={() => toggleModal('wordCount', true)}
-                            onDownload={fileHandler.handleDownload} onDownloadLect={fileHandler.handleDownloadLect} onExportPdf={() => window.print()}
+                            onDownload={() => fileHandler.handleDownload(pageLayout.pageSettings, comments, references)} onDownloadLect={() => fileHandler.handleDownloadLect(pageLayout.pageSettings, comments)} onExportPdf={() => window.print()}
                             onInsertImage={() => {}} onTrash={fileHandler.handleTrash} onPageSetup={() => toggleModal('pageSetup', true)}
                             onPageNumber={() => toggleModal('pageNumber', true)} onHeader={() => {}} onFooter={() => {}} onAddFootnote={() => (editor.chain().focus() as any).setFootnote().run()}
                             onAddCitation={() => toggleModal('citation', true)} onPrint={() => window.print()} onLanguage={() => toggleModal('language', true)}
                             onSpellCheck={() => setSpellCheck(!spellCheck)} onFindReplace={() => toggleModal('findReplace', true)}
+                            onColumns={() => toggleModal('columns', true)}
                             showRuler={pageLayout.showRuler} setShowRuler={pageLayout.setShowRuler} zoom={pageLayout.zoom} setZoom={pageLayout.setZoom}
                             onFitWidth={pageLayout.handleFitWidth} viewMode={pageLayout.viewMode} setViewMode={pageLayout.setViewMode}
                             focusMode={modes.focus} setFocusMode={v => toggleMode('focus', v)} showComments={sidebars.comments} setShowComments={v => toggleSidebar('comments', v)}
@@ -139,6 +150,7 @@ export const DocEditor: React.FC<Props> = ({
        <WordCountModal isOpen={modals.wordCount} onClose={() => toggleModal('wordCount', false)} stats={stats} />
        <CitationModal isOpen={modals.citation} onClose={() => toggleModal('citation', false)} onInsert={ref => setReferences(prev => [...prev, ref])} references={references} />
        <ShareModal isOpen={modals.share} onClose={() => toggleModal('share', false)} fileId={fileId} fileName={fileName} isLocal={isLocalFile} />
+       <ColumnsModal isOpen={modals.columns} onClose={() => toggleModal('columns', false)} onApply={handleApplyColumns} />
     </div>
   );
 };
