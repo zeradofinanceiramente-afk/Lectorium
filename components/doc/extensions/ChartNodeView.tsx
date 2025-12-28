@@ -1,11 +1,11 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { NodeViewWrapper } from '@tiptap/react';
 import { 
   BarChart, Bar, LineChart, Line, AreaChart, Area, PieChart, Pie, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell 
 } from 'recharts';
-import { Settings2, BarChart3, LineChart as LineChartIcon, PieChart as PieIcon, Activity, Radar as RadarIcon, X, Check } from 'lucide-react';
+import { Settings2, BarChart3, LineChart as LineChartIcon, PieChart as PieIcon, Activity, Radar as RadarIcon, X, Check, Table, Code, Plus, Trash2 } from 'lucide-react';
 
 // Cores Modernas
 const COLORS = ['#8884d8', '#82ca9d', '#ffc658', '#ff8042', '#a4de6c', '#d0ed57', '#83a6ed', '#8dd1e1'];
@@ -26,32 +26,123 @@ export const ChartNodeView = (props: any) => {
   const data = node.attrs.data || DEFAULT_DATA;
   const title = node.attrs.title || 'Gráfico';
   
-  // Extrair chaves numéricas dinamicamente (ignorando 'name')
-  const dataKeys = Object.keys(data[0] || {}).filter(k => k !== 'name');
+  // -- State for Editor --
+  const [editMode, setEditMode] = useState<'visual' | 'json'>('visual');
+  const [jsonText, setJsonText] = useState('');
+  const [tempTitle, setTempTitle] = useState('');
+  const [visualData, setVisualData] = useState<any[]>([]);
+  const [seriesKeys, setSeriesKeys] = useState<string[]>([]);
 
-  const [jsonText, setJsonText] = useState(JSON.stringify(data, null, 2));
-  const [tempTitle, setTempTitle] = useState(title);
+  // Initialize Editor State when opening
+  useEffect(() => {
+    if (isEditing) {
+        setJsonText(JSON.stringify(data, null, 2));
+        setTempTitle(title);
+        setVisualData(JSON.parse(JSON.stringify(data))); // Deep copy
+        
+        // Extract series keys (keys that are not 'name')
+        if (data.length > 0) {
+            const keys = Object.keys(data[0]).filter(k => k !== 'name');
+            setSeriesKeys(keys);
+        } else {
+            setSeriesKeys(['valor']);
+        }
+    }
+  }, [isEditing, data, title]);
+
+  const dataKeys = Object.keys(data[0] || {}).filter(k => k !== 'name');
 
   const handleSave = () => {
     try {
-      const parsed = JSON.parse(jsonText);
-      updateAttributes({ data: parsed, title: tempTitle });
+      let finalData = visualData;
+      
+      // Se estiver no modo JSON, o texto tem prioridade
+      if (editMode === 'json') {
+          finalData = JSON.parse(jsonText);
+      }
+
+      // Validação básica
+      if (!Array.isArray(finalData)) throw new Error("Dados devem ser uma lista.");
+
+      updateAttributes({ data: finalData, title: tempTitle });
       setIsEditing(false);
     } catch (e) {
-      alert("JSON inválido. Verifique a formatação.");
+      alert("Erro nos dados: Verifique se o formato está correto.");
     }
   };
+
+  // --- Visual Editor Helpers ---
+
+  const updateVisualCell = (rowIndex: number, key: string, value: string | number) => {
+      const newData = [...visualData];
+      // Se for numérico, tenta converter
+      if (key !== 'name') {
+          const num = parseFloat(value as string);
+          newData[rowIndex][key] = isNaN(num) ? 0 : num;
+      } else {
+          newData[rowIndex][key] = value;
+      }
+      setVisualData(newData);
+      setJsonText(JSON.stringify(newData, null, 2)); // Sync JSON
+  };
+
+  const addRow = () => {
+      const newRow: any = { name: 'Novo Item' };
+      seriesKeys.forEach(k => newRow[k] = 0);
+      const newData = [...visualData, newRow];
+      setVisualData(newData);
+      setJsonText(JSON.stringify(newData, null, 2));
+  };
+
+  const removeRow = (index: number) => {
+      const newData = visualData.filter((_, i) => i !== index);
+      setVisualData(newData);
+      setJsonText(JSON.stringify(newData, null, 2));
+  };
+
+  const addSeries = () => {
+      const name = prompt("Nome da nova série (ex: Meta, Lucro):");
+      if (name && !seriesKeys.includes(name)) {
+          const newKeys = [...seriesKeys, name];
+          setSeriesKeys(newKeys);
+          
+          const newData = visualData.map(row => ({ ...row, [name]: 0 }));
+          setVisualData(newData);
+          setJsonText(JSON.stringify(newData, null, 2));
+      }
+  };
+
+  const removeSeries = (key: string) => {
+      if (seriesKeys.length <= 1) {
+          alert("É necessário ter pelo menos uma série de dados.");
+          return;
+      }
+      if (confirm(`Remover a coluna "${key}"?`)) {
+          const newKeys = seriesKeys.filter(k => k !== key);
+          setSeriesKeys(newKeys);
+          
+          const newData = visualData.map(row => {
+              const { [key]: _, ...rest } = row;
+              return rest;
+          });
+          setVisualData(newData);
+          setJsonText(JSON.stringify(newData, null, 2));
+      }
+  };
+
+  // --- Rendering ---
 
   const renderChart = () => {
     const commonProps = { data, margin: { top: 10, right: 30, left: 0, bottom: 0 } };
     const grid = <CartesianGrid strokeDasharray="3 3" stroke="#444" />;
     const axis = (
         <>
-            <XAxis dataKey="name" stroke="#888" fontSize={12} />
-            <YAxis stroke="#888" fontSize={12} />
+            <XAxis dataKey="name" stroke="#888" fontSize={12} tick={{fill: '#888'}} />
+            <YAxis stroke="#888" fontSize={12} tick={{fill: '#888'}} />
             <Tooltip 
                 contentStyle={{ backgroundColor: '#222', borderColor: '#444', color: '#fff' }} 
                 itemStyle={{ color: '#fff' }}
+                cursor={{fill: 'rgba(255,255,255,0.1)'}}
             />
             <Legend wrapperStyle={{ paddingTop: '10px' }} />
         </>
@@ -87,7 +178,6 @@ export const ChartNodeView = (props: any) => {
                 </AreaChart>
             );
         case 'pie':
-            // Para Pizza, usamos apenas a primeira chave de valor
             const valKey = dataKeys[0];
             return (
                 <PieChart>
@@ -160,7 +250,7 @@ export const ChartNodeView = (props: any) => {
         {/* Toolbar (Hover) */}
         <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col gap-2 z-20">
             <button 
-            onClick={() => { setJsonText(JSON.stringify(data, null, 2)); setTempTitle(title); setIsEditing(true); }}
+            onClick={() => setIsEditing(true)}
             className="p-2 bg-brand text-bg rounded-full shadow-lg hover:brightness-110 transition-transform hover:scale-110"
             title="Editar Dados"
             >
@@ -200,23 +290,101 @@ export const ChartNodeView = (props: any) => {
                     <ChartTypeButton t="radar" icon={RadarIcon} label="Radar" />
                 </div>
 
-                <input 
-                   className="w-full bg-[#2c2c2c] border border-border rounded-lg p-3 mb-4 text-sm text-white focus:border-brand outline-none"
-                   value={tempTitle}
-                   onChange={e => setTempTitle(e.target.value)}
-                   placeholder="Título do Gráfico"
-                   onKeyDown={(e) => e.stopPropagation()}
-                />
-                
-                <div className="flex-1 relative">
-                    <textarea 
-                        className="w-full h-full bg-[#1e1e1e] border border-border rounded-lg p-3 text-xs font-mono resize-none text-green-400 focus:border-brand outline-none shadow-inner"
-                        value={jsonText}
-                        onChange={e => setJsonText(e.target.value)}
-                        spellCheck={false}
-                        onKeyDown={(e) => e.stopPropagation()}
+                <div className="flex gap-2 mb-4">
+                    <input 
+                       className="flex-1 bg-[#2c2c2c] border border-border rounded-lg p-3 text-sm text-white focus:border-brand outline-none"
+                       value={tempTitle}
+                       onChange={e => setTempTitle(e.target.value)}
+                       placeholder="Título do Gráfico"
+                       onKeyDown={(e) => e.stopPropagation()}
                     />
-                    <div className="absolute top-2 right-2 text-[10px] text-gray-500 bg-black/50 px-2 rounded pointer-events-none">JSON Data</div>
+                    <div className="flex bg-[#2c2c2c] rounded-lg p-1 border border-border">
+                        <button 
+                            onClick={() => setEditMode('visual')}
+                            className={`px-3 py-1 text-xs rounded font-bold flex items-center gap-1 transition-colors ${editMode === 'visual' ? 'bg-brand text-black' : 'text-gray-400 hover:text-white'}`}
+                        >
+                            <Table size={12} /> Visual
+                        </button>
+                        <button 
+                            onClick={() => setEditMode('json')}
+                            className={`px-3 py-1 text-xs rounded font-bold flex items-center gap-1 transition-colors ${editMode === 'json' ? 'bg-brand text-black' : 'text-gray-400 hover:text-white'}`}
+                        >
+                            <Code size={12} /> JSON
+                        </button>
+                    </div>
+                </div>
+                
+                {/* EDITOR CONTENT AREA */}
+                <div className="flex-1 relative overflow-hidden bg-[#1e1e1e] border border-border rounded-lg">
+                    {editMode === 'visual' ? (
+                        <div className="h-full overflow-auto custom-scrollbar">
+                            <table className="w-full text-sm text-left">
+                                <thead className="text-xs text-text-sec uppercase bg-black/40 sticky top-0 z-10">
+                                    <tr>
+                                        <th className="px-4 py-3 font-bold border-b border-[#333] w-1/3">Categoria (Eixo X)</th>
+                                        {seriesKeys.map((key) => (
+                                            <th key={key} className="px-4 py-3 font-bold border-b border-[#333] relative group">
+                                                <div className="flex items-center justify-between">
+                                                    {key}
+                                                    <button onClick={() => removeSeries(key)} className="text-red-400 opacity-0 group-hover:opacity-100 hover:bg-red-500/10 p-1 rounded">
+                                                        <Trash2 size={12} />
+                                                    </button>
+                                                </div>
+                                            </th>
+                                        ))}
+                                        <th className="px-2 py-3 border-b border-[#333] w-10">
+                                            <button onClick={addSeries} className="text-brand hover:bg-brand/10 p-1 rounded" title="Nova Série">
+                                                <Plus size={14} />
+                                            </button>
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {visualData.map((row, rowIndex) => (
+                                        <tr key={rowIndex} className="border-b border-[#333] hover:bg-white/5">
+                                            <td className="p-2">
+                                                <input 
+                                                    className="w-full bg-transparent outline-none text-white font-medium focus:text-brand"
+                                                    value={row.name}
+                                                    onChange={(e) => updateVisualCell(rowIndex, 'name', e.target.value)}
+                                                />
+                                            </td>
+                                            {seriesKeys.map((key) => (
+                                                <td key={key} className="p-2">
+                                                    <input 
+                                                        type="number"
+                                                        className="w-full bg-transparent outline-none text-gray-300 font-mono text-right focus:text-brand"
+                                                        value={row[key]}
+                                                        onChange={(e) => updateVisualCell(rowIndex, key, e.target.value)}
+                                                    />
+                                                </td>
+                                            ))}
+                                            <td className="p-2 text-center">
+                                                <button onClick={() => removeRow(rowIndex)} className="text-red-500/50 hover:text-red-400 transition-colors">
+                                                    <X size={14} />
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    <tr>
+                                        <td colSpan={seriesKeys.length + 2} className="p-2">
+                                            <button onClick={addRow} className="w-full py-2 border border-dashed border-[#444] rounded text-xs text-text-sec hover:text-white hover:border-brand/50 transition-colors flex items-center justify-center gap-2">
+                                                <Plus size={12} /> Adicionar Linha de Dados
+                                            </button>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    ) : (
+                        <textarea 
+                            className="w-full h-full bg-[#1e1e1e] p-3 text-xs font-mono resize-none text-green-400 focus:outline-none custom-scrollbar"
+                            value={jsonText}
+                            onChange={e => setJsonText(e.target.value)}
+                            spellCheck={false}
+                            onKeyDown={(e) => e.stopPropagation()}
+                        />
+                    )}
                 </div>
 
                 <button 

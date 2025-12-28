@@ -15,9 +15,26 @@ import { WordCountModal } from './doc/modals/WordCountModal';
 import { CitationModal } from './doc/modals/CitationModal';
 import { ShareModal } from './doc/modals/ShareModal';
 import { ColumnsModal } from './doc/modals/ColumnsModal';
-import { Loader2, ArrowLeft, FileText, Cloud, CheckCircle, Sparkles, Users, Lock } from 'lucide-react';
-import { Reference, EditorStats } from '../types';
+import { HeaderFooterModal } from './doc/modals/HeaderFooterModal';
+import { VersionHistoryModal } from './doc/modals/VersionHistoryModal';
+import { ImageOptionsSidebar } from './doc/ImageOptionsSidebar';
+import { TableBubbleMenu } from './doc/TableBubbleMenu';
+import { ImageBubbleMenu } from './doc/ImageBubbleMenu';
+import { AiBubbleMenu } from './doc/AiBubbleMenu';
+import { SuggestionBubbleMenu } from './doc/SuggestionBubbleMenu';
+import { FootnoteBubbleMenu } from './doc/FootnoteBubbleMenu';
+import { FindReplaceBar } from './doc/FindReplaceBar';
+import { Ruler } from './doc/Ruler';
+import { VerticalRuler } from './doc/VerticalRuler';
+import { FootnotesLayer } from './doc/FootnotesLayer';
+import { Loader2, ArrowLeft, FileText, Cloud, Sparkles, Users, Share2, Lock } from 'lucide-react';
+import { Reference, EditorStats, MIME_TYPES } from '../types';
 import { auth } from '../firebase';
+import { generateDocxBlob } from '../services/docxService';
+import { useSlideNavigation } from '../hooks/useSlideNavigation';
+import { SlideNavigationControls } from './doc/SlideNavigationControls';
+import { TablePropertiesModal } from './doc/modals/TablePropertiesModal';
+import { CM_TO_PX } from './doc/constants';
 
 interface Props {
   fileId: string;
@@ -39,7 +56,7 @@ const ViewLoader = () => (
 
 export const DocEditor: React.FC<Props> = ({ 
   fileId, fileName, fileBlob, accessToken, 
-  onToggleMenu, onAuthError, onBack, fileParents
+  onToggleMenu, onAuthError, onBack, fileParents 
 }) => {
   const isLocalFile = fileId.startsWith('local-') || !accessToken;
   const { modals, sidebars, modes, toggleModal, toggleSidebar, toggleMode } = useDocUI();
@@ -47,6 +64,14 @@ export const DocEditor: React.FC<Props> = ({
   const [comments, setComments] = useState<CommentData[]>([]);
   const [references, setReferences] = useState<Reference[]>([]);
   const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
+  const [activeHeaderFooterTab, setActiveHeaderFooterTab] = useState<'header' | 'footer'>('header');
+  const [isSharing, setIsSharing] = useState(false);
+  
+  // Estado de Página Atual
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // Referência para o input de arquivo oculto
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const userInfo = useMemo(() => {
     const u = auth.currentUser;
@@ -69,20 +94,6 @@ export const DocEditor: React.FC<Props> = ({
     onLoadComments: setComments, onLoadReferences: setReferences
   });
 
-  const handleAddComment = useCallback((text: string) => {
-    if (!editor) return;
-    const id = `comment-${Date.now()}`;
-    (editor.chain().focus() as any).setComment(id).run();
-    setComments(prev => [...prev, { id, text, author: userInfo.name, createdAt: new Date().toISOString() }]);
-    setActiveCommentId(id);
-  }, [editor, userInfo.name]);
-
-  const stats = useMemo<EditorStats>(() => {
-     if (!editor) return { words: 0, chars: 0, charsNoSpace: 0, readTime: 0 };
-     const words = editor.storage.characterCount.words();
-     return { words, chars: editor.storage.characterCount.characters(), charsNoSpace: words, readTime: Math.ceil(words / 200) };
-  }, [editor]);
-
   const handleApplyColumns = (count: number) => {
     if (!editor) return;
     if (count === 1) {
@@ -92,7 +103,216 @@ export const DocEditor: React.FC<Props> = ({
     }
   };
 
+  // --- SLIDE NAVIGATION (Hooks) ---
+  const isSlideMode = true; // Always true as requested
+
+  const { nextPage, prevPage } = useSlideNavigation({
+    currentPage,
+    totalPages: pageLayout.totalPages,
+    isSlideMode,
+    onPageChange: (newPage) => {
+      setCurrentPage(newPage);
+      if (docScrollerRef.current) {
+          docScrollerRef.current.scrollTo({ top: 0 });
+      }
+    }
+  });
+
+  // --- AUTO-PAGINATION & REDIRECT LOGIC ---
+  useEffect(() => {
+    if (!editor || !isSlideMode) return;
+
+    const checkCursorPage = () => {
+        if (!editor || editor.isDestroyed || !editor.view) return;
+
+        const { selection, doc } = editor.state;
+        const { from } = selection;
+
+        if (from < 0 || from > doc.content.size) return;
+
+        try {
+            const pageHeight = pageLayout.currentPaper.heightPx;
+            const pageGap = 20;
+            const totalUnit = pageHeight + pageGap;
+
+            const domResult = editor.view.domAtPos(from);
+            const domNode = domResult.node;
+            const element = (domNode instanceof HTMLElement ? domNode : domNode.parentElement) as HTMLElement;
+            
+            if (element) {
+                let offsetTop = element.offsetTop;
+                let currentEl = element;
+                
+                while(currentEl && !currentEl.classList.contains('ProseMirror') && currentEl.parentElement) {
+                    currentEl = currentEl.parentElement;
+                    offsetTop += currentEl.offsetTop;
+                }
+
+                const calculatedPage = Math.floor(offsetTop / totalUnit) + 1;
+
+                if (calculatedPage !== currentPage && calculatedPage >= 1 && calculatedPage <= pageLayout.totalPages) {
+                    setCurrentPage(calculatedPage);
+                    if (docScrollerRef.current) docScrollerRef.current.scrollTop = 0;
+                }
+            }
+        } catch (e) {
+            // Ignore transient errors
+        }
+    };
+
+    editor.on('selectionUpdate', checkCursorPage);
+    editor.on('update', checkCursorPage);
+
+    return () => { 
+        editor.off('selectionUpdate', checkCursorPage); 
+        editor.off('update', checkCursorPage);
+    }
+  }, [editor, currentPage, pageLayout.currentPaper.heightPx, pageLayout.totalPages, isSlideMode]);
+
+  const handleJumpToPage = useCallback((page: number) => {
+      const target = Math.max(1, Math.min(page, pageLayout.totalPages));
+      setCurrentPage(target);
+  }, [pageLayout.totalPages]);
+
+  const handleAddComment = useCallback((text: string) => {
+    if (!editor) return;
+    const id = `comment-${Date.now()}`;
+    (editor.chain().focus() as any).setComment(id).run();
+    setComments(prev => [...prev, { id, text, author: userInfo.name, createdAt: new Date().toISOString() }]);
+    setActiveCommentId(id);
+  }, [editor, userInfo.name]);
+
+  const triggerImageUpload = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleImageUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && editor) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const src = event.target?.result as string;
+        if (src) {
+          editor.chain().focus().setImage({ src }).run();
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+    e.target.value = '';
+  }, [editor]);
+
+  const stats = useMemo<EditorStats>(() => {
+     if (!editor) return { words: 0, chars: 0, charsNoSpace: 0, readTime: 0 };
+     const words = editor.storage.characterCount.words();
+     return { words, chars: editor.storage.characterCount.characters(), charsNoSpace: words, readTime: Math.ceil(words / 200) };
+  }, [editor]);
+
+  const handleRegionClick = (type: 'header' | 'footer', e: React.MouseEvent) => {
+      if (e.detail === 2) { // Double click is enough
+          e.preventDefault();
+          e.stopPropagation();
+          setActiveHeaderFooterTab(type);
+          toggleModal('headerFooter', true);
+      }
+  };
+
+  const handleNativeShare = useCallback(async () => {
+    if (!editor) return;
+    setIsSharing(true);
+    try {
+      const json = editor.getJSON();
+      const blob = await generateDocxBlob(json, pageLayout.pageSettings, comments, references);
+      const fileNameWithExt = fileHandler.currentName.endsWith('.docx') ? fileHandler.currentName : `${fileHandler.currentName}.docx`;
+      const file = new File([blob], fileNameWithExt, { type: MIME_TYPES.DOCX });
+
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: fileHandler.currentName, text: 'Documento compartilhado via Lectorium' });
+      } else {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileNameWithExt;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+    } catch (e: any) {
+      if (e.name !== 'AbortError') { console.error("Erro ao compartilhar:", e); alert("Não foi possível compartilhar o arquivo."); }
+    } finally {
+      setIsSharing(false);
+    }
+  }, [editor, fileHandler.currentName, pageLayout.pageSettings, comments, references]);
+
+  const handleVersionRestore = useCallback((content: any) => {
+      if (editor) {
+          editor.commands.setContent(content);
+      }
+  }, [editor]);
+
+  const handleHeaderFooterApply = (header: string, footer: string) => {
+      pageLayout.setPageSettings(prev => ({ ...prev, headerText: header, footerText: footer }));
+  };
+
   if (!editor) return <ViewLoader />;
+
+  // Translate content to simulate slide view
+  const effectivePageHeight = pageLayout.currentPaper.heightPx + 20; // Altura + Gap
+  const contentTranslateY = -((currentPage - 1) * effectivePageHeight);
+
+  // Render Page Number Helper
+  const renderPageNumber = (pageIndex: number) => {
+      const config = pageLayout.pageSettings.pageNumber;
+      if (!config || !config.enabled) return null;
+
+      // Logic: Show from X page (e.g. start showing on page 2)
+      // Logic: Start counting from Y (e.g. page 2 displays "1")
+      const physicalPageNum = pageIndex + 1; // 1-based index
+      
+      if (physicalPageNum < (config.displayFromPage || 1)) return null;
+
+      // Calculate the number to display
+      // If startAt is set, we adjust. Usually startAt=1 means the first counted page is "1".
+      // offset is how many pages we skipped before starting to count/show
+      const offset = (config.displayFromPage || 1) - 1;
+      const displayNum = (physicalPageNum - offset) + (config.startAt - 1);
+
+      // Positioning styles
+      const isHeader = config.position === 'header';
+      const align = config.alignment || 'right';
+      
+      const style: React.CSSProperties = {
+          position: 'absolute',
+          pointerEvents: 'none',
+          fontSize: '10pt',
+          fontFamily: '"Times New Roman", Times, serif',
+          color: '#000000',
+          zIndex: 20
+      };
+
+      if (isHeader) {
+          style.top = `${pageLayout.pageSettings.marginTop / 2}cm`; // Center vertically in margin
+      } else {
+          style.bottom = `${pageLayout.pageSettings.marginBottom / 2}cm`;
+      }
+
+      // Horizontal Positioning based on margins
+      const marginLeft = `${pageLayout.pageSettings.marginLeft}cm`;
+      const marginRight = `${pageLayout.pageSettings.marginRight}cm`;
+
+      if (align === 'left') style.left = marginLeft;
+      else if (align === 'right') style.right = marginRight;
+      else {
+          style.left = '50%';
+          style.transform = 'translateX(-50%)';
+      }
+
+      return (
+          <div style={style}>
+              {displayNum}
+          </div>
+      );
+  };
 
   return (
     <div className={`flex flex-col h-full bg-bg relative overflow-hidden text-text ${modes.focus ? 'focus-mode' : ''}`}>
@@ -105,10 +325,14 @@ export const DocEditor: React.FC<Props> = ({
                         <input value={fileHandler.currentName} onChange={e => fileHandler.setCurrentName(e.target.value)} onBlur={fileHandler.handleRename} className="bg-transparent text-text font-medium text-lg outline-none px-2 rounded -ml-2 focus:border-brand transition-colors" />
                         <TopMenuBar 
                             editor={editor} fileName={fileHandler.currentName} onSave={() => fileHandler.handleSave(pageLayout.pageSettings, comments, references)}
-                            onShare={() => toggleModal('share', true)} onNew={onToggleMenu} onWordCount={() => toggleModal('wordCount', true)}
+                            onShare={handleNativeShare} onNew={onToggleMenu} onWordCount={() => toggleModal('wordCount', true)}
                             onDownload={() => fileHandler.handleDownload(pageLayout.pageSettings, comments, references)} onDownloadLect={() => fileHandler.handleDownloadLect(pageLayout.pageSettings, comments)} onExportPdf={() => window.print()}
-                            onInsertImage={() => {}} onTrash={fileHandler.handleTrash} onPageSetup={() => toggleModal('pageSetup', true)}
-                            onPageNumber={() => toggleModal('pageNumber', true)} onHeader={() => {}} onFooter={() => {}} onAddFootnote={() => (editor.chain().focus() as any).setFootnote().run()}
+                            onInsertImage={triggerImageUpload} onTrash={fileHandler.handleTrash} onPageSetup={() => toggleModal('pageSetup', true)}
+                            onPageNumber={() => toggleModal('pageNumber', true)} 
+                            currentPage={currentPage}
+                            onHeader={() => { setActiveHeaderFooterTab('header'); toggleModal('headerFooter', true); }} 
+                            onFooter={() => { setActiveHeaderFooterTab('footer'); toggleModal('headerFooter', true); }} 
+                            onAddFootnote={() => (editor.chain().focus() as any).setFootnote().run()}
                             onAddCitation={() => toggleModal('citation', true)} onPrint={() => window.print()} onLanguage={() => toggleModal('language', true)}
                             onSpellCheck={() => setSpellCheck(!spellCheck)} onFindReplace={() => toggleModal('findReplace', true)}
                             onColumns={() => toggleModal('columns', true)}
@@ -124,27 +348,185 @@ export const DocEditor: React.FC<Props> = ({
                     <div className="text-text-sec">{fileHandler.isSaving ? <Loader2 size={20} className="animate-spin" /> : <Cloud size={20} />}</div>
                     <button onClick={() => toggleSidebar('aiChat')} className={`p-2 rounded-full ${sidebars.aiChat ? 'bg-brand/20 text-brand' : 'text-text-sec'}`}><Sparkles size={20} /></button>
                     <button onClick={() => toggleSidebar('comments')} className={`p-2 rounded-full ${sidebars.comments ? 'bg-brand/20 text-brand' : 'text-text-sec'}`}><Users size={20} /></button>
-                    <button onClick={() => toggleModal('share', true)} className="flex items-center gap-2 bg-[#c2e7ff] text-[#0b141a] px-4 py-2 rounded-full font-medium text-sm"><Lock size={16} /><span>Compartilhar</span></button>
+                    <button onClick={() => toggleModal('share', true)} className="flex items-center gap-2 bg-[#c2e7ff] text-[#0b141a] px-4 py-2 rounded-full font-medium text-sm hover:brightness-110 transition-all disabled:opacity-50">
+                        {isSharing ? <Loader2 size={16} className="animate-spin"/> : <Share2 size={16} />}
+                        <span>Compartilhar</span>
+                    </button>
                 </div>
              </div>
           </div>
 
-       {!modes.focus && <DocToolbar editor={editor} onInsertImage={() => {}} onAddFootnote={() => {}} currentPage={1} totalPages={pageLayout.totalPages} onJumpToPage={() => {}} />}
+       {!modes.focus && (
+           <DocToolbar 
+               editor={editor} 
+               onInsertImage={triggerImageUpload} 
+               onAddFootnote={() => (editor.chain().focus() as any).setFootnote().run()} 
+               currentPage={currentPage} 
+               totalPages={pageLayout.totalPages} 
+               onJumpToPage={handleJumpToPage} 
+           />
+       )}
        
        <div className="flex-1 overflow-hidden relative flex bg-black">
           <OutlineSidebar editor={editor} isOpen={sidebars.outline} onClose={() => toggleSidebar('outline', false)} />
-          <div ref={docScrollerRef} className="flex-1 overflow-auto flex justify-center custom-scrollbar px-12 pb-12">
-             <div className="relative my-8 transition-transform origin-top" style={{ transform: `scale(${pageLayout.zoom})`, width: pageLayout.currentPaper.widthPx }}>
-                <div className="absolute inset-0 pointer-events-none z-0">
-                    {pageLayout.pages.map((page, i) => (
-                        <div key={i} className="bg-white shadow-lg w-full absolute left-0 border border-[#333]" style={{ top: i * (page.heightPx + 20), height: page.heightPx, backgroundColor: pageLayout.pageSettings.pageColor }} />
-                    ))}
+          
+          <SlideNavigationControls 
+            isVisible={true}
+            currentPage={currentPage}
+            totalPages={pageLayout.totalPages}
+            onNext={nextPage}
+            onPrev={prevPage}
+          />
+
+          {/* Main Scroll Container */}
+          <div 
+            ref={docScrollerRef} 
+            className="flex-1 flex justify-center px-12 pb-12 relative overflow-hidden items-center cursor-default"
+          >
+             {/* Menus Flutuantes */}
+             <TableBubbleMenu editor={editor} onOpenProperties={() => toggleModal('tableProperties', true)} />
+             <ImageBubbleMenu editor={editor} onOpenOptions={() => toggleSidebar('imageOptions', true)} />
+             <AiBubbleMenu editor={editor} />
+             <SuggestionBubbleMenu editor={editor} />
+             <FootnoteBubbleMenu editor={editor} />
+             <FindReplaceBar editor={editor} isOpen={modals.findReplace} onClose={() => toggleModal('findReplace', false)} />
+
+             <div 
+                className="relative my-8 transition-transform origin-top will-change-transform bg-transparent" 
+                style={{ 
+                    transform: `scale(${pageLayout.zoom})`, 
+                    width: pageLayout.currentPaper.widthPx,
+                    height: pageLayout.currentPaper.heightPx, 
+                    overflow: 'hidden', 
+                    boxShadow: '0 0 50px -10px rgba(0,0,0,0.5)'
+                }}
+             >
+                {/* Régua Horizontal */}
+                {pageLayout.showRuler && (
+                    <div className="absolute -top-6 left-0 right-0 z-[60]">
+                        <Ruler 
+                            editor={editor} 
+                            width={pageLayout.currentPaper.widthPx} 
+                            marginLeft={pageLayout.pageSettings.marginLeft}
+                            marginRight={pageLayout.pageSettings.marginRight}
+                        />
+                    </div>
+                )}
+
+                {/* --- CONTENT LAYER --- */}
+                <div 
+                    className="transition-transform duration-300 ease-out relative" 
+                    style={{ 
+                        transform: `translateY(${contentTranslateY}px)` 
+                    }}
+                >
+                    {/* Background das Páginas e Elementos de Layout */}
+                    <div className="absolute inset-0 pointer-events-none z-0">
+                        {pageLayout.pages.map((page, i) => {
+                            if (i + 1 !== currentPage) return null;
+                            const topPos = 0; // Slide mode
+
+                            return (
+                                <div key={i} className="absolute left-0 w-full chromium-virtual-render" style={{ top: topPos, height: page.heightPx }}>
+                                    
+                                    {pageLayout.showRuler && (
+                                        <div className="absolute -left-6 top-0 bottom-0 h-full z-[50] pointer-events-auto">
+                                            <VerticalRuler 
+                                                heightPx={page.heightPx} 
+                                                marginTop={pageLayout.pageSettings.marginTop}
+                                                marginBottom={pageLayout.pageSettings.marginBottom}
+                                            />
+                                        </div>
+                                    )}
+
+                                    <div 
+                                        className={`bg-white shadow-lg w-full h-full border border-[#333] relative transition-opacity duration-300`} 
+                                        style={{ backgroundColor: pageLayout.pageSettings.pageColor }}
+                                    >
+                                        {/* HEADER AREA */}
+                                        <div 
+                                            className="absolute left-0 right-0 pointer-events-auto cursor-pointer hover:bg-blue-50/50 transition-colors z-20 overflow-hidden"
+                                            style={{ 
+                                                top: 0, 
+                                                height: `${pageLayout.pageSettings.marginTop}cm`,
+                                                padding: `0.5cm ${pageLayout.pageSettings.marginRight}cm 0 ${pageLayout.pageSettings.marginLeft}cm`
+                                            }}
+                                            onClick={(e) => handleRegionClick('header', e)}
+                                            title="Cabeçalho (Clique duplo para editar)"
+                                        >
+                                            {renderPageNumber(i) /* Page Number Layer inside Header */}
+                                            
+                                            {pageLayout.pageSettings.headerText ? (
+                                                <div className="text-sm text-gray-600 text-center whitespace-pre-wrap font-serif">
+                                                    {pageLayout.pageSettings.headerText}
+                                                </div>
+                                            ) : (
+                                                <div className="w-full h-full flex items-center justify-center opacity-0 hover:opacity-100 text-[10px] text-blue-400 font-bold uppercase tracking-wider border-b border-dashed border-blue-200">
+                                                    Área do Cabeçalho
+                                                </div>
+                                            )}
+                                        </div>
+                                        
+                                        {/* FOOTER AREA */}
+                                        <div 
+                                            className="absolute left-0 right-0 bottom-0 pointer-events-auto cursor-pointer hover:bg-blue-50/50 transition-colors z-20 overflow-hidden"
+                                            style={{ 
+                                                height: `${pageLayout.pageSettings.marginBottom}cm`,
+                                                padding: `0.5cm ${pageLayout.pageSettings.marginRight}cm 0 ${pageLayout.pageSettings.marginLeft}cm`
+                                            }}
+                                            onClick={(e) => handleRegionClick('footer', e)}
+                                            title="Rodapé (Clique duplo para editar)"
+                                        >
+                                            {/* Note: If page number is footer, it should be rendered here too if logic permits */}
+                                            {pageLayout.pageSettings.pageNumber?.position === 'footer' && renderPageNumber(i)}
+
+                                            {pageLayout.pageSettings.footerText ? (
+                                                <div className="text-sm text-gray-600 text-center whitespace-pre-wrap font-serif">
+                                                    {pageLayout.pageSettings.footerText}
+                                                </div>
+                                            ) : (
+                                                <div className="w-full h-full flex items-center justify-center opacity-0 hover:opacity-100 text-[10px] text-blue-400 font-bold uppercase tracking-wider border-t border-dashed border-blue-200">
+                                                    Área do Rodapé
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                    
+                    {/* Footnotes Layer - Now correctly positioned relative to body text area */}
+                    <FootnotesLayer 
+                        editor={editor}
+                        pageHeight={pageLayout.currentPaper.heightPx}
+                        pageGap={20}
+                        marginBottom={pageLayout.pageSettings.marginBottom}
+                        marginLeft={pageLayout.pageSettings.marginLeft}
+                        marginRight={pageLayout.pageSettings.marginRight}
+                    />
+
+                    {/* Main Content (Editor) */}
+                    <div 
+                        ref={contentRef} 
+                        className="relative z-10 min-h-screen gpu-layer transition-transform duration-300 ease-out" 
+                        style={{ 
+                            paddingTop: `${pageLayout.pageSettings.marginTop}cm`, 
+                            paddingLeft: `${pageLayout.pageSettings.marginLeft}cm`, 
+                            paddingRight: `${pageLayout.pageSettings.marginRight}cm`,
+                            paddingBottom: `${pageLayout.pageSettings.marginBottom}cm`, // Important to reserve space so text doesn't overlap footer
+                            transform: `translateY(${contentTranslateY}px)`
+                        }}
+                    >
+                        <EditorContent editor={editor} />
+                    </div>
                 </div>
-                <div ref={contentRef} className="relative z-10 min-h-screen" style={{ paddingTop: `${pageLayout.pageSettings.marginTop}cm`, paddingLeft: `${pageLayout.pageSettings.marginLeft}cm`, paddingRight: `${pageLayout.pageSettings.marginRight}cm` }}><EditorContent editor={editor} /></div>
              </div>
           </div>
+          
           <DocAiSidebar editor={editor} isOpen={sidebars.aiChat} onClose={() => toggleSidebar('aiChat', false)} documentName={fileHandler.currentName} />
           <CommentsSidebar editor={editor} isOpen={sidebars.comments} onClose={() => toggleSidebar('comments', false)} comments={comments} onAddComment={handleAddComment} onResolveComment={() => {}} onDeleteComment={() => {}} activeCommentId={activeCommentId} setActiveCommentId={setActiveCommentId} />
+          <ImageOptionsSidebar editor={editor} isOpen={sidebars.imageOptions} onClose={() => toggleSidebar('imageOptions', false)} />
        </div>
 
        <PageSetupModal isOpen={modals.pageSetup} initialSettings={pageLayout.pageSettings} initialViewMode={pageLayout.viewMode} onClose={() => toggleModal('pageSetup', false)} onApply={(s, v) => { pageLayout.setPageSettings(s); pageLayout.setViewMode(v); toggleModal('pageSetup', false); }} />
@@ -152,6 +534,24 @@ export const DocEditor: React.FC<Props> = ({
        <CitationModal isOpen={modals.citation} onClose={() => toggleModal('citation', false)} onInsert={ref => setReferences(prev => [...prev, ref])} references={references} />
        <ShareModal isOpen={modals.share} onClose={() => toggleModal('share', false)} fileId={fileId} fileName={fileName} isLocal={isLocalFile} />
        <ColumnsModal isOpen={modals.columns} onClose={() => toggleModal('columns', false)} onApply={handleApplyColumns} />
+       <HeaderFooterModal 
+          isOpen={modals.headerFooter} 
+          onClose={() => toggleModal('headerFooter', false)} 
+          initialHeader={pageLayout.pageSettings.headerText}
+          initialFooter={pageLayout.pageSettings.footerText}
+          activeTab={activeHeaderFooterTab}
+          onApply={handleHeaderFooterApply}
+       />
+       <TablePropertiesModal isOpen={modals.tableProperties} onClose={() => toggleModal('tableProperties', false)} editor={editor} />
+       <VersionHistoryModal 
+          isOpen={modals.history} 
+          onClose={() => toggleModal('history', false)} 
+          fileId={fileId}
+          onRestore={handleVersionRestore}
+          currentContent={editor.getJSON()}
+       />
+       
+       <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageUpload} />
     </div>
   );
 };

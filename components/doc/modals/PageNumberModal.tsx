@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Hash, AlignLeft, AlignCenter, AlignRight, CheckCircle, Info, ArrowRight } from 'lucide-react';
 import { PageNumberConfig } from './PageSetupModal';
 
@@ -12,10 +12,13 @@ interface Props {
 export const PageNumberModal: React.FC<Props> = ({ isOpen, onClose, onApply }) => {
   const [position, setPosition] = useState<'header' | 'footer'>('header');
   const [alignment, setAlignment] = useState<'left' | 'center' | 'right'>('right');
-  const [displayFromPage, setDisplayFromPage] = useState(2); // Padrão inteligente: Pula a capa (pág 1)
+  const [displayFromPage, setDisplayFromPage] = useState(2); 
   const [startValue, setStartValue] = useState(1);
 
   const isAbntCompliant = position === 'header' && alignment === 'right';
+
+  // Reset/Init logic needed here if we passed initialValues, but for now we rely on user setting it
+  // Ideally, we should receive current config from props to pre-fill.
 
   if (!isOpen) return null;
 
@@ -24,7 +27,7 @@ export const PageNumberModal: React.FC<Props> = ({ isOpen, onClose, onApply }) =
       enabled: true,
       position,
       alignment,
-      displayFromPage, // Propriedade nova
+      displayFromPage,
       startAt: startValue
     });
     onClose();
@@ -34,7 +37,6 @@ export const PageNumberModal: React.FC<Props> = ({ isOpen, onClose, onApply }) =
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
        <div className="bg-[#1e1e1e] text-white rounded-3xl shadow-2xl w-full max-w-[420px] relative animate-in zoom-in-95 border border-[#333] overflow-hidden">
           
-          {/* Header */}
           <div className="flex justify-between items-center p-6 border-b border-[#333] bg-[#252525]">
             <h3 className="text-xl font-bold flex items-center gap-2">
                 <div className="bg-[#4ade80]/10 p-2 rounded-lg text-[#4ade80]">
@@ -47,7 +49,6 @@ export const PageNumberModal: React.FC<Props> = ({ isOpen, onClose, onApply }) =
 
           <div className="p-6 space-y-6">
              
-             {/* ABNT Status Banner */}
              <div className={`p-3 rounded-xl border flex items-start gap-3 transition-colors ${isAbntCompliant ? 'bg-[#4ade80]/10 border-[#4ade80]/30' : 'bg-yellow-500/10 border-yellow-500/20'}`}>
                  {isAbntCompliant ? <CheckCircle size={18} className="text-[#4ade80] shrink-0 mt-0.5" /> : <Info size={18} className="text-yellow-500 shrink-0 mt-0.5" />}
                  <div>
@@ -62,7 +63,6 @@ export const PageNumberModal: React.FC<Props> = ({ isOpen, onClose, onApply }) =
                  </div>
              </div>
 
-             {/* Position Grid */}
              <div className="space-y-2">
                  <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Posição na Folha</label>
                  <div className="grid grid-cols-2 gap-3">
@@ -83,7 +83,6 @@ export const PageNumberModal: React.FC<Props> = ({ isOpen, onClose, onApply }) =
                  </div>
              </div>
 
-             {/* Alignment */}
              <div className="space-y-2">
                  <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Alinhamento</label>
                  <div className="flex bg-[#2c2c2c] p-1 rounded-lg border border-[#333]">
@@ -93,7 +92,6 @@ export const PageNumberModal: React.FC<Props> = ({ isOpen, onClose, onApply }) =
                  </div>
              </div>
 
-             {/* Smart Config for Laypeople */}
              <div className="space-y-4 pt-2 border-t border-[#333]">
                  <div className="flex items-center justify-between">
                     <label className="text-sm text-white font-medium">Começar a mostrar na página:</label>
@@ -106,11 +104,11 @@ export const PageNumberModal: React.FC<Props> = ({ isOpen, onClose, onApply }) =
                     />
                  </div>
                  <p className="text-[10px] text-gray-500 bg-[#252525] p-2 rounded-lg leading-relaxed">
-                    <strong>Dica:</strong> Se você tem Capa e Folha de Rosto, coloque "3". As páginas 1 e 2 serão contadas, mas o número só aparecerá visível na página 3 (como "3").
+                    <strong>Dica:</strong> Se você tem Capa e Folha de Rosto, coloque "3". As páginas 1 e 2 serão contadas, mas o número só aparecerá visível na página 3.
                  </p>
 
                  <div className="flex items-center justify-between opacity-60 hover:opacity-100 transition-opacity">
-                    <label className="text-xs text-gray-400">Iniciar contagem em:</label>
+                    <label className="text-xs text-gray-400">Contagem inicia em:</label>
                     <div className="flex items-center gap-2">
                         <span className="text-[10px] text-gray-500">(Raro alterar)</span>
                         <input 
@@ -128,7 +126,7 @@ export const PageNumberModal: React.FC<Props> = ({ isOpen, onClose, onApply }) =
           <div className="p-6 pt-0 flex justify-end gap-3">
               <button onClick={onClose} className="text-gray-400 hover:text-white font-medium px-4 py-2 transition-colors text-sm">Cancelar</button>
               <button onClick={handleApply} className="bg-[#4ade80] text-[#0b141a] font-bold px-8 py-2.5 rounded-full hover:brightness-110 transition-all shadow-[0_0_20px_-5px_rgba(74,222,128,0.4)] flex items-center gap-2 text-sm">
-                  Inserir Paginação <ArrowRight size={14}/>
+                  Aplicar Configuração <ArrowRight size={14}/>
               </button>
           </div>
        </div>

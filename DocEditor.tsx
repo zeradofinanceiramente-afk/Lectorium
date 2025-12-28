@@ -14,6 +14,7 @@ import { PageSetupModal } from './doc/modals/PageSetupModal';
 import { WordCountModal } from './doc/modals/WordCountModal';
 import { CitationModal } from './doc/modals/CitationModal';
 import { ShareModal } from './doc/modals/ShareModal';
+import { ColumnsModal } from './doc/modals/ColumnsModal';
 import { Loader2, ArrowLeft, FileText, Cloud, CheckCircle, Sparkles, Users, Lock } from 'lucide-react';
 import { Reference, EditorStats } from '../types';
 import { auth } from '../firebase';

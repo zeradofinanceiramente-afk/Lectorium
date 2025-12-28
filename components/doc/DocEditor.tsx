@@ -1,39 +1,39 @@
-
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useDocEditorConfig } from '../../hooks/useDocEditorConfig';
 import { useDocFileHandler } from '../../hooks/useDocFileHandler';
 import { usePageLayout } from '../../hooks/usePageLayout';
 import { useDocUI } from '../../hooks/useDocUI';
 import { EditorContent } from '@tiptap/react';
-import { TopMenuBar } from './doc/TopMenuBar';
-import { DocToolbar } from './doc/DocToolbar';
-import { CommentsSidebar, CommentData } from './doc/CommentsSidebar';
-import { OutlineSidebar } from './doc/OutlineSidebar';
-import { DocAiSidebar } from './DocAiSidebar';
-import { PageSetupModal } from './doc/modals/PageSetupModal';
-import { WordCountModal } from './doc/modals/WordCountModal';
-import { CitationModal } from './doc/modals/CitationModal';
-import { ShareModal } from './doc/modals/ShareModal';
-import { TablePropertiesModal } from './doc/modals/TablePropertiesModal';
-import { HeaderFooterModal } from './doc/modals/HeaderFooterModal';
-import { VersionHistoryModal } from './doc/modals/VersionHistoryModal';
-import { ImageOptionsSidebar } from './doc/ImageOptionsSidebar';
-import { TableBubbleMenu } from './doc/TableBubbleMenu';
-import { ImageBubbleMenu } from './doc/ImageBubbleMenu';
-import { AiBubbleMenu } from './doc/AiBubbleMenu';
-import { SuggestionBubbleMenu } from './doc/SuggestionBubbleMenu';
-import { FootnoteBubbleMenu } from './doc/FootnoteBubbleMenu';
-import { FindReplaceBar } from './doc/FindReplaceBar';
-import { Ruler } from './doc/Ruler';
-import { VerticalRuler } from './doc/VerticalRuler';
-import { FootnotesLayer } from './doc/FootnotesLayer';
+import { TopMenuBar } from './TopMenuBar';
+import { DocToolbar } from './DocToolbar';
+import { CommentsSidebar, CommentData } from './CommentsSidebar';
+import { OutlineSidebar } from './OutlineSidebar';
+import { DocAiSidebar } from '../DocAiSidebar';
+import { PageSetupModal } from './modals/PageSetupModal';
+import { WordCountModal } from './modals/WordCountModal';
+import { CitationModal } from './modals/CitationModal';
+import { ShareModal } from './modals/ShareModal';
+import { ColumnsModal } from './modals/ColumnsModal';
+import { HeaderFooterModal } from './modals/HeaderFooterModal';
+import { VersionHistoryModal } from './modals/VersionHistoryModal';
+import { ImageOptionsSidebar } from './ImageOptionsSidebar';
+import { TableBubbleMenu } from './TableBubbleMenu';
+import { ImageBubbleMenu } from './ImageBubbleMenu';
+import { AiBubbleMenu } from './AiBubbleMenu';
+import { SuggestionBubbleMenu } from './SuggestionBubbleMenu';
+import { FootnoteBubbleMenu } from './FootnoteBubbleMenu';
+import { FindReplaceBar } from './FindReplaceBar';
+import { Ruler } from './Ruler';
+import { VerticalRuler } from './VerticalRuler';
+import { FootnotesLayer } from './FootnotesLayer';
 import { Loader2, ArrowLeft, FileText, Cloud, Sparkles, Users, Share2, Lock } from 'lucide-react';
 import { Reference, EditorStats, MIME_TYPES } from '../../types';
 import { auth } from '../../firebase';
 import { generateDocxBlob } from '../../services/docxService';
 import { useSlideNavigation } from '../../hooks/useSlideNavigation';
 import { SlideNavigationControls } from './SlideNavigationControls';
-import { ColumnsModal } from './doc/modals/ColumnsModal';
+import { TablePropertiesModal } from './modals/TablePropertiesModal';
+import { CM_TO_PX } from './constants';
 
 interface Props {
   fileId: string;
@@ -55,7 +55,7 @@ const ViewLoader = () => (
 
 export const DocEditor: React.FC<Props> = ({ 
   fileId, fileName, fileBlob, accessToken, 
-  onToggleMenu, onAuthError, onBack, fileParents
+  onToggleMenu, onAuthError, onBack, fileParents 
 }) => {
   const isLocalFile = fileId.startsWith('local-') || !accessToken;
   const { modals, sidebars, modes, toggleModal, toggleSidebar, toggleMode } = useDocUI();
@@ -93,6 +93,15 @@ export const DocEditor: React.FC<Props> = ({
     onLoadComments: setComments, onLoadReferences: setReferences
   });
 
+  const handleApplyColumns = (count: number) => {
+    if (!editor) return;
+    if (count === 1) {
+        (editor.chain().focus() as any).unsetColumns().run();
+    } else {
+        (editor.chain().focus() as any).setColumns(count).run();
+    }
+  };
+
   // --- SLIDE NAVIGATION (Hooks) ---
   const isSlideMode = true; // Always true as requested
 
@@ -102,7 +111,6 @@ export const DocEditor: React.FC<Props> = ({
     isSlideMode,
     onPageChange: (newPage) => {
       setCurrentPage(newPage);
-      // Reset scroll position for the container
       if (docScrollerRef.current) {
           docScrollerRef.current.scrollTo({ top: 0 });
       }
@@ -119,53 +127,38 @@ export const DocEditor: React.FC<Props> = ({
         const { selection, doc } = editor.state;
         const { from } = selection;
 
-        // Safety: Ensure position is valid within document bounds
         if (from < 0 || from > doc.content.size) return;
 
         try {
-            // Obter coordenadas do cursor relativas à viewport
-            // Use 'side' param to avoid issues at boundaries
-            const coords = editor.view.coordsAtPos(from, -1);
-            
-            // Altura de uma página renderizada
             const pageHeight = pageLayout.currentPaper.heightPx;
             const pageGap = 20;
             const totalUnit = pageHeight + pageGap;
 
-            // Encontrar o elemento DOM correspondente à seleção
-            // Usamos domAtPos com segurança
             const domResult = editor.view.domAtPos(from);
             const domNode = domResult.node;
             const element = (domNode instanceof HTMLElement ? domNode : domNode.parentElement) as HTMLElement;
             
             if (element) {
-                // offsetTop do elemento em relação ao container do editor (que tem altura total do doc)
-                // Isso funciona porque o container interno do Tiptap cresce com o conteúdo
                 let offsetTop = element.offsetTop;
                 let currentEl = element;
                 
-                // Subir até encontrar o editor-content para ter o offset relativo correto
                 while(currentEl && !currentEl.classList.contains('ProseMirror') && currentEl.parentElement) {
                     currentEl = currentEl.parentElement;
                     offsetTop += currentEl.offsetTop;
                 }
 
-                // Calcular página baseada na posição Y absoluta
                 const calculatedPage = Math.floor(offsetTop / totalUnit) + 1;
 
-                // Se a página calculada for diferente da atual, REDIRECIONAR (Snap)
                 if (calculatedPage !== currentPage && calculatedPage >= 1 && calculatedPage <= pageLayout.totalPages) {
                     setCurrentPage(calculatedPage);
-                    // Resetar scroll visual
                     if (docScrollerRef.current) docScrollerRef.current.scrollTop = 0;
                 }
             }
         } catch (e) {
-            // Ignorar erros transientes de layout ou range
+            // Ignore transient errors
         }
     };
 
-    // Use 'update' instead of 'transaction' to ensure View/DOM is synced with State
     editor.on('selectionUpdate', checkCursorPage);
     editor.on('update', checkCursorPage);
 
@@ -214,7 +207,7 @@ export const DocEditor: React.FC<Props> = ({
   }, [editor]);
 
   const handleRegionClick = (type: 'header' | 'footer', e: React.MouseEvent) => {
-      if (e.detail === 3) {
+      if (e.detail === 2) { // Double click is enough
           e.preventDefault();
           e.stopPropagation();
           setActiveHeaderFooterTab(type);
@@ -250,28 +243,75 @@ export const DocEditor: React.FC<Props> = ({
     }
   }, [editor, fileHandler.currentName, pageLayout.pageSettings, comments, references]);
 
-  // Handle Columns Application
-  const handleApplyColumns = (count: number) => {
-    if (!editor) return;
-    if (count === 1) {
-        (editor.chain().focus() as any).unsetColumns().run();
-    } else {
-        (editor.chain().focus() as any).setColumns(count).run();
-    }
-  };
-
   const handleVersionRestore = useCallback((content: any) => {
       if (editor) {
           editor.commands.setContent(content);
-          // Opcional: salvar imediatamente como uma nova versão para manter rastro
       }
   }, [editor]);
+
+  const handleHeaderFooterApply = (header: string, footer: string) => {
+      pageLayout.setPageSettings(prev => ({ ...prev, headerText: header, footerText: footer }));
+  };
 
   if (!editor) return <ViewLoader />;
 
   // Translate content to simulate slide view
   const effectivePageHeight = pageLayout.currentPaper.heightPx + 20; // Altura + Gap
   const contentTranslateY = -((currentPage - 1) * effectivePageHeight);
+
+  // Render Page Number Helper
+  const renderPageNumber = (pageIndex: number) => {
+      const config = pageLayout.pageSettings.pageNumber;
+      if (!config || !config.enabled) return null;
+
+      // Logic: Show from X page (e.g. start showing on page 2)
+      // Logic: Start counting from Y (e.g. page 2 displays "1")
+      const physicalPageNum = pageIndex + 1; // 1-based index
+      
+      if (physicalPageNum < (config.displayFromPage || 1)) return null;
+
+      // Calculate the number to display
+      // If startAt is set, we adjust. Usually startAt=1 means the first counted page is "1".
+      // offset is how many pages we skipped before starting to count/show
+      const offset = (config.displayFromPage || 1) - 1;
+      const displayNum = (physicalPageNum - offset) + (config.startAt - 1);
+
+      // Positioning styles
+      const isHeader = config.position === 'header';
+      const align = config.alignment || 'right';
+      
+      const style: React.CSSProperties = {
+          position: 'absolute',
+          pointerEvents: 'none',
+          fontSize: '10pt',
+          fontFamily: '"Times New Roman", Times, serif',
+          color: '#000000',
+          zIndex: 20
+      };
+
+      if (isHeader) {
+          style.top = `${pageLayout.pageSettings.marginTop / 2}cm`; // Center vertically in margin
+      } else {
+          style.bottom = `${pageLayout.pageSettings.marginBottom / 2}cm`;
+      }
+
+      // Horizontal Positioning based on margins
+      const marginLeft = `${pageLayout.pageSettings.marginLeft}cm`;
+      const marginRight = `${pageLayout.pageSettings.marginRight}cm`;
+
+      if (align === 'left') style.left = marginLeft;
+      else if (align === 'right') style.right = marginRight;
+      else {
+          style.left = '50%';
+          style.transform = 'translateX(-50%)';
+      }
+
+      return (
+          <div style={style}>
+              {displayNum}
+          </div>
+      );
+  };
 
   return (
     <div className={`flex flex-col h-full bg-bg relative overflow-hidden text-text ${modes.focus ? 'focus-mode' : ''}`}>
@@ -294,7 +334,7 @@ export const DocEditor: React.FC<Props> = ({
                             onAddFootnote={() => (editor.chain().focus() as any).setFootnote().run()}
                             onAddCitation={() => toggleModal('citation', true)} onPrint={() => window.print()} onLanguage={() => toggleModal('language', true)}
                             onSpellCheck={() => setSpellCheck(!spellCheck)} onFindReplace={() => toggleModal('findReplace', true)}
-                            onColumns={() => toggleModal('columns', true)} // Added this
+                            onColumns={() => toggleModal('columns', true)}
                             showRuler={pageLayout.showRuler} setShowRuler={pageLayout.setShowRuler} zoom={pageLayout.zoom} setZoom={pageLayout.setZoom}
                             onFitWidth={pageLayout.handleFitWidth} viewMode={pageLayout.viewMode} setViewMode={pageLayout.setViewMode}
                             focusMode={modes.focus} setFocusMode={v => toggleMode('focus', v)} showComments={sidebars.comments} setShowComments={v => toggleSidebar('comments', v)}
@@ -304,7 +344,7 @@ export const DocEditor: React.FC<Props> = ({
                     </div>
                 </div>
                 <div className="flex items-center gap-4 mt-2">
-                    <div className="text-text-sec">{(fileHandler.isSaving || isSharing) ? <Loader2 size={20} className="animate-spin" /> : <Cloud size={20} />}</div>
+                    <div className="text-text-sec">{fileHandler.isSaving ? <Loader2 size={20} className="animate-spin" /> : <Cloud size={20} />}</div>
                     <button onClick={() => toggleSidebar('aiChat')} className={`p-2 rounded-full ${sidebars.aiChat ? 'bg-brand/20 text-brand' : 'text-text-sec'}`}><Sparkles size={20} /></button>
                     <button onClick={() => toggleSidebar('comments')} className={`p-2 rounded-full ${sidebars.comments ? 'bg-brand/20 text-brand' : 'text-text-sec'}`}><Users size={20} /></button>
                     <button onClick={() => toggleModal('share', true)} className="flex items-center gap-2 bg-[#c2e7ff] text-[#0b141a] px-4 py-2 rounded-full font-medium text-sm hover:brightness-110 transition-all disabled:opacity-50">
@@ -329,23 +369,20 @@ export const DocEditor: React.FC<Props> = ({
        <div className="flex-1 overflow-hidden relative flex bg-black">
           <OutlineSidebar editor={editor} isOpen={sidebars.outline} onClose={() => toggleSidebar('outline', false)} />
           
-          {/* Controls for Slide Mode */}
           <SlideNavigationControls 
             isVisible={true}
             currentPage={currentPage}
             totalPages={pageLayout.totalPages}
             onNext={nextPage}
             onPrev={prevPage}
-            onExit={() => {}} // Disabled as Slide is default
           />
 
-          {/* Main Scroll Container - Locked scroll for slide effect */}
+          {/* Main Scroll Container */}
           <div 
             ref={docScrollerRef} 
             className="flex-1 flex justify-center px-12 pb-12 relative overflow-hidden items-center cursor-default"
           >
-             
-             {/* Bubble Menus & Floating Controls */}
+             {/* Menus Flutuantes */}
              <TableBubbleMenu editor={editor} onOpenProperties={() => toggleModal('tableProperties', true)} />
              <ImageBubbleMenu editor={editor} onOpenOptions={() => toggleSidebar('imageOptions', true)} />
              <AiBubbleMenu editor={editor} />
@@ -358,12 +395,12 @@ export const DocEditor: React.FC<Props> = ({
                 style={{ 
                     transform: `scale(${pageLayout.zoom})`, 
                     width: pageLayout.currentPaper.widthPx,
-                    height: pageLayout.currentPaper.heightPx, // Fixed height per page
-                    overflow: 'hidden', // Hide overflow to simulate single page
+                    height: pageLayout.currentPaper.heightPx, 
+                    overflow: 'hidden', 
                     boxShadow: '0 0 50px -10px rgba(0,0,0,0.5)'
                 }}
              >
-                {/* Horizontal Ruler (Global) */}
+                {/* Régua Horizontal */}
                 {pageLayout.showRuler && (
                     <div className="absolute -top-6 left-0 right-0 z-[60]">
                         <Ruler 
@@ -382,20 +419,15 @@ export const DocEditor: React.FC<Props> = ({
                         transform: `translateY(${contentTranslateY}px)` 
                     }}
                 >
-                    {/* Page Backgrounds & Vertical Rulers */}
+                    {/* Background das Páginas e Elementos de Layout */}
                     <div className="absolute inset-0 pointer-events-none z-0">
                         {pageLayout.pages.map((page, i) => {
-                            // Virtualization: Hide backgrounds of other pages in Slide Mode
                             if (i + 1 !== currentPage) return null;
-
-                            // In Slide mode, top position is 0 because we only render one page background at top
-                            // The content (text) will be shifted to match this via TranslateY on parent
-                            const topPos = 0;
+                            const topPos = 0; // Slide mode
 
                             return (
                                 <div key={i} className="absolute left-0 w-full chromium-virtual-render" style={{ top: topPos, height: page.heightPx }}>
                                     
-                                    {/* Vertical Ruler per Page */}
                                     {pageLayout.showRuler && (
                                         <div className="absolute -left-6 top-0 bottom-0 h-full z-[50] pointer-events-auto">
                                             <VerticalRuler 
@@ -407,67 +439,73 @@ export const DocEditor: React.FC<Props> = ({
                                     )}
 
                                     <div 
-                                        className={`bg-white shadow-lg w-full h-full border border-[#333] flex flex-col justify-between relative transition-opacity duration-300`} 
+                                        className={`bg-white shadow-lg w-full h-full border border-[#333] relative transition-opacity duration-300`} 
                                         style={{ backgroundColor: pageLayout.pageSettings.pageColor }}
                                     >
-                                        {/* Header Visualization */}
-                                        {pageLayout.pageSettings.headerText ? (
-                                            <div 
-                                                className="px-12 py-6 text-sm text-gray-500 text-center whitespace-pre-wrap opacity-60 cursor-pointer pointer-events-auto hover:bg-black/5 transition-colors"
-                                                title="Clique 3 vezes para editar o Cabeçalho"
-                                                onClick={(e) => handleRegionClick('header', e)}
-                                            >
-                                                {pageLayout.pageSettings.headerText}
-                                            </div>
-                                        ) : (
-                                            <div 
-                                                className="h-16 w-full cursor-pointer pointer-events-auto hover:bg-black/5 transition-colors group relative"
-                                                title="Clique 3 vezes para adicionar Cabeçalho"
-                                                onClick={(e) => handleRegionClick('header', e)}
-                                            >
-                                                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-30 text-xs text-gray-400">
-                                                    Cabeçalho (Clique 3x)
+                                        {/* HEADER AREA */}
+                                        <div 
+                                            className="absolute left-0 right-0 pointer-events-auto cursor-pointer hover:bg-blue-50/50 transition-colors z-20 overflow-hidden"
+                                            style={{ 
+                                                top: 0, 
+                                                height: `${pageLayout.pageSettings.marginTop}cm`,
+                                                padding: `0.5cm ${pageLayout.pageSettings.marginRight}cm 0 ${pageLayout.pageSettings.marginLeft}cm`
+                                            }}
+                                            onClick={(e) => handleRegionClick('header', e)}
+                                            title="Cabeçalho (Clique duplo para editar)"
+                                        >
+                                            {renderPageNumber(i) /* Page Number Layer inside Header */}
+                                            
+                                            {pageLayout.pageSettings.headerText ? (
+                                                <div className="text-sm text-gray-600 text-center whitespace-pre-wrap font-serif">
+                                                    {pageLayout.pageSettings.headerText}
                                                 </div>
-                                            </div>
-                                        )}
+                                            ) : (
+                                                <div className="w-full h-full flex items-center justify-center opacity-0 hover:opacity-100 text-[10px] text-blue-400 font-bold uppercase tracking-wider border-b border-dashed border-blue-200">
+                                                    Área do Cabeçalho
+                                                </div>
+                                            )}
+                                        </div>
                                         
-                                        {/* Footer Visualization */}
-                                        {pageLayout.pageSettings.footerText ? (
-                                            <div 
-                                                className="px-12 py-6 text-sm text-gray-500 text-center whitespace-pre-wrap opacity-60 mt-auto cursor-pointer pointer-events-auto hover:bg-black/5 transition-colors"
-                                                title="Clique 3 vezes para editar o Rodapé"
-                                                onClick={(e) => handleRegionClick('footer', e)}
-                                            >
-                                                {pageLayout.pageSettings.footerText}
-                                            </div>
-                                        ) : (
-                                            <div 
-                                                className="h-16 w-full mt-auto cursor-pointer pointer-events-auto hover:bg-black/5 transition-colors group relative"
-                                                title="Clique 3 vezes para adicionar Rodapé"
-                                                onClick={(e) => handleRegionClick('footer', e)}
-                                            >
-                                                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-30 text-xs text-gray-400">
-                                                    Rodapé (Clique 3x)
+                                        {/* FOOTER AREA */}
+                                        <div 
+                                            className="absolute left-0 right-0 bottom-0 pointer-events-auto cursor-pointer hover:bg-blue-50/50 transition-colors z-20 overflow-hidden"
+                                            style={{ 
+                                                height: `${pageLayout.pageSettings.marginBottom}cm`,
+                                                padding: `0.5cm ${pageLayout.pageSettings.marginRight}cm 0 ${pageLayout.pageSettings.marginLeft}cm`
+                                            }}
+                                            onClick={(e) => handleRegionClick('footer', e)}
+                                            title="Rodapé (Clique duplo para editar)"
+                                        >
+                                            {/* Note: If page number is footer, it should be rendered here too if logic permits */}
+                                            {pageLayout.pageSettings.pageNumber?.position === 'footer' && renderPageNumber(i)}
+
+                                            {pageLayout.pageSettings.footerText ? (
+                                                <div className="text-sm text-gray-600 text-center whitespace-pre-wrap font-serif">
+                                                    {pageLayout.pageSettings.footerText}
                                                 </div>
-                                            </div>
-                                        )}
+                                            ) : (
+                                                <div className="w-full h-full flex items-center justify-center opacity-0 hover:opacity-100 text-[10px] text-blue-400 font-bold uppercase tracking-wider border-t border-dashed border-blue-200">
+                                                    Área do Rodapé
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                             );
                         })}
                     </div>
                     
-                    {/* Footnotes Layer (Placed inside transformed container to move with content) */}
+                    {/* Footnotes Layer - Now correctly positioned relative to body text area */}
                     <FootnotesLayer 
                         editor={editor}
                         pageHeight={pageLayout.currentPaper.heightPx}
-                        pageGap={20} // Match usePageLayout default gap
+                        pageGap={20}
                         marginBottom={pageLayout.pageSettings.marginBottom}
                         marginLeft={pageLayout.pageSettings.marginLeft}
                         marginRight={pageLayout.pageSettings.marginRight}
                     />
 
-                    {/* Main Content (Shifted in Slide Mode to align text with viewport) */}
+                    {/* Main Content (Editor) */}
                     <div 
                         ref={contentRef} 
                         className="relative z-10 min-h-screen gpu-layer transition-transform duration-300 ease-out" 
@@ -475,6 +513,7 @@ export const DocEditor: React.FC<Props> = ({
                             paddingTop: `${pageLayout.pageSettings.marginTop}cm`, 
                             paddingLeft: `${pageLayout.pageSettings.marginLeft}cm`, 
                             paddingRight: `${pageLayout.pageSettings.marginRight}cm`,
+                            paddingBottom: `${pageLayout.pageSettings.marginBottom}cm`, // Important to reserve space so text doesn't overlap footer
                             transform: `translateY(${contentTranslateY}px)`
                         }}
                     >
@@ -484,7 +523,6 @@ export const DocEditor: React.FC<Props> = ({
              </div>
           </div>
           
-          {/* Sidebars */}
           <DocAiSidebar editor={editor} isOpen={sidebars.aiChat} onClose={() => toggleSidebar('aiChat', false)} documentName={fileHandler.currentName} />
           <CommentsSidebar editor={editor} isOpen={sidebars.comments} onClose={() => toggleSidebar('comments', false)} comments={comments} onAddComment={handleAddComment} onResolveComment={() => {}} onDeleteComment={() => {}} activeCommentId={activeCommentId} setActiveCommentId={setActiveCommentId} />
           <ImageOptionsSidebar editor={editor} isOpen={sidebars.imageOptions} onClose={() => toggleSidebar('imageOptions', false)} />
@@ -495,6 +533,15 @@ export const DocEditor: React.FC<Props> = ({
        <CitationModal isOpen={modals.citation} onClose={() => toggleModal('citation', false)} onInsert={ref => setReferences(prev => [...prev, ref])} references={references} />
        <ShareModal isOpen={modals.share} onClose={() => toggleModal('share', false)} fileId={fileId} fileName={fileName} isLocal={isLocalFile} />
        <ColumnsModal isOpen={modals.columns} onClose={() => toggleModal('columns', false)} onApply={handleApplyColumns} />
+       <HeaderFooterModal 
+          isOpen={modals.headerFooter} 
+          onClose={() => toggleModal('headerFooter', false)} 
+          initialHeader={pageLayout.pageSettings.headerText}
+          initialFooter={pageLayout.pageSettings.footerText}
+          activeTab={activeHeaderFooterTab}
+          onApply={handleHeaderFooterApply}
+       />
+       <TablePropertiesModal isOpen={modals.tableProperties} onClose={() => toggleModal('tableProperties', false)} editor={editor} />
        <VersionHistoryModal 
           isOpen={modals.history} 
           onClose={() => toggleModal('history', false)} 
@@ -502,6 +549,8 @@ export const DocEditor: React.FC<Props> = ({
           onRestore={handleVersionRestore}
           currentContent={editor.getJSON()}
        />
+       
+       <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageUpload} />
     </div>
   );
 };
