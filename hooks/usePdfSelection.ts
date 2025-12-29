@@ -125,13 +125,16 @@ export const usePdfSelection = ({ activeTool, scale, containerRef }: UsePdfSelec
           return;
       }
 
-      // --- MAGNETIC POSITIONING SYSTEM (V2) ---
-      const lastRect = relativeRects[relativeRects.length - 1];
+      // --- MAGNETIC POSITIONING SYSTEM (V3 - Top Priority) ---
+      const lastRect = relativeRects[relativeRects.length - 1]; // Use last rect for anchor logic generally
+      // For Top positioning, we might want the FIRST rect's top, but usually following cursor is better.
+      // Let's stick to the rect closest to the interaction.
+      
       const container = containerRef.current;
       const containerRect = container.getBoundingClientRect();
-      
       const pageRect = pageElement.getBoundingClientRect();
       
+      // Calculate screen positions
       const anchorLeftPagePx = lastRect.x * scale;
       const anchorTopPagePx = lastRect.y * scale;
       const anchorHeightPagePx = lastRect.height * scale;
@@ -144,18 +147,23 @@ export const usePdfSelection = ({ activeTool, scale, containerRef }: UsePdfSelec
       const relativeTop = screenTop - containerRect.top + container.scrollTop;
       const relativeBottom = relativeTop + anchorHeightPagePx;
 
-      let popupY = relativeBottom + 8;
-      let position: 'top' | 'bottom' = 'bottom';
+      // Configuration
+      const MENU_HEIGHT = 50;
+      const GAP = 12; // Respiro visual entre texto e menu
 
-      const viewportHeight = container.clientHeight;
-      const visibleBottom = container.scrollTop + viewportHeight;
-      const menuEstimatedHeight = 60;
+      // Default: Position TOP (Above text)
+      let position: 'top' | 'bottom' = 'top';
+      // Calculate Y for Top position: Top of line - Menu Height - Gap
+      let popupY = relativeTop - MENU_HEIGHT - GAP;
 
-      if (popupY + menuEstimatedHeight > visibleBottom) {
-         popupY = relativeTop - menuEstimatedHeight; 
-         position = 'top';
+      // Boundary Check: If top is cut off by scroll container top
+      if (popupY < container.scrollTop) {
+         position = 'bottom';
+         // Flip to Bottom: Bottom of line + Gap
+         popupY = relativeBottom + GAP;
       }
 
+      // Center horizontally on the selected segment
       const popupX = relativeLeft + (anchorWidthPagePx / 2);
 
       // Validação final de coordenadas para evitar NaN
