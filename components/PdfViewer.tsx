@@ -6,7 +6,6 @@ import { PDFDocumentProxy } from 'pdfjs-dist';
 // Hooks & Context
 import { usePdfDocument } from '../hooks/usePdfDocument';
 import { usePdfAnnotations } from '../hooks/usePdfAnnotations';
-import { usePdfSelection } from '../hooks/usePdfSelection';
 import { PdfProvider, usePdfContext } from '../context/PdfContext';
 
 // Components
@@ -68,7 +67,8 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
     markOcrAsSaved,
     setChatRequest,
     showOcrModal, setShowOcrModal,
-    docPageOffset // Acessa o offset do contexto
+    docPageOffset,
+    selection, setSelection // Consumindo estado global de seleção
   } = usePdfContext();
   
   const containerRef = useRef<HTMLDivElement>(null);
@@ -84,10 +84,6 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('annotations');
   // Menu inicia retraído por padrão
   const [isHeaderVisible, setIsHeaderVisible] = useState(false);
-
-  const { selection, setSelection } = usePdfSelection({
-    activeTool, scale, containerRef
-  });
 
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
@@ -402,7 +398,7 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
       
       {showSaveModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in">
-          <div className="bg-[#121212] border border-white/10 rounded-3xl p-6 max-w-md w-full shadow-2xl relative">
+          <div className="bg-[#1e1e12] border border-white/10 rounded-3xl p-6 max-w-md w-full shadow-2xl relative">
             <button onClick={() => setShowSaveModal(false)} className="absolute top-4 right-4 text-text-sec hover:text-text"><X size={20}/></button>
             <h3 className="text-xl font-bold mb-4 text-white">Salvar Arquivo</h3>
             <div className="space-y-3">

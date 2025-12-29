@@ -1,211 +1,157 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { SelectionState } from '../components/pdf/SelectionMenu';
 
 interface UsePdfSelectionProps {
   activeTool: string;
   scale: number;
-  containerRef: React.RefObject<HTMLDivElement>;
+  containerRef?: React.RefObject<HTMLDivElement>;
 }
 
 export const usePdfSelection = ({ activeTool, scale, containerRef }: UsePdfSelectionProps) => {
   const [selection, setSelection] = useState<SelectionState | null>(null);
-  const selectionDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  
+  // Estado da Máquina de Seleção
+  const [anchorNode, setAnchorNode] = useState<HTMLElement | null>(null);
 
+  // Limpeza de segurança: Se a ferramenta mudar, reseta tudo
   useEffect(() => {
-    const processSelection = () => {
-      // Dupla verificação de ferramenta ativa
-      if (activeTool !== 'cursor') return;
+    setSelection(null);
+    if (anchorNode) {
+        anchorNode.classList.remove('selection-anchor');
+        setAnchorNode(null);
+    }
+    window.getSelection()?.removeAllRanges();
+  }, [activeTool]);
 
-      const sel = window.getSelection();
-      
-      // STRICT MODE: Se não houver seleção válida, limpa imediatamente.
-      if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
-        setSelection(null);
-        return;
-      }
-
-      const range = sel.getRangeAt(0);
-      const text = sel.toString().trim();
-      
-      // STRICT MODE: Texto vazio limpa o menu
-      if (text.length === 0) {
-        setSelection(null);
-        return;
-      }
-
-      // STRICT CONTEXT CHECK (Adobe Behavior)
-      // Verifica estritamente se o início E o fim da seleção estão dentro da camada de texto.
-      // Se o usuário arrastar para a margem (void), limpamos a seleção visual customizada.
-      const anchorNode = sel.anchorNode;
-      const focusNode = sel.focusNode;
-      
-      const isAnchorValid = anchorNode && (anchorNode.nodeType === 3 ? anchorNode.parentElement : (anchorNode as Element))?.closest('.textLayer');
-      const isFocusValid = focusNode && (focusNode.nodeType === 3 ? focusNode.parentElement : (focusNode as Element))?.closest('.textLayer');
-
-      if (!isAnchorValid || !isFocusValid) {
-          setSelection(null);
-          return;
-      }
-
-      let containerNode = range.commonAncestorContainer;
-      if (containerNode.nodeType === 3) containerNode = containerNode.parentNode as Node;
-      
-      const pageElement = (containerNode as Element)?.closest('.pdf-page, [data-page-number]');
-      if (!pageElement || !containerRef.current) return;
+  // Função pura para calcular geometria baseada nos nós DOM (sem depender do objeto Range nativo instável)
+  const calculateGeometry = useCallback((startNode: HTMLElement, endNode: HTMLElement) => {
+      const pageElement = startNode.closest('.pdf-page, [data-page-number]');
+      if (!pageElement) return null;
 
       const pageNumAttr = pageElement.getAttribute('data-page-number');
-      if (!pageNumAttr) return;
-      const pageNum = parseInt(pageNumAttr);
+      const pageNum = pageNumAttr ? parseInt(pageNumAttr) : 1;
 
-      const textLayer = pageElement.querySelector('.textLayer');
-      if (!textLayer) return;
+      // 1. Identificar todos os spans entre Start e End
+      const textLayer = startNode.parentElement;
+      if (!textLayer) return null;
+      
+      const allSpans = Array.from(textLayer.querySelectorAll('span'));
+      const startIndex = allSpans.indexOf(startNode);
+      const endIndex = allSpans.indexOf(endNode);
 
-      // SAFETY CHECK: Se o range container for o próprio textLayer, o browser selecionou o fundo entre spans.
-      if (containerNode === textLayer) {
-          // Validação Estrita: Só aceita se a seleção contiver nós de texto reais
-          const walker = document.createTreeWalker(range.cloneContents(), NodeFilter.SHOW_TEXT);
-          if (!walker.nextNode()) {
-              setSelection(null);
-              return;
-          }
-      }
+      if (startIndex === -1 || endIndex === -1) return null;
 
-      const spans = Array.from(textLayer.querySelectorAll('span'));
+      // Normaliza ordem (pode ter clicado de baixo pra cima)
+      const first = Math.min(startIndex, endIndex);
+      const last = Math.max(startIndex, endIndex);
+      
+      const selectedSpans = allSpans.slice(first, last + 1);
+      const fullText = selectedSpans.map(s => s.textContent).join('');
+
+      // 2. Calcular Rects relativos (CRÍTICO para o Highlight funcionar)
       const relativeRects: { x: number; y: number; width: number; height: number }[] = [];
       
-      for (const span of spans) {
-        if (range.intersectsNode(span)) {
-          const spanRange = document.createRange();
-          spanRange.selectNodeContents(span);
-
+      selectedSpans.forEach(span => {
           const pdfX = parseFloat(span.dataset.pdfX || '0');
           const pdfTop = parseFloat(span.dataset.pdfTop || '0');
           const pdfW = parseFloat(span.dataset.pdfWidth || '0');
           const pdfH = parseFloat(span.dataset.pdfHeight || '0');
 
           if (pdfW > 0) {
-            let startRatio = 0;
-            let endRatio = 1;
-
-            if (range.compareBoundaryPoints(Range.START_TO_START, spanRange) > 0) {
-                if (range.startContainer === span || span.contains(range.startContainer)) {
-                     const len = range.startContainer.textContent?.length || 1;
-                     startRatio = range.startOffset / len;
-                }
-            }
-            
-            if (range.compareBoundaryPoints(Range.END_TO_END, spanRange) < 0) {
-                 if (range.endContainer === span || span.contains(range.endContainer)) {
-                      const len = range.endContainer.textContent?.length || 1;
-                      endRatio = range.endOffset / len;
-                 }
-            }
-            
-            startRatio = Math.max(0, Math.min(1, startRatio));
-            endRatio = Math.max(0, Math.min(1, endRatio));
-
-            if (endRatio > startRatio) {
-                const rectX = pdfX + (pdfW * startRatio);
-                const rectW = pdfW * (endRatio - startRatio);
-                
-                relativeRects.push({
-                    x: rectX / scale,
-                    y: pdfTop / scale,
-                    width: rectW / scale,
-                    height: pdfH / scale
-                });
-            }
+              relativeRects.push({
+                  x: pdfX / scale,
+                  y: pdfTop / scale,
+                  width: pdfW / scale,
+                  height: pdfH / scale
+              });
           }
-        }
-      }
-
-      if (relativeRects.length === 0) {
-          setSelection(null);
-          return;
-      }
-
-      // --- MAGNETIC POSITIONING SYSTEM (V3 - Top Priority) ---
-      const lastRect = relativeRects[relativeRects.length - 1]; // Use last rect for anchor logic generally
-      // For Top positioning, we might want the FIRST rect's top, but usually following cursor is better.
-      // Let's stick to the rect closest to the interaction.
-      
-      const container = containerRef.current;
-      const containerRect = container.getBoundingClientRect();
-      const pageRect = pageElement.getBoundingClientRect();
-      
-      // Calculate screen positions
-      const anchorLeftPagePx = lastRect.x * scale;
-      const anchorTopPagePx = lastRect.y * scale;
-      const anchorHeightPagePx = lastRect.height * scale;
-      const anchorWidthPagePx = lastRect.width * scale;
-
-      const screenLeft = pageRect.left + anchorLeftPagePx;
-      const screenTop = pageRect.top + anchorTopPagePx;
-      
-      const relativeLeft = screenLeft - containerRect.left + container.scrollLeft;
-      const relativeTop = screenTop - containerRect.top + container.scrollTop;
-      const relativeBottom = relativeTop + anchorHeightPagePx;
-
-      // Configuration
-      const MENU_HEIGHT = 50;
-      const GAP = 12; // Respiro visual entre texto e menu
-
-      // Default: Position TOP (Above text)
-      let position: 'top' | 'bottom' = 'top';
-      // Calculate Y for Top position: Top of line - Menu Height - Gap
-      let popupY = relativeTop - MENU_HEIGHT - GAP;
-
-      // Boundary Check: If top is cut off by scroll container top
-      if (popupY < container.scrollTop) {
-         position = 'bottom';
-         // Flip to Bottom: Bottom of line + Gap
-         popupY = relativeBottom + GAP;
-      }
-
-      // Center horizontally on the selected segment
-      const popupX = relativeLeft + (anchorWidthPagePx / 2);
-
-      // Validação final de coordenadas para evitar NaN
-      if (isNaN(popupX) || isNaN(popupY)) {
-          setSelection(null);
-          return;
-      }
-
-      setSelection({
-        page: pageNum,
-        text,
-        popupX,
-        popupY,
-        relativeRects,
-        position
       });
-    };
 
-    // --- EVENT HANDLERS ---
+      if (relativeRects.length === 0) return null;
 
-    const handleSelectionChange = () => {
-      // Limpa imediatamente ao mudar a seleção para dar feedback rápido
-      if (selectionDebounce.current) clearTimeout(selectionDebounce.current);
-      // Não limpa o estado imediatamente para evitar piscar, a menos que a seleção esteja vazia
-      // setSelection(null); 
+      // Retorna estado. popupX e popupY são irrelevantes agora pois o menu é fixo via CSS.
+      return {
+        page: pageNum,
+        text: fullText,
+        popupX: 0, 
+        popupY: 0,
+        relativeRects,
+        position: 'bottom'
+      };
+
+  }, [scale]);
+
+  // --- MÁQUINA DE ESTADOS DO TAP ---
+  const onSmartTap = useCallback((target: HTMLElement) => {
+      // Ignora se não for cursor ou se clicou fora de texto
+      if (activeTool !== 'cursor') return;
       
-      // Debounce curto para recalcular apenas quando o usuário parar
-      selectionDebounce.current = setTimeout(processSelection, 200);
-    };
+      const isTextNode = target.tagName === 'SPAN' && target.parentElement?.classList.contains('textLayer');
 
-    // Listeners globais
-    document.addEventListener('selectionchange', handleSelectionChange);
-    
-    // Resize também recalcula posição
-    window.addEventListener('resize', handleSelectionChange);
+      // CASO 1: Clique fora (Reset)
+      if (!isTextNode) {
+          if (anchorNode) {
+              anchorNode.classList.remove('selection-anchor');
+              setAnchorNode(null);
+          }
+          setSelection(null);
+          window.getSelection()?.removeAllRanges();
+          return;
+      }
 
-    return () => {
-      document.removeEventListener('selectionchange', handleSelectionChange);
-      window.removeEventListener('resize', handleSelectionChange);
-      if (selectionDebounce.current) clearTimeout(selectionDebounce.current);
-    };
-  }, [activeTool, scale]);
+      // CASO 2: Primeiro Clique (Definir Âncora)
+      if (!anchorNode) {
+          // Limpa seleção anterior
+          window.getSelection()?.removeAllRanges();
+          setSelection(null);
+          
+          setAnchorNode(target);
+          target.classList.add('selection-anchor');
+          return;
+      }
 
-  return { selection, setSelection };
+      // CASO 3: Segundo Clique (Definir Range e Mostrar Menu)
+      if (anchorNode) {
+          // Validação: Devem estar na mesma página (mesmo pai)
+          if (anchorNode.parentElement !== target.parentElement) {
+              // Se clicou em outra página, reseta e começa nova âncora lá
+              anchorNode.classList.remove('selection-anchor');
+              setAnchorNode(target);
+              target.classList.add('selection-anchor');
+              return;
+          }
+
+          // 3.1 Criar Range Nativo (Para feedback visual azul do browser e copy/paste funcionar)
+          const range = document.createRange();
+          const position = anchorNode.compareDocumentPosition(target);
+          
+          if (position & Node.DOCUMENT_POSITION_FOLLOWING) {
+              range.setStartBefore(anchorNode);
+              range.setEndAfter(target);
+          } else {
+              range.setStartBefore(target);
+              range.setEndAfter(anchorNode);
+          }
+          
+          const sel = window.getSelection();
+          if (sel) {
+              sel.removeAllRanges();
+              sel.addRange(range);
+          }
+
+          // 3.2 Calcular Geometria e Mostrar Menu
+          const menuState = calculateGeometry(anchorNode, target);
+          if (menuState) {
+              setSelection(menuState as any);
+          }
+
+          // 3.3 Limpeza de Estado
+          anchorNode.classList.remove('selection-anchor');
+          setAnchorNode(null);
+      }
+
+  }, [activeTool, anchorNode, calculateGeometry]);
+
+  return { selection, setSelection, onSmartTap };
 };

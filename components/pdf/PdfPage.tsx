@@ -92,7 +92,7 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
     scale, activeTool, setActiveTool, settings, 
     annotations, addAnnotation, removeAnnotation,
     setIsSpread, spreadSide, ocrMap, updateOcrWord, refinePageOcr,
-    setShowOcrModal
+    setShowOcrModal, onSmartTap // Usando onSmartTap do Contexto Global
   } = usePdfContext();
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -113,9 +113,9 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
   const isDrawing = useRef(false);
   const [currentPoints, setCurrentPoints] = useState<number[][]>([]);
   
-  // Brush Tool State (Hybrid State/Ref for performance and stability)
+  // Brush/Cursor Tools State
   const isBrushingRef = useRef(false);
-  const brushStartRef = useRef<{x: number, y: number} | null>(null);
+  const cursorStartRef = useRef<{x: number, y: number} | null>(null);
   const [brushSelection, setBrushSelection] = useState<{ start: {x: number, y: number}, current: {x: number, y: number} } | null>(null);
 
   const [draftNote, setDraftNote] = useState<{x: number, y: number, text: string} | null>(null);
@@ -132,7 +132,6 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
   useEffect(() => {
     const element = pageContainerRef.current;
     if (!element) return;
-    // Aumentamos a margem para pre-load, mas gerenciamos o render com cuidado
     const observer = new IntersectionObserver(([entry]) => setIsVisible(entry.isIntersecting), { rootMargin: '50% 0px' });
     observer.observe(element);
     return () => observer.disconnect();
@@ -163,9 +162,6 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
     if (!isVisible || !pageDimensions || !pageProxy || !canvasRef.current) return;
     let active = true;
     
-    // --- ENERGY SAVER PROTOCOL ---
-    // Em dispositivos móveis de alta densidade (Retina/OLED), renderizar a 3x ou 4x consome muita bateria.
-    // Limitamos o DPR a 2.0 (que já é excelente) para salvar GPU. Em telas desktop normais, usa-se 1.0.
     const nativeDpr = window.devicePixelRatio || 1;
     const cappedDpr = Math.min(nativeDpr, 2.0); 
 
@@ -225,7 +221,6 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
     return ocrData.some(w => w.isRefined);
   }, [ocrData]);
 
-  // PERFORMANCE: Injeção Assíncrona via Time-Slicing (Garantia de 60fps)
   useEffect(() => {
     if (ocrData && ocrData.length > 0 && textLayerRef.current && rendered && pageDimensions) {
         const sideKey = isSplitActive ? spreadSide : 'full';
@@ -234,8 +229,6 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
         if (lastInjectedOcrRef.current === dataHash) return;
 
         const container = textLayerRef.current;
-        
-        // OPTIMIZATION 1: Ocultar container durante injeção para evitar repaints intermediários
         container.style.visibility = 'hidden';
         container.innerHTML = ''; 
         
@@ -243,13 +236,11 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
             ? ocrData.filter(w => w.column === (spreadSide === 'right' ? 1 : 0))
             : ocrData;
 
-        // --- SCHEDULER ENGINE (The 60fps Guarantee) ---
         let currentIndex = 0;
         let workId: number;
 
         const injectWork = (deadline: { timeRemaining: () => number, didTimeout: boolean }) => {
             const fragment = document.createDocumentFragment();
-            // Processa enquanto houver tempo (1ms buffer)
             while (currentIndex < visibleWords.length && (deadline.timeRemaining() > 1 || deadline.didTimeout)) {
                 const word = visibleWords[currentIndex];
                 currentIndex++;
@@ -259,7 +250,6 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
                 const w = Math.ceil((word.bbox.x1 - word.bbox.x0) * scale);
                 const h = Math.ceil((word.bbox.y1 - word.bbox.y0) * scale);
 
-                // GHOST BLOCK FILTER (Otimização para páginas duplas e artefatos)
                 const maxAllowedW = isSplitActive ? pageDimensions.width * 0.48 : pageDimensions.width * 0.8;
                 if (w > maxAllowedW || (w > pageDimensions.width * 0.4 && h > pageDimensions.height * 0.3)) {
                     continue; 
@@ -268,8 +258,6 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
                 const span = document.createElement('span');
                 span.textContent = word.text + ' ';
                 span.className = 'ocr-word-span';
-                
-                // CSS Batching
                 span.style.cssText = `left:${x}px;top:${y}px;width:${w}px;height:${h}px;font-size:${h*0.95}px;position:absolute;color:transparent;cursor:text;line-height:1;white-space:pre;text-rendering:optimizeSpeed;`;
                 
                 span.dataset.pdfX = String(x);
@@ -286,7 +274,6 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
                 workId = scheduleWork(injectWork);
             } else {
                 lastInjectedOcrRef.current = dataHash;
-                // Restaurar visibilidade no final
                 container.style.visibility = 'visible';
             }
         };
@@ -312,36 +299,37 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
   };
 
   const handlePointerDown = (e: React.PointerEvent) => {
-    // PASSIVIDADE TOTAL NO MODO CURSOR
-    // Se a ferramenta ativa for cursor, retornamos imediatamente.
-    // Isso impede qualquer captura de ponteiro ou lógica que interfira na seleção nativa do browser.
-    // Garante que o scroll e a seleção de texto funcionem como uma página web normal.
+    // 1. Cursor Mode (Selection)
     if (activeTool === 'cursor') {
+        // Capture start for Tap vs Drag detection
+        cursorStartRef.current = { x: e.clientX, y: e.clientY };
         return; 
     }
 
     const target = e.target as HTMLElement;
     const { x, y } = getRelativeCoords(e);
 
-    // Brush Tool Logic (Fixed: Use Refs for stability)
+    // 2. Brush Mode
     if (activeTool === 'brush') {
-        e.preventDefault(); // Stop native drag
+        e.preventDefault(); 
         e.stopPropagation();
         e.currentTarget.setPointerCapture(e.pointerId);
         
         isBrushingRef.current = true;
-        brushStartRef.current = { x, y };
+        cursorStartRef.current = { x, y };
         
-        // Initial State for Render
         setBrushSelection({ start: {x,y}, current: {x,y} });
         return;
     }
 
+    // 3. Note Mode
     if (activeTool === 'note') {
         if (target.closest('.annotation-item, .note-editor')) return;
         setDraftNote({ x, y, text: '' });
         return;
     }
+
+    // 4. Ink Mode
     if (activeTool !== 'ink') return;
     isDrawing.current = true;
     setCurrentPoints([[x, y]]);
@@ -353,8 +341,8 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
 
     const { x, y } = getRelativeCoords(e);
 
-    if (isBrushingRef.current && brushStartRef.current) {
-        setBrushSelection({ start: brushStartRef.current, current: {x,y} });
+    if (isBrushingRef.current && cursorStartRef.current) {
+        setBrushSelection({ start: cursorStartRef.current, current: {x,y} });
         return;
     }
 
@@ -363,70 +351,68 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
-    if (activeTool === 'cursor') return;
+    // 1. Cursor Mode Logic (Smart Tap vs Native Drag)
+    if (activeTool === 'cursor') {
+        if (cursorStartRef.current) {
+            const dist = Math.hypot(e.clientX - cursorStartRef.current.x, e.clientY - cursorStartRef.current.y);
+            // Se o movimento for menor que 5px, consideramos um TAP (Toque)
+            // Se for maior, é um arrasto nativo (Browser cuida)
+            if (dist < 5) {
+                // DISPARA O EVENTO GLOBAL DE SELEÇÃO
+                onSmartTap(e.target as HTMLElement);
+            }
+            cursorStartRef.current = null;
+        }
+        return;
+    }
 
-    // Brush Tool Logic
-    if (isBrushingRef.current && brushStartRef.current) {
+    // 2. Brush Logic
+    if (isBrushingRef.current && cursorStartRef.current) {
         e.currentTarget.releasePointerCapture(e.pointerId);
         isBrushingRef.current = false;
         
         const { x: currX, y: currY } = getRelativeCoords(e);
-        const startX = brushStartRef.current.x;
-        const startY = brushStartRef.current.y;
+        const startX = cursorStartRef.current.x;
+        const startY = cursorStartRef.current.y;
         
-        // Calculate BBox (Internal unscaled PDF coordinates)
         const x = Math.min(startX, currX);
         const y = Math.min(startY, currY);
         const w = Math.abs(currX - startX);
         const h = Math.abs(currY - startY);
 
-        // Ignore tiny accidental clicks (< 5px)
         if (w > 5 && h > 5) {
-            // Find text inside the box
             let capturedText = "";
             if (textLayerRef.current) {
                 const spans = textLayerRef.current.querySelectorAll('span');
                 const selectedSpans: { text: string, x: number, y: number }[] = [];
 
                 spans.forEach(span => {
-                    // IMPORTANT: The data-pdf-* attributes are SCALED because they come from viewport rendering
-                    // We must divide by `scale` to match the `brushStart` coordinate system
                     const sx = parseFloat(span.dataset.pdfX || '0') / scale;
                     const sy = parseFloat(span.dataset.pdfTop || '0') / scale;
                     const sw = parseFloat(span.dataset.pdfWidth || '0') / scale;
                     const sh = parseFloat(span.dataset.pdfHeight || '0') / scale;
                     
-                    // --- GEOMETRIC SLICING LOGIC ---
-                    // Verifica se a linha (span) está verticalmente dentro da caixa de seleção
                     const spanCenterY = sy + (sh / 2);
                     const isVerticallyInside = spanCenterY >= y && spanCenterY <= y + h;
 
                     if (isVerticallyInside) {
-                        // Calcula a interseção horizontal
                         const brushRight = x + w;
                         const spanRight = sx + sw;
-
                         const overlapLeft = Math.max(x, sx);
                         const overlapRight = Math.min(brushRight, spanRight);
 
-                        // Se houver sobreposição horizontal válida
                         if (overlapRight > overlapLeft) {
                             const rawText = span.textContent || "";
-                            
-                            // Calcula a porcentagem de sobreposição para cortar o texto
-                            // Ex: Se o pincel cobre os primeiros 50% da linha, pegamos 50% do texto
                             const startRatio = Math.max(0, (overlapLeft - sx) / sw);
                             const endRatio = Math.min(1, (overlapRight - sx) / sw);
-
                             const startChar = Math.floor(startRatio * rawText.length);
                             const endChar = Math.ceil(endRatio * rawText.length);
-
                             const extractedSlice = rawText.substring(startChar, endChar).trim();
 
                             if (extractedSlice.length > 0) {
                                 selectedSpans.push({
                                     text: extractedSlice,
-                                    x: sx + (startRatio * sw), // Ajusta X para ordenação correta
+                                    x: sx + (startRatio * sw),
                                     y: sy
                                 });
                             }
@@ -434,12 +420,8 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
                     }
                 });
 
-                // Ordenação Espacial Robusta (Y-Major, X-Minor)
-                // Agrupa linhas com tolerância de altura
                 selectedSpans.sort((a, b) => {
                     const diffY = a.y - b.y;
-                    // Tolerância vertical (aproximadamente meia linha)
-                    // Se estiverem na mesma "linha" visual, ordena por X
                     if (Math.abs(diffY) < (Math.min(12, h/2))) { 
                         return a.x - b.x;
                     }
@@ -461,11 +443,12 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
             });
         }
         
-        brushStartRef.current = null;
+        cursorStartRef.current = null;
         setBrushSelection(null);
         return;
     }
 
+    // 3. Ink Logic
     if (!isDrawing.current) return;
     isDrawing.current = false;
     e.currentTarget.releasePointerCapture(e.pointerId);
@@ -508,7 +491,6 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
                 width: pageDimensions?.width || 800, 
                 height: pageDimensions?.height || 1100, 
                 transform: innerTransform,
-                // Critical Fix: Prevent browser scroll when dragging brush, but allow everywhere else
                 touchAction: activeTool === 'brush' ? 'none' : 'pan-x pan-y'
             }}
             data-page-number={pageNumber}
@@ -543,7 +525,6 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
 
             <canvas ref={canvasRef} className="select-none absolute top-0 left-0" style={{ filter: settings.disableColorFilter ? 'none' : 'url(#pdf-recolor)', display: 'block', visibility: isVisible ? 'visible' : 'hidden', zIndex: 5 }} />
             
-            {/* Confidence Mapping Layer */}
             {settings.showConfidenceOverlay && ocrData && ocrData.length > 0 && rendered && ocrData.length < 1500 && (
                 <div className="absolute inset-0 z-20 pointer-events-none overflow-hidden">
                     {ocrData
@@ -560,7 +541,6 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
                 </div>
             )}
 
-            {/* Brush Selection Overlay */}
             {brushSelection && (
                 <div 
                     className="absolute z-50 bg-brand/20 border border-brand pointer-events-none shadow-[0_0_15px_rgba(var(--brand),0.3)] backdrop-blur-[1px]"
@@ -573,7 +553,6 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
                 />
             )}
 
-            {/* ANNOTATIONS LAYER */}
             <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 40 }}>
                 <svg className="absolute inset-0 w-full h-full">
                     <g transform={`scale(${scale})`}>
@@ -713,9 +692,6 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
 };
 
 export const PdfPage = React.memo(PdfPageComponent, (prev, next) => {
-    // Comparação personalizada para React.memo:
-    // Retorna true se as props forem iguais (não re-renderiza).
-    // Retorna false se mudaram (re-renderiza).
     return (
         prev.pageNumber === next.pageNumber &&
         prev.filterValues === next.filterValues &&

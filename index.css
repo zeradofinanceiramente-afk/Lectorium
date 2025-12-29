@@ -1,3 +1,4 @@
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -193,6 +194,23 @@ html.custom {
   -webkit-user-select: text;
   /* INTERACTION FIX: Reabilita eventos de ponteiro no texto */
   pointer-events: auto !important;
+}
+
+/* SMART SELECTOR ANCHOR (Tap-to-Select) */
+.textLayer span.selection-anchor {
+  /* Âncora Pulsante: Feedback visual imediato */
+  background-color: rgba(74, 222, 128, 0.4) !important;
+  outline: 2px solid var(--brand);
+  border-radius: 4px;
+  box-shadow: 0 0 15px rgba(74, 222, 128, 0.3);
+  animation: pulse-anchor 1s infinite ease-in-out;
+  z-index: 100;
+}
+
+@keyframes pulse-anchor {
+  0% { transform: scale(1); outline-color: var(--brand); }
+  50% { transform: scale(1.05); outline-color: rgba(74, 222, 128, 0.5); }
+  100% { transform: scale(1); outline-color: var(--brand); }
 }
 
 /* Forçar destaque azul da seleção mesmo em texto transparente */

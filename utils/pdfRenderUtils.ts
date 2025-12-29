@@ -111,8 +111,9 @@ export const renderCustomTextLayer = (textContent: any, container: HTMLElement, 
     return yDiff; 
   });
 
-  // 3. Merge / De-fragmentation Pass (Granularidade: Palavras)
-  // Otimização para Brush Tool: Agrupa apenas fragmentos de palavras, mas separa palavras por espaço.
+  // 3. Merge / De-fragmentation Pass (Granularidade: Palavras Estritas)
+  // Otimização para Smart Select: Agrupa fragmentos da mesma palavra, mas QUEBRA em espaços.
+  // Isso garante que cada <span> no DOM seja no máximo uma palavra, permitindo seleção individual.
   const mergedItems: any[] = [];
   if (rawItems.length > 0) {
     let current = rawItems[0];
@@ -126,23 +127,18 @@ export const renderCustomTextLayer = (textContent: any, container: HTMLElement, 
       const expectedNextX = current.x + current.width;
       const gap = next.x - expectedNextX;
       
-      // Limiar para considerar como espaço em branco (separação de palavras)
+      // Limiar para considerar como espaço em branco visual
       const spaceWidth = current.fontSize * 0.20;
-      
-      const isWordBreak = gap > spaceWidth;
-      const isWhitespace = current.str.trim().length === 0 || next.str.trim().length === 0;
+      const isVisualGap = gap > spaceWidth;
 
-      // Merge APENAS se não houver um gap significativo (quebra de palavra) 
-      // ou se estivermos lidando com caracteres de espaço soltos (que devem colar na palavra)
-      const shouldMerge = sameLine && sameFont && (!isWordBreak || isWhitespace);
+      // Verifica se há caracteres de espaço explícitos nas strings
+      const hasSpaceChar = current.str.endsWith(' ') || next.str.startsWith(' ');
+
+      // Merge APENAS se for a mesma linha, mesma fonte E (não houver gap visual E não houver espaço de caractere)
+      // Isso força a quebra do span sempre que uma palavra termina.
+      const shouldMerge = sameLine && sameFont && !isVisualGap && !hasSpaceChar;
 
       if (shouldMerge) {
-        // Se estamos forçando merge mas existe um pequeno gap visual que o PDF não marcou com espaço,
-        // e nenhum dos lados tem espaço, adicionamos um para garantir a semântica na cópia.
-        if (gap > spaceWidth && !current.str.endsWith(' ') && !next.str.startsWith(' ')) {
-             current.str += ' ';
-        }
-
         current.str += next.str;
         // Expande a largura para incluir o próximo item
         current.width = (next.x + next.width) - current.x;
@@ -242,8 +238,10 @@ export const renderCustomTextLayer = (textContent: any, container: HTMLElement, 
         }
         else if (nextPart.x > (part.x + part.width)) {
              const gap = nextPart.x - (part.x + part.width);
-             // Se houver gap visual significativo, insira espaço textual para copy/paste correto
-             if (gap > part.fontSize * 0.15) {
+             // Se houver gap visual significativo OU se o próximo item for uma nova palavra sem espaço no string anterior,
+             // insere espaço textual para garantir copy/paste correto e separação visual no DOM
+             // Isso é crucial já que paramos de fazer merge em espaços.
+             if (gap > part.fontSize * 0.15 || !part.str.endsWith(' ')) {
                  container.appendChild(document.createTextNode(' '));
              }
         }

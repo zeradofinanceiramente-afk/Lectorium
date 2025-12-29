@@ -5,8 +5,8 @@ import { Highlighter, Sparkles, Book, Copy, X } from 'lucide-react';
 export interface SelectionState {
   page: number;
   text: string;
-  popupX: number;
-  popupY: number;
+  popupX: number; // Mantido para compatibilidade de tipo, mas ignorado no render
+  popupY: number; // Mantido para compatibilidade de tipo, mas ignorado no render
   relativeRects: { x: number; y: number; width: number; height: number }[];
   position: 'top' | 'bottom';
 }
@@ -33,7 +33,7 @@ export const SelectionMenu: React.FC<Props> = ({
     <button 
       onClick={onClick}
       className={`
-        flex items-center gap-2 px-3 py-1.5 rounded-lg 
+        flex items-center gap-2 px-3 py-2 rounded-lg 
         text-xs font-bold transition-all duration-200 group
         hover:bg-[#21262d] ${hoverClass || 'hover:text-white'}
       `}
@@ -45,11 +45,13 @@ export const SelectionMenu: React.FC<Props> = ({
 
   return (
     <div 
-      className="absolute z-50 flex flex-col items-center animate-in fade-in zoom-in-95 duration-200"
+      className="fixed z-[60] flex flex-col items-center animate-in fade-in slide-in-from-bottom-4 duration-300"
       style={{ 
-        left: selection.popupX,
-        top: selection.popupY,
-        transform: 'translateX(-50%)'
+        left: '50%',
+        bottom: '100px', /* Posição fixa acima da Toolbar */
+        transform: 'translateX(-50%)',
+        width: 'max-content',
+        pointerEvents: 'auto'
       }}
     >
       <div className="
@@ -92,18 +94,11 @@ export const SelectionMenu: React.FC<Props> = ({
 
           <button 
             onClick={onClose}
-            className="p-1.5 hover:bg-[#21262d] text-[#8b949e] hover:text-red-400 rounded-lg transition-colors"
+            className="p-2 hover:bg-[#21262d] text-[#8b949e] hover:text-red-400 rounded-lg transition-colors"
           >
             <X size={14} />
           </button>
       </div>
-
-      {/* Arrow Pointer - Adjusted for Dark Theme */}
-      {selection.position === 'top' ? (
-         <div className="w-3 h-3 bg-[#0d1117] border-b border-r border-[#30363d] transform rotate-45 absolute -bottom-1.5 z-[-1]"></div>
-      ) : (
-         <div className="w-3 h-3 bg-[#0d1117] border-t border-l border-[#30363d] transform rotate-45 absolute -top-1.5 z-[-1]"></div>
-      )}
     </div>
   );
 };
