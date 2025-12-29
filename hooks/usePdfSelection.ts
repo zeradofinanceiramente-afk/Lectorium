@@ -14,9 +14,12 @@ export const usePdfSelection = ({ activeTool, scale, containerRef }: UsePdfSelec
 
   useEffect(() => {
     const processSelection = () => {
+      // Dupla verificação de ferramenta ativa
       if (activeTool !== 'cursor') return;
 
       const sel = window.getSelection();
+      
+      // STRICT MODE: Se não houver seleção válida, limpa imediatamente.
       if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
         setSelection(null);
         return;
@@ -24,9 +27,25 @@ export const usePdfSelection = ({ activeTool, scale, containerRef }: UsePdfSelec
 
       const range = sel.getRangeAt(0);
       const text = sel.toString().trim();
+      
+      // STRICT MODE: Texto vazio limpa o menu
       if (text.length === 0) {
         setSelection(null);
         return;
+      }
+
+      // STRICT CONTEXT CHECK (Adobe Behavior)
+      // Verifica estritamente se o início E o fim da seleção estão dentro da camada de texto.
+      // Se o usuário arrastar para a margem (void), limpamos a seleção visual customizada.
+      const anchorNode = sel.anchorNode;
+      const focusNode = sel.focusNode;
+      
+      const isAnchorValid = anchorNode && (anchorNode.nodeType === 3 ? anchorNode.parentElement : (anchorNode as Element))?.closest('.textLayer');
+      const isFocusValid = focusNode && (focusNode.nodeType === 3 ? focusNode.parentElement : (focusNode as Element))?.closest('.textLayer');
+
+      if (!isAnchorValid || !isFocusValid) {
+          setSelection(null);
+          return;
       }
 
       let containerNode = range.commonAncestorContainer;
@@ -42,11 +61,19 @@ export const usePdfSelection = ({ activeTool, scale, containerRef }: UsePdfSelec
       const textLayer = pageElement.querySelector('.textLayer');
       if (!textLayer) return;
 
+      // SAFETY CHECK: Se o range container for o próprio textLayer, o browser selecionou o fundo entre spans.
+      if (containerNode === textLayer) {
+          // Validação Estrita: Só aceita se a seleção contiver nós de texto reais
+          const walker = document.createTreeWalker(range.cloneContents(), NodeFilter.SHOW_TEXT);
+          if (!walker.nextNode()) {
+              setSelection(null);
+              return;
+          }
+      }
+
       const spans = Array.from(textLayer.querySelectorAll('span'));
       const relativeRects: { x: number; y: number; width: number; height: number }[] = [];
       
-      const effectiveScale = scale; 
-
       for (const span of spans) {
         if (range.intersectsNode(span)) {
           const spanRange = document.createRange();
@@ -65,17 +92,11 @@ export const usePdfSelection = ({ activeTool, scale, containerRef }: UsePdfSelec
                 if (range.startContainer === span || span.contains(range.startContainer)) {
                      const len = range.startContainer.textContent?.length || 1;
                      startRatio = range.startOffset / len;
-                } else if (range.startContainer.nodeType === 3) {
-                     // Caso o container seja um nó de texto dentro do span
-                     const len = range.startContainer.textContent?.length || 1;
-                     startRatio = range.startOffset / len;
                 }
             }
+            
             if (range.compareBoundaryPoints(Range.END_TO_END, spanRange) < 0) {
                  if (range.endContainer === span || span.contains(range.endContainer)) {
-                      const len = range.endContainer.textContent?.length || 1;
-                      endRatio = range.endOffset / len;
-                 } else if (range.endContainer.nodeType === 3) {
                       const len = range.endContainer.textContent?.length || 1;
                       endRatio = range.endOffset / len;
                  }
@@ -89,32 +110,41 @@ export const usePdfSelection = ({ activeTool, scale, containerRef }: UsePdfSelec
                 const rectW = pdfW * (endRatio - startRatio);
                 
                 relativeRects.push({
-                    x: rectX / effectiveScale,
-                    y: pdfTop / effectiveScale,
-                    width: rectW / effectiveScale,
-                    height: pdfH / effectiveScale
+                    x: rectX / scale,
+                    y: pdfTop / scale,
+                    width: rectW / scale,
+                    height: pdfH / scale
                 });
             }
           }
         }
       }
 
-      // --- MAGNETIC POSITIONING SYSTEM ---
-      const clientRects = range.getClientRects();
-      const boundingRect = range.getBoundingClientRect();
-      
-      const anchorRect = clientRects.length > 0 
-        ? clientRects[clientRects.length - 1] 
-        : boundingRect;
+      if (relativeRects.length === 0) {
+          setSelection(null);
+          return;
+      }
 
+      // --- MAGNETIC POSITIONING SYSTEM (V2) ---
+      const lastRect = relativeRects[relativeRects.length - 1];
       const container = containerRef.current;
       const containerRect = container.getBoundingClientRect();
       
-      const anchorBottom = anchorRect.bottom - containerRect.top + container.scrollTop;
-      const anchorLeft = anchorRect.left - containerRect.left + container.scrollLeft;
-      const anchorWidth = anchorRect.width;
+      const pageRect = pageElement.getBoundingClientRect();
+      
+      const anchorLeftPagePx = lastRect.x * scale;
+      const anchorTopPagePx = lastRect.y * scale;
+      const anchorHeightPagePx = lastRect.height * scale;
+      const anchorWidthPagePx = lastRect.width * scale;
 
-      let popupY = anchorBottom + 8;
+      const screenLeft = pageRect.left + anchorLeftPagePx;
+      const screenTop = pageRect.top + anchorTopPagePx;
+      
+      const relativeLeft = screenLeft - containerRect.left + container.scrollLeft;
+      const relativeTop = screenTop - containerRect.top + container.scrollTop;
+      const relativeBottom = relativeTop + anchorHeightPagePx;
+
+      let popupY = relativeBottom + 8;
       let position: 'top' | 'bottom' = 'bottom';
 
       const viewportHeight = container.clientHeight;
@@ -122,12 +152,17 @@ export const usePdfSelection = ({ activeTool, scale, containerRef }: UsePdfSelec
       const menuEstimatedHeight = 60;
 
       if (popupY + menuEstimatedHeight > visibleBottom) {
-         const wholeBlockTop = boundingRect.top - containerRect.top + container.scrollTop;
-         popupY = wholeBlockTop - menuEstimatedHeight; 
+         popupY = relativeTop - menuEstimatedHeight; 
          position = 'top';
       }
 
-      const popupX = anchorLeft + (anchorWidth / 2);
+      const popupX = relativeLeft + (anchorWidthPagePx / 2);
+
+      // Validação final de coordenadas para evitar NaN
+      if (isNaN(popupX) || isNaN(popupY)) {
+          setSelection(null);
+          return;
+      }
 
       setSelection({
         page: pageNum,
@@ -139,33 +174,27 @@ export const usePdfSelection = ({ activeTool, scale, containerRef }: UsePdfSelec
       });
     };
 
+    // --- EVENT HANDLERS ---
+
     const handleSelectionChange = () => {
+      // Limpa imediatamente ao mudar a seleção para dar feedback rápido
       if (selectionDebounce.current) clearTimeout(selectionDebounce.current);
+      // Não limpa o estado imediatamente para evitar piscar, a menos que a seleção esteja vazia
+      // setSelection(null); 
       
-      // OCULTAR IMEDIATAMENTE: Garante que o menu suma enquanto arrasta
-      setSelection(null);
-
-      // DELAY AUMENTADO: Só processa após 500ms de inatividade
-      selectionDebounce.current = setTimeout(processSelection, 500);
+      // Debounce curto para recalcular apenas quando o usuário parar
+      selectionDebounce.current = setTimeout(processSelection, 200);
     };
 
-    const handleInteractionEnd = (e: Event) => {
-      if (e.target instanceof Element && e.target.closest('button, input, textarea, .ui-panel')) return;
-      
-      // Ao soltar o mouse, podemos ser mais rápidos que o debounce de 500ms
-      // para dar feedback de conclusão, mas limpamos o timer anterior.
-      if (selectionDebounce.current) clearTimeout(selectionDebounce.current);
-      setTimeout(processSelection, 10);
-    };
-
+    // Listeners globais
     document.addEventListener('selectionchange', handleSelectionChange);
-    document.addEventListener('mouseup', handleInteractionEnd);
-    document.addEventListener('touchend', handleInteractionEnd);
+    
+    // Resize também recalcula posição
+    window.addEventListener('resize', handleSelectionChange);
 
     return () => {
       document.removeEventListener('selectionchange', handleSelectionChange);
-      document.removeEventListener('mouseup', handleInteractionEnd);
-      document.removeEventListener('touchend', handleInteractionEnd);
+      window.removeEventListener('resize', handleSelectionChange);
       if (selectionDebounce.current) clearTimeout(selectionDebounce.current);
     };
   }, [activeTool, scale]);

@@ -186,14 +186,22 @@ export const renderCustomTextLayer = (textContent: any, container: HTMLElement, 
     const calculatedTop = part.y - (part.fontSize * fontAscent);
     const verticalPaddingFactor = 0.20; 
     const paddingPx = part.fontSize * verticalPaddingFactor;
+    
+    // MARGIN OF ERROR FIX:
+    // Adiciona padding horizontal generoso (40% do tamanho da fonte) para aumentar a área de clique.
+    // Compensa com 'left' recuado para manter o texto visualmente alinhado.
+    const hPadding = part.fontSize * 0.4;
 
-    span.style.left = `${part.x}px`;
+    span.style.left = `${part.x - hPadding}px`;
     span.style.top = `${calculatedTop - paddingPx}px`;
     span.style.fontSize = `${part.fontSize}px`;
     span.style.fontFamily = fontFamily;
     
     span.style.paddingTop = `${paddingPx}px`;
     span.style.paddingBottom = `${paddingPx}px`;
+    span.style.paddingLeft = `${hPadding}px`;
+    span.style.paddingRight = `${hPadding}px`;
+    
     span.style.boxSizing = 'content-box'; 
 
     span.style.position = 'absolute';
@@ -212,6 +220,7 @@ export const renderCustomTextLayer = (textContent: any, container: HTMLElement, 
     // Use opacity 0 instead of visibility hidden for layout stability during measurement
     span.style.opacity = '0';
 
+    // DATASET mantido puro (geometria real do texto) para seleção correta
     span.dataset.pdfX = (part.x ?? 0).toString();
     span.dataset.pdfTop = (calculatedTop ?? 0).toString();
     span.dataset.pdfWidth = (part.width ?? 0).toString();
@@ -251,7 +260,11 @@ export const renderCustomTextLayer = (textContent: any, container: HTMLElement, 
 
       itemsToMeasure.forEach((item, index) => {
           const { span, part } = item;
-          const naturalWidth = naturalWidths[index];
+          // Subtrai o padding artificial para o cálculo de escala
+          const hPadding = parseFloat(span.style.paddingLeft) || 0;
+          const totalHPadding = hPadding * 2;
+          
+          const naturalWidth = Math.max(0, naturalWidths[index] - totalHPadding);
           const targetWidth = part.width; 
 
           let finalScale = part.scaleX;

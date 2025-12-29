@@ -312,6 +312,14 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
   };
 
   const handlePointerDown = (e: React.PointerEvent) => {
+    // PASSIVIDADE TOTAL NO MODO CURSOR
+    // Se a ferramenta ativa for cursor, retornamos imediatamente.
+    // Isso impede qualquer captura de ponteiro ou lógica que interfira na seleção nativa do browser.
+    // Garante que o scroll e a seleção de texto funcionem como uma página web normal.
+    if (activeTool === 'cursor') {
+        return; 
+    }
+
     const target = e.target as HTMLElement;
     const { x, y } = getRelativeCoords(e);
 
@@ -329,9 +337,6 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
         return;
     }
 
-    if (activeTool === 'cursor' && (target.closest('.textLayer') || target.classList.contains('ocr-word-span'))) {
-        return;
-    }
     if (activeTool === 'note') {
         if (target.closest('.annotation-item, .note-editor')) return;
         setDraftNote({ x, y, text: '' });
@@ -344,6 +349,8 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
+    if (activeTool === 'cursor') return;
+
     const { x, y } = getRelativeCoords(e);
 
     if (isBrushingRef.current && brushStartRef.current) {
@@ -356,6 +363,8 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
+    if (activeTool === 'cursor') return;
+
     // Brush Tool Logic
     if (isBrushingRef.current && brushStartRef.current) {
         e.currentTarget.releasePointerCapture(e.pointerId);
@@ -499,7 +508,7 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
                 width: pageDimensions?.width || 800, 
                 height: pageDimensions?.height || 1100, 
                 transform: innerTransform,
-                // Critical Fix: Prevent browser scroll when dragging brush
+                // Critical Fix: Prevent browser scroll when dragging brush, but allow everywhere else
                 touchAction: activeTool === 'brush' ? 'none' : 'pan-x pan-y'
             }}
             data-page-number={pageNumber}

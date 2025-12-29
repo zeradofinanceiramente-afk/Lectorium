@@ -176,6 +176,9 @@ html.custom {
   /* SELECTOR FIX: Impede que o contêiner vazio seja selecionado, forçando a seleção nos filhos */
   user-select: none;
   -webkit-user-select: none;
+  /* INTERACTION FIX: O container ignora cliques, apenas os filhos (texto) respondem. 
+     Isso impede que o navegador selecione a página toda ao clicar no vazio. */
+  pointer-events: none !important;
 }
 
 /* Estilo para spans de OCR */
@@ -188,7 +191,8 @@ html.custom {
   /* SELECTOR FIX: Reabilita seleção apenas no texto real */
   user-select: text;
   -webkit-user-select: text;
-  pointer-events: auto;
+  /* INTERACTION FIX: Reabilita eventos de ponteiro no texto */
+  pointer-events: auto !important;
 }
 
 /* Forçar destaque azul da seleção mesmo em texto transparente */

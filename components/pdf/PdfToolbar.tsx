@@ -52,7 +52,7 @@ export const PdfToolbar: React.FC<Props> = ({ onFitWidth }) => {
             flex items-center justify-center
             ${active 
                 ? 'text-brand bg-brand/10 shadow-[0_0_15px_-3px_var(--brand)] border border-brand/50' 
-                : 'text-[#c9d1d9] hover:bg-[#21262d] hover:text-white border border-transparent'}
+                : 'text-[#8b949e] hover:bg-[#21262d] hover:text-white border border-transparent'}
             ${className}
         `} 
         title={title}
@@ -155,18 +155,18 @@ export const PdfToolbar: React.FC<Props> = ({ onFitWidth }) => {
                 <div className="flex items-center gap-1 bg-[#161b22] rounded-lg p-0.5 border border-[#30363d]">
                     <button 
                         onClick={() => setScale(s => Math.max(0.5, s - 0.2))} 
-                        className="p-1.5 hover:bg-[#21262d] rounded-md text-[#c9d1d9] hover:text-white transition-colors"
+                        className="p-1.5 hover:bg-[#21262d] rounded-md text-[#8b949e] hover:text-white transition-colors"
                     >
                         <Minus size={14}/>
                     </button>
                     
-                    <span className="text-[10px] font-mono font-bold w-[4ch] text-center text-[#c9d1d9] select-none">
+                    <span className="text-[10px] font-mono font-bold w-[4ch] text-center text-[#8b949e] select-none">
                         {Math.round(scale * 100)}%
                     </span>
                     
                     <button 
                         onClick={() => setScale(s => Math.min(3, s + 0.2))} 
-                        className="p-1.5 hover:bg-[#21262d] rounded-md text-[#c9d1d9] hover:text-white transition-colors"
+                        className="p-1.5 hover:bg-[#21262d] rounded-md text-[#8b949e] hover:text-white transition-colors"
                     >
                         <Plus size={14}/>
                     </button>
