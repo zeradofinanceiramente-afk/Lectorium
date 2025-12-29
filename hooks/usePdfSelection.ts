@@ -8,48 +8,42 @@ interface UsePdfSelectionProps {
   containerRef?: React.RefObject<HTMLDivElement>;
 }
 
+// Armazena a referência lógica da âncora em vez do nó DOM instável
+interface AnchorData {
+    page: number;
+    index: number; // Índice do span dentro da página
+}
+
 export const usePdfSelection = ({ activeTool, scale, containerRef }: UsePdfSelectionProps) => {
   const [selection, setSelection] = useState<SelectionState | null>(null);
   
-  // Estado da Máquina de Seleção
-  const [anchorNode, setAnchorNode] = useState<HTMLElement | null>(null);
+  // Estado da Máquina de Seleção (Lógico)
+  const [anchorData, setAnchorData] = useState<AnchorData | null>(null);
 
-  // Limpeza de segurança: Se a ferramenta mudar, reseta tudo
+  // Limpeza de segurança quando a seleção é fechada externamente (pelo menu) ou ferramenta muda
   useEffect(() => {
-    setSelection(null);
-    if (anchorNode) {
-        anchorNode.classList.remove('selection-anchor');
-        setAnchorNode(null);
+    if (!selection) {
+        setAnchorData(null);
+        document.querySelectorAll('.selection-anchor').forEach(el => el.classList.remove('selection-anchor'));
     }
-    window.getSelection()?.removeAllRanges();
+  }, [selection]);
+
+  // Limpeza ao mudar ferramenta
+  useEffect(() => {
+    setSelection(null); 
+    // O effect acima cuidará do resto
   }, [activeTool]);
 
-  // Função pura para calcular geometria baseada nos nós DOM (sem depender do objeto Range nativo instável)
-  const calculateGeometry = useCallback((startNode: HTMLElement, endNode: HTMLElement) => {
-      const pageElement = startNode.closest('.pdf-page, [data-page-number]');
-      if (!pageElement) return null;
-
-      const pageNumAttr = pageElement.getAttribute('data-page-number');
-      const pageNum = pageNumAttr ? parseInt(pageNumAttr) : 1;
-
-      // 1. Identificar todos os spans entre Start e End
-      const textLayer = startNode.parentElement;
-      if (!textLayer) return null;
-      
-      const allSpans = Array.from(textLayer.querySelectorAll('span'));
-      const startIndex = allSpans.indexOf(startNode);
-      const endIndex = allSpans.indexOf(endNode);
-
-      if (startIndex === -1 || endIndex === -1) return null;
-
+  // Função pura para calcular geometria baseada nos nós DOM e data-attributes
+  const calculateGeometry = useCallback((spans: HTMLElement[], startIndex: number, endIndex: number, pageNum: number) => {
       // Normaliza ordem (pode ter clicado de baixo pra cima)
       const first = Math.min(startIndex, endIndex);
       const last = Math.max(startIndex, endIndex);
       
-      const selectedSpans = allSpans.slice(first, last + 1);
+      const selectedSpans = spans.slice(first, last + 1);
       const fullText = selectedSpans.map(s => s.textContent).join('');
 
-      // 2. Calcular Rects relativos (CRÍTICO para o Highlight funcionar)
+      // Calcular Rects relativos
       const relativeRects: { x: number; y: number; width: number; height: number }[] = [];
       
       selectedSpans.forEach(span => {
@@ -70,7 +64,6 @@ export const usePdfSelection = ({ activeTool, scale, containerRef }: UsePdfSelec
 
       if (relativeRects.length === 0) return null;
 
-      // Retorna estado. popupX e popupY são irrelevantes agora pois o menu é fixo via CSS.
       return {
         page: pageNum,
         text: fullText,
@@ -82,76 +75,57 @@ export const usePdfSelection = ({ activeTool, scale, containerRef }: UsePdfSelec
 
   }, [scale]);
 
-  // --- MÁQUINA DE ESTADOS DO TAP ---
+  // --- MÁQUINA DE ESTADOS DO TAP (USANDO ÍNDICES) ---
   const onSmartTap = useCallback((target: HTMLElement) => {
       // Ignora se não for cursor ou se clicou fora de texto
       if (activeTool !== 'cursor') return;
       
       const isTextNode = target.tagName === 'SPAN' && target.parentElement?.classList.contains('textLayer');
 
-      // CASO 1: Clique fora (Reset)
+      // CASO 1: Clique fora
       if (!isTextNode) {
-          if (anchorNode) {
-              anchorNode.classList.remove('selection-anchor');
-              setAnchorNode(null);
-          }
-          setSelection(null);
-          window.getSelection()?.removeAllRanges();
+          // NÃO faz nada. A seleção persiste até o usuário fechar o menu explicitamente.
           return;
       }
 
-      // CASO 2: Primeiro Clique (Definir Âncora)
-      if (!anchorNode) {
-          // Limpa seleção anterior
-          window.getSelection()?.removeAllRanges();
-          setSelection(null);
+      // Identificar Página e Índice
+      const pageElement = target.closest('.pdf-page, [data-page-number]');
+      if (!pageElement) return;
+      const pageNum = parseInt(pageElement.getAttribute('data-page-number') || '1');
+      
+      const textLayer = target.parentElement;
+      if (!textLayer) return;
+      
+      const allSpans = Array.from(textLayer.querySelectorAll('span')) as HTMLElement[];
+      const targetIndex = allSpans.indexOf(target);
+      
+      if (targetIndex === -1) return; // Erro de integridade
+
+      // CASO 2: Definindo a Âncora (Ou nova âncora se mudou de página)
+      if (!anchorData || anchorData.page !== pageNum) {
+          // Limpa âncoras antigas visuais
+          document.querySelectorAll('.selection-anchor').forEach(el => el.classList.remove('selection-anchor'));
           
-          setAnchorNode(target);
+          setAnchorData({ page: pageNum, index: targetIndex });
           target.classList.add('selection-anchor');
+
+          // Abre menu imediato para a palavra única
+          const menuState = calculateGeometry(allSpans, targetIndex, targetIndex, pageNum);
+          if (menuState) setSelection(menuState as any);
           return;
       }
 
-      // CASO 3: Segundo Clique (Definir Range e Mostrar Menu)
-      if (anchorNode) {
-          // Validação: Devem estar na mesma página (mesmo pai)
-          if (anchorNode.parentElement !== target.parentElement) {
-              // Se clicou em outra página, reseta e começa nova âncora lá
-              anchorNode.classList.remove('selection-anchor');
-              setAnchorNode(target);
-              target.classList.add('selection-anchor');
-              return;
-          }
-
-          // 3.1 Criar Range Nativo (Para feedback visual azul do browser e copy/paste funcionar)
-          const range = document.createRange();
-          const position = anchorNode.compareDocumentPosition(target);
-          
-          if (position & Node.DOCUMENT_POSITION_FOLLOWING) {
-              range.setStartBefore(anchorNode);
-              range.setEndAfter(target);
-          } else {
-              range.setStartBefore(target);
-              range.setEndAfter(anchorNode);
-          }
-          
-          const sel = window.getSelection();
-          if (sel) {
-              sel.removeAllRanges();
-              sel.addRange(range);
-          }
-
-          // 3.2 Calcular Geometria e Mostrar Menu
-          const menuState = calculateGeometry(anchorNode, target);
+      // CASO 3: Âncora já existe na mesma página -> Define/Atualiza Range
+      if (anchorData && anchorData.page === pageNum) {
+          // Calcular Range Virtual e Atualizar Seleção
+          const menuState = calculateGeometry(allSpans, anchorData.index, targetIndex, pageNum);
           if (menuState) {
               setSelection(menuState as any);
           }
-
-          // 3.3 Limpeza de Estado
-          anchorNode.classList.remove('selection-anchor');
-          setAnchorNode(null);
+          // Mantemos anchorData ativo para permitir "Pivot" (selecionar outra palavra final sem perder o início)
       }
 
-  }, [activeTool, anchorNode, calculateGeometry]);
+  }, [activeTool, anchorData, calculateGeometry]);
 
   return { selection, setSelection, onSmartTap };
 };

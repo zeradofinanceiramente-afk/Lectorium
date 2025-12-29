@@ -33,11 +33,6 @@ export const tryAutoDownloadFont = async (rawFontName: string) => {
       // 1. Criar FontFace
       const googleFontUrl = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(familyName)}:wght@300;400;500;700&display=swap`;
       
-      // No Chromium, para Google Fonts, ainda precisamos do CSS URL pois ele retorna múltiplos @font-face (woff2).
-      // A API nativa FontFace("Name", "url(...)") funciona melhor para arquivos diretos.
-      // Entretanto, podemos usar fetch para pegar o CSS e extrair as URLs ou usar a estratégia híbrida:
-      // Carregar o CSS mas esperar o carregamento via document.fonts.load() antes de aplicar.
-      
       // Estratégia Híbrida Segura: Link com preconnect, mas monitorado pela API
       const link = document.createElement('link');
       link.href = googleFontUrl;
@@ -45,7 +40,6 @@ export const tryAutoDownloadFont = async (rawFontName: string) => {
       document.head.appendChild(link);
 
       // 2. Aguardar disponibilidade (Blink Optimization)
-      // Isso diz ao navegador para priorizar o download e renderização
       await document.fonts.load(`12px "${familyName}"`);
       
       console.log(`[Auto-Font] Fonte ativa e rasterizada: ${familyName}`);
@@ -59,31 +53,68 @@ export const tryAutoDownloadFont = async (rawFontName: string) => {
 export const renderCustomTextLayer = (textContent: any, container: HTMLElement, viewport: any, detectColumns: boolean) => {
   container.innerHTML = '';
   
-  // 1. Extract Geometry & Data
-  const rawItems = textContent.items.map((item: any) => {
+  // 1. Extract Geometry & Data & EXPLODE WORDS
+  // A "explosão" é crucial: se o PDF agrupa a linha inteira em um item ("Hello World"),
+  // precisamos dividir em ["Hello", " ", "World"] para que o DOM tenha spans separados.
+  // Isso permite que o evento de clique (Smart Tap) detecte a palavra exata sob o cursor.
+  const rawItems: any[] = [];
+  
+  textContent.items.forEach((item: any) => {
     const tx = item.transform;
     const fontHeight = Math.sqrt(tx[3] * tx[3] + tx[2] * tx[2]);
     const fontWidth = Math.sqrt(tx[0] * tx[0] + tx[1] * tx[1]);
     const [x, y] = viewport.convertToViewportPoint(tx[4], tx[5]);
     const fontSize = fontHeight * viewport.scale;
     
-    // Estimate width in viewport pixels
-    // item.width is usually in PDF units.
-    const itemWidth = item.width ? item.width * viewport.scale : (item.str.length * fontSize * 0.5);
+    // Width do bloco inteiro no viewport
+    const totalWidth = item.width ? item.width * viewport.scale : (item.str.length * fontSize * 0.5);
+    const text = item.str;
 
-    return {
-      item,
-      str: item.str,
-      x,
-      y, // This is the baseline Y
-      width: itemWidth,
-      fontSize,
-      fontName: item.fontName,
-      tx: tx,
-      // Calculate font scale for CSS transform (Aspect Ratio of the font glyphs defined in PDF)
-      scaleX: fontHeight > 0 ? (fontWidth / fontHeight) : 1,
-      angle: Math.atan2(tx[1], tx[0])
-    };
+    // Se o texto contém espaços e não é apenas espaço em branco
+    if (text.length > 1 && /\s/.test(text)) {
+        // Divide mantendo os separadores (espaços)
+        const parts = text.split(/(\s+)/);
+        
+        // Estimativa uniforme de largura por caractere (heurística, já que não temos métricas de fonte precisas aqui)
+        const charWidth = totalWidth / text.length;
+        
+        let currentXOffset = 0;
+
+        parts.forEach((part: string) => {
+            if (part.length === 0) return;
+
+            const partWidth = part.length * charWidth;
+            
+            rawItems.push({
+                item, // Referência ao item original para estilos
+                str: part,
+                x: x + currentXOffset,
+                y,
+                width: partWidth,
+                fontSize,
+                fontName: item.fontName,
+                tx,
+                scaleX: fontHeight > 0 ? (fontWidth / fontHeight) : 1,
+                angle: Math.atan2(tx[1], tx[0])
+            });
+
+            currentXOffset += partWidth;
+        });
+    } else {
+        // Palavra única ou fragmento sem espaços
+        rawItems.push({
+            item,
+            str: text,
+            x,
+            y,
+            width: totalWidth,
+            fontSize,
+            fontName: item.fontName,
+            tx,
+            scaleX: fontHeight > 0 ? (fontWidth / fontHeight) : 1,
+            angle: Math.atan2(tx[1], tx[0])
+        });
+    }
   });
 
   // 2. Sort Items (Y Descending - Top to Bottom, then X Ascending - Left to Right)
@@ -112,8 +143,8 @@ export const renderCustomTextLayer = (textContent: any, container: HTMLElement, 
   });
 
   // 3. Merge / De-fragmentation Pass (Granularidade: Palavras Estritas)
-  // Otimização para Smart Select: Agrupa fragmentos da mesma palavra, mas QUEBRA em espaços.
-  // Isso garante que cada <span> no DOM seja no máximo uma palavra, permitindo seleção individual.
+  // Otimização para Smart Select: Agrupa fragmentos da mesma palavra (ex: "He" + "llo"),
+  // mas NUNCA funde se houver espaço ou gap.
   const mergedItems: any[] = [];
   if (rawItems.length > 0) {
     let current = rawItems[0];
@@ -128,19 +159,19 @@ export const renderCustomTextLayer = (textContent: any, container: HTMLElement, 
       const gap = next.x - expectedNextX;
       
       // Limiar para considerar como espaço em branco visual
-      const spaceWidth = current.fontSize * 0.20;
+      const spaceWidth = current.fontSize * 0.25;
       const isVisualGap = gap > spaceWidth;
 
-      // Verifica se há caracteres de espaço explícitos nas strings
-      const hasSpaceChar = current.str.endsWith(' ') || next.str.startsWith(' ');
+      // Verifica se é um caractere de espaço/quebra
+      const isSpace = /^\s+$/.test(current.str) || /^\s+$/.test(next.str);
 
-      // Merge APENAS se for a mesma linha, mesma fonte E (não houver gap visual E não houver espaço de caractere)
-      // Isso força a quebra do span sempre que uma palavra termina.
-      const shouldMerge = sameLine && sameFont && !isVisualGap && !hasSpaceChar;
+      // Merge APENAS se: Mesma linha, mesma fonte, sem gap visual grande E nenhum dos dois é um espaço isolado
+      // Se um deles é espaço, queremos mantê-lo separado (ou ele separa as palavras adjacentes)
+      const shouldMerge = sameLine && sameFont && !isVisualGap && !isSpace;
 
       if (shouldMerge) {
         current.str += next.str;
-        // Expande a largura para incluir o próximo item
+        // Expande a largura para incluir o próximo item (incluindo pequenos gaps de kerning)
         current.width = (next.x + next.width) - current.x;
       } else {
         mergedItems.push(current);
@@ -184,9 +215,9 @@ export const renderCustomTextLayer = (textContent: any, container: HTMLElement, 
     const paddingPx = part.fontSize * verticalPaddingFactor;
     
     // MARGIN OF ERROR FIX:
-    // Adiciona padding horizontal generoso (40% do tamanho da fonte) para aumentar a área de clique.
-    // Compensa com 'left' recuado para manter o texto visualmente alinhado.
-    const hPadding = part.fontSize * 0.4;
+    // Adiciona padding horizontal generoso para aumentar a área de clique (Hitbox)
+    // Isso ajuda em telas de toque e para palavras pequenas.
+    const hPadding = part.fontSize * 0.3;
 
     span.style.left = `${part.x - hPadding}px`;
     span.style.top = `${calculatedTop - paddingPx}px`;
@@ -206,14 +237,12 @@ export const renderCustomTextLayer = (textContent: any, container: HTMLElement, 
     span.style.cursor = 'text';
     span.style.color = 'transparent'; // Invisible text for selection
     span.style.lineHeight = '1.0'; 
-    // OTIMIZAÇÃO TEXTO: Força precisão geométrica
-    // Reduz o "drift" (desalinhamento) entre o texto real da imagem e a camada de seleção transparente
     span.style.textRendering = 'geometricPrecision'; 
     
     // CRITICAL: Ensure spans are interactive even if container is pointer-events: none
     span.style.pointerEvents = 'all';
     
-    // Use opacity 0 instead of visibility hidden for layout stability during measurement
+    // Use opacity 0 initially for measurement stability
     span.style.opacity = '0';
 
     // DATASET mantido puro (geometria real do texto) para seleção correta
@@ -225,6 +254,7 @@ export const renderCustomTextLayer = (textContent: any, container: HTMLElement, 
     container.appendChild(span);
     itemsToMeasure.push({ span, part });
 
+    // Inserção de quebras de linha/espaço visual para melhor copy/paste
     if (index < mergedItems.length - 1) {
         const nextPart = mergedItems[index + 1];
         const verticalDiff = nextPart.y - part.y;
@@ -238,10 +268,8 @@ export const renderCustomTextLayer = (textContent: any, container: HTMLElement, 
         }
         else if (nextPart.x > (part.x + part.width)) {
              const gap = nextPart.x - (part.x + part.width);
-             // Se houver gap visual significativo OU se o próximo item for uma nova palavra sem espaço no string anterior,
-             // insere espaço textual para garantir copy/paste correto e separação visual no DOM
-             // Isso é crucial já que paramos de fazer merge em espaços.
-             if (gap > part.fontSize * 0.15 || !part.str.endsWith(' ')) {
+             // Se houver gap visual e não for espaço, insere espaço de texto
+             if (gap > part.fontSize * 0.15 && !/^\s+$/.test(part.str)) {
                  container.appendChild(document.createTextNode(' '));
              }
         }
@@ -249,9 +277,6 @@ export const renderCustomTextLayer = (textContent: any, container: HTMLElement, 
   });
 
   // 5. Normalize Width (Second Pass: Batch Measure & Correct)
-  // We use requestAnimationFrame to allow browser layout calc, but set timeout to force visibility
-  // in case something fails or dimensions are zero.
-  
   const applyTransform = () => {
       // Get all widths in one go to minimize reflows
       const naturalWidths = itemsToMeasure.map(item => item.span.getBoundingClientRect().width);
@@ -270,7 +295,9 @@ export const renderCustomTextLayer = (textContent: any, container: HTMLElement, 
           // Scale correction if rendered font width differs from PDF expected width
           if (naturalWidth > 0 && targetWidth > 0) {
               const correctionFactor = targetWidth / naturalWidth;
-              finalScale = part.scaleX * correctionFactor;
+              // Limit correction to sane bounds (avoid huge stretching on weird chars)
+              const clampedCorrection = Math.max(0.5, Math.min(2.0, correctionFactor));
+              finalScale = part.scaleX * clampedCorrection;
           }
 
           let transformCSS = `scaleX(${finalScale})`;
@@ -279,11 +306,10 @@ export const renderCustomTextLayer = (textContent: any, container: HTMLElement, 
           }
 
           span.style.transform = transformCSS;
-          span.style.opacity = '1'; // Make fully interactive (still transparent color)
+          span.style.opacity = '1'; // Make fully interactive
       });
   };
 
   // Run immediately if possible, or defer slightly. 
-  // Since opacity is 0, visual jump is minimized.
   setTimeout(applyTransform, 0);
 };

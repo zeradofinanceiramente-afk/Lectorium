@@ -43,7 +43,6 @@ body.is-native {
 
 /* Permitir seleção apenas no editor */
 body.is-native .ProseMirror,
-body.is-native .textLayer span,
 body.is-native input,
 body.is-native textarea {
   user-select: text;
@@ -174,49 +173,51 @@ html.custom {
   /* PERFORMANCE CRITICAL: Isolamento de renderização para milhares de spans */
   /* 'strict' remove a camada do fluxo de layout global, evitando recálculos pesados */
   contain: strict; 
-  /* SELECTOR FIX: Impede que o contêiner vazio seja selecionado, forçando a seleção nos filhos */
+  
+  /* FIXED: Desativa seleção nativa no container */
   user-select: none;
   -webkit-user-select: none;
-  /* INTERACTION FIX: O container ignora cliques, apenas os filhos (texto) respondem. 
-     Isso impede que o navegador selecione a página toda ao clicar no vazio. */
+  /* O container ignora cliques, apenas filhos respondem */
   pointer-events: none !important;
 }
 
-/* Estilo para spans de OCR */
+/* Estilo para spans de OCR e Texto */
 .textLayer span, .ocr-word-span {
   color: transparent;
   position: absolute;
   white-space: pre;
-  cursor: text;
+  /* FIXED: Cursor pointer para indicar interatividade customizada */
+  cursor: pointer;
   transform-origin: 0% 0%;
-  /* SELECTOR FIX: Reabilita seleção apenas no texto real */
-  user-select: text;
-  -webkit-user-select: text;
-  /* INTERACTION FIX: Reabilita eventos de ponteiro no texto */
+  
+  /* CRITICAL FIX: Desativa seleção nativa (Remove Gotículas/Azul) */
+  /* Mantemos pointer-events auto para que o JS detecte o clique */
+  user-select: none;
+  -webkit-user-select: none;
   pointer-events: auto !important;
 }
 
 /* SMART SELECTOR ANCHOR (Tap-to-Select) */
 .textLayer span.selection-anchor {
-  /* Âncora Pulsante: Feedback visual imediato */
-  background-color: rgba(74, 222, 128, 0.4) !important;
-  outline: 2px solid var(--brand);
-  border-radius: 4px;
-  box-shadow: 0 0 15px rgba(74, 222, 128, 0.3);
-  animation: pulse-anchor 1s infinite ease-in-out;
+  /* Âncora Estática com destaque sutil */
+  background-color: rgba(74, 222, 128, 0.2);
+  border-bottom: 2px solid var(--brand);
+  border-radius: 2px;
   z-index: 100;
+  position: absolute; /* Mantém position absolute do span original */
 }
 
-@keyframes pulse-anchor {
-  0% { transform: scale(1); outline-color: var(--brand); }
-  50% { transform: scale(1.05); outline-color: rgba(74, 222, 128, 0.5); }
-  100% { transform: scale(1); outline-color: var(--brand); }
-}
-
-/* Forçar destaque azul da seleção mesmo em texto transparente */
-.textLayer ::selection {
-  background: rgba(0, 120, 215, 0.3) !important;
-  color: transparent !important;
+/* Emoji de Âncora flutuante (Estático) */
+.textLayer span.selection-anchor::after {
+  content: "⚓";
+  position: absolute;
+  top: -1.2em; /* Posiciona acima do texto */
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.8em;
+  line-height: 1;
+  pointer-events: none;
+  text-shadow: 0 2px 4px rgba(0,0,0,0.5);
 }
 
 .ProseMirror-selectednode {

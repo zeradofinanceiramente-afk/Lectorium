@@ -92,7 +92,7 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
     scale, activeTool, setActiveTool, settings, 
     annotations, addAnnotation, removeAnnotation,
     setIsSpread, spreadSide, ocrMap, updateOcrWord, refinePageOcr,
-    setShowOcrModal, onSmartTap // Usando onSmartTap do Contexto Global
+    setShowOcrModal, onSmartTap, selection // Consumindo selection do Contexto Global
   } = usePdfContext();
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -301,7 +301,10 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
   const handlePointerDown = (e: React.PointerEvent) => {
     // 1. Cursor Mode (Selection)
     if (activeTool === 'cursor') {
-        // Capture start for Tap vs Drag detection
+        // PREVENTS NATIVE OS SELECTION UI (TEARDROPS)
+        // This is crucial for the "Smart Tap" custom behavior.
+        e.preventDefault();
+        
         cursorStartRef.current = { x: e.clientX, y: e.clientY };
         return; 
     }
@@ -538,6 +541,32 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
                                 onCorrect={(wIdx, newTxt) => updateOcrWord(pageNumber, wIdx, newTxt)} 
                             />
                         ))}
+                </div>
+            )}
+
+            {/* Visual Selection Layer (Virtual) - Feedback para seleção de texto */}
+            {selection && selection.page === pageNumber && (
+                <div className="absolute inset-0 z-[35] pointer-events-none">
+                    {selection.relativeRects.map((rect, i) => {
+                        // Verifica se é a última palavra selecionada para aplicar estilo de destaque
+                        const isLast = i === selection.relativeRects.length - 1;
+                        return (
+                            <div 
+                                key={i} 
+                                className={`absolute transition-all duration-75 ${
+                                    isLast 
+                                    ? 'bg-purple-500/30 border-b-2 border-purple-500 mix-blend-multiply' // Estilo da palavra final (Roxo)
+                                    : 'bg-brand/30 mix-blend-multiply' // Estilo padrão (Verde)
+                                }`}
+                                style={{ 
+                                    left: rect.x * scale, 
+                                    top: rect.y * scale, 
+                                    width: rect.width * scale, 
+                                    height: rect.height * scale,
+                                }}
+                            />
+                        );
+                    })}
                 </div>
             )}
 
