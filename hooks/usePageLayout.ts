@@ -16,7 +16,7 @@ export interface PageLayoutState {
 }
 
 export const usePageLayout = ({ editor, initialSettings, contentRef }: UsePageLayoutProps) => {
-  // Zoom padrão 1.1 (110%) para leitura confortável
+  // Zoom padrão 1.1 (110%) para leitura confortável em desktop
   const [zoom, setZoom] = useState(1.1);
   const [viewMode, setViewMode] = useState<'slide' | 'continuous'>('slide');
   const [showRuler, setShowRuler] = useState(true);
@@ -88,10 +88,30 @@ export const usePageLayout = ({ editor, initialSettings, contentRef }: UsePageLa
       return arr;
   }, [pageCount, currentPaper]);
 
-  // "Fit Width" agora apenas reseta para 100% (padrão real)
-  // Removemos a lógica de cálculo automático que estava quebrando o layout
+  // "Fit Width" inteligente: detecta mobile para ajustar zoom ao tamanho da tela
   const handleFitWidth = useCallback(() => {
-      setZoom(1);
+      const containerWidth = window.innerWidth;
+      const isMobile = containerWidth < 768;
+      
+      if (isMobile) {
+          // Mobile: Calcula zoom para caber na tela com pequena margem (16px total de padding)
+          const availableWidth = containerWidth - 16;
+          const targetZoom = availableWidth / currentPaper.widthPx;
+          // Limita o zoom mínimo para não ficar ilegível, mas permite fit
+          setZoom(targetZoom);
+          setShowRuler(false); // Esconde régua em mobile para ganhar espaço
+      } else {
+          // Desktop: Reseta para 100% ou um valor confortável
+          setZoom(1);
+          setShowRuler(true);
+      }
+  }, [currentPaper.widthPx]);
+
+  // Auto-ajuste inicial em Mobile
+  useEffect(() => {
+      if (window.innerWidth < 768) {
+          handleFitWidth();
+      }
   }, []);
 
   return {

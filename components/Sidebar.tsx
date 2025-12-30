@@ -138,6 +138,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         <nav className="flex-1 py-6 space-y-2 overflow-y-auto custom-scrollbar overflow-x-hidden">
+          
+          {/* Priority: Open Files at Top */}
+          {openFiles.length > 0 && (
+            <div className="animate-in fade-in slide-in-from-left-2 px-3 mb-4 border-b border-border pb-4">
+              <div className="px-2 mb-2 text-xs font-bold text-text-sec uppercase tracking-wider flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-brand"></span> Abertos
+              </div>
+              <div className="space-y-1">
+                {openFiles.map(file => (
+                    <div key={file.id} className={`group relative flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all cursor-pointer ${activeTab === file.id ? 'bg-surface text-text font-medium border border-border shadow-sm' : 'text-text-sec hover:bg-white/5 hover:text-text border border-transparent'}`} onClick={() => handleNavigation(file.id)}>
+                      {file.name.endsWith('.mindmap') ? <Workflow size={16} className="shrink-0 text-purple-400" /> : <FileText size={16} className="shrink-0 text-brand" />}
+                      <span className="truncate text-sm flex-1 pr-6">{file.name}</span>
+                      <button onClick={(e) => { e.stopPropagation(); onCloseFile(file.id); }} className="absolute right-2 p-1 text-text-sec hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all rounded hover:bg-red-500/10"><X size={14} /></button>
+                    </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="space-y-1 px-3">
             <button onClick={() => handleNavigation('dashboard')} className={`w-full group p-3 rounded-xl transition-all duration-200 flex items-center px-4 ${activeTab === 'dashboard' ? 'bg-brand/10 text-brand font-medium' : 'text-text-sec hover:bg-white/5 hover:text-text'}`}>
               <Home size={24} className={`shrink-0 ${activeTab === 'dashboard' ? "fill-brand/20" : ""}`} /><span className="ml-4 text-base">Início</span>
@@ -217,21 +236,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <span className="ml-4 text-sm">Chave Gemini AI</span>
              </button>
           </div>
-
-          {openFiles.length > 0 && (
-            <div className="animate-in fade-in slide-in-from-left-2 border-t border-border pt-4 px-3">
-              <div className="px-2 mb-2 text-xs font-bold text-text-sec uppercase tracking-wider">Abertos</div>
-              <div className="space-y-1">
-                {openFiles.map(file => (
-                    <div key={file.id} className={`group relative flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all cursor-pointer ${activeTab === file.id ? 'bg-surface text-text font-medium border border-border shadow-sm' : 'text-text-sec hover:bg-white/5 hover:text-text border border-transparent'}`} onClick={() => handleNavigation(file.id)}>
-                      {file.name.endsWith('.mindmap') ? <Workflow size={16} className="shrink-0 text-purple-400" /> : <FileText size={16} className="shrink-0 text-brand" />}
-                      <span className="truncate text-sm flex-1 pr-6">{file.name}</span>
-                      <button onClick={(e) => { e.stopPropagation(); onCloseFile(file.id); }} className="absolute right-2 p-1 text-text-sec hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all rounded hover:bg-red-500/10"><X size={14} /></button>
-                    </div>
-                ))}
-              </div>
-            </div>
-          )}
         </nav>
 
         <div className="p-3 border-t border-border mt-auto shrink-0 flex flex-col gap-2">

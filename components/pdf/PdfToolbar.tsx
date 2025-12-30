@@ -2,20 +2,28 @@
 import React, { useState, useEffect } from 'react';
 import { MousePointer2, StickyNote, Pen, Eraser, ChevronLeft, ChevronRight, MoveHorizontal, Minus, Plus, Search, ZoomIn, Paintbrush } from 'lucide-react';
 import { usePdfContext } from '../../context/PdfContext';
+import { usePdfStore } from '../../stores/usePdfStore';
 
 interface Props {
   onFitWidth: () => void;
 }
 
 export const PdfToolbar: React.FC<Props> = ({ onFitWidth }) => {
-  const { 
-    activeTool, setActiveTool,
-    currentPage, jumpToPage, numPages,
-    scale, setScale,
-    goNext, goPrev,
-    settings, // Consumindo settings para layout
-    docPageOffset // Consuming offset
-  } = usePdfContext();
+  // Consumindo ESTADOS diretamente do Store (Zustand)
+  const activeTool = usePdfStore(s => s.activeTool);
+  const setActiveTool = usePdfStore(s => s.setActiveTool);
+  
+  const currentPage = usePdfStore(s => s.currentPage);
+  const numPages = usePdfStore(s => s.numPages);
+  const jumpToPage = usePdfStore(s => s.jumpToPage);
+  const goNext = usePdfStore(s => s.nextPage);
+  const goPrev = usePdfStore(s => s.prevPage);
+  
+  const scale = usePdfStore(s => s.scale);
+  const setScale = usePdfStore(s => s.setScale);
+
+  // Consumindo DADOS do Context (ainda necessário para settings e callbacks complexos)
+  const { settings, docPageOffset } = usePdfContext();
 
   const [isEditingPage, setIsEditingPage] = useState(false);
   const [tempPageInput, setTempPageInput] = useState("1");
@@ -26,9 +34,6 @@ export const PdfToolbar: React.FC<Props> = ({ onFitWidth }) => {
 
   useEffect(() => {
     if (!isEditingPage) {
-      // Input always works on physical page for direct jump consistency
-      // But let's show the physical one in input for clarity, or logical?
-      // Convention: Input jumps to physical page index usually.
       setTempPageInput(currentPage.toString());
     }
   }, [currentPage, isEditingPage]);
@@ -78,7 +83,7 @@ export const PdfToolbar: React.FC<Props> = ({ onFitWidth }) => {
             ring-1 ring-white/5
         ">
             
-            {/* Zone 1: Tools (Console Style) */}
+            {/* Zone 1: Tools */}
             <div className="flex items-center gap-1 bg-[#161b22] p-1 rounded-xl border border-[#30363d]">
                 <ToolbarBtn active={activeTool === 'cursor'} onClick={() => setActiveTool('cursor')} icon={MousePointer2} title="Selecionar" />
                 <ToolbarBtn active={activeTool === 'brush'} onClick={() => setActiveTool('brush')} icon={Paintbrush} title="Pincel de Destaque (Área)" />
@@ -87,10 +92,9 @@ export const PdfToolbar: React.FC<Props> = ({ onFitWidth }) => {
                 <ToolbarBtn active={activeTool === 'eraser'} onClick={() => setActiveTool('eraser')} icon={Eraser} title="Apagar" />
             </div>
             
-            {/* Separator */}
             <div className="h-8 w-px bg-[#30363d] mx-1"></div>
 
-            {/* Zone 2: Navigation (Terminal Style) */}
+            {/* Zone 2: Navigation */}
             <div className="flex items-center gap-1 px-1">
                 <button 
                     onClick={goPrev} 
@@ -101,7 +105,6 @@ export const PdfToolbar: React.FC<Props> = ({ onFitWidth }) => {
                 </button>
                 
                 <div className="flex items-center bg-[#010409] border border-[#30363d] rounded-lg px-2 py-1 gap-2 min-w-[100px] justify-center shadow-inner relative">
-                    
                     {isEditingPage ? (
                     <form onSubmit={handlePageSubmit} className="flex items-center justify-center">
                         <input 
@@ -139,10 +142,9 @@ export const PdfToolbar: React.FC<Props> = ({ onFitWidth }) => {
                 </button>
             </div>
 
-            {/* Separator */}
             <div className="h-8 w-px bg-[#30363d] mx-1"></div>
 
-            {/* Zone 3: Zoom (Utility Style) */}
+            {/* Zone 3: Zoom */}
             <div className="flex items-center gap-1 pr-1">
                 <button 
                     onClick={onFitWidth} 

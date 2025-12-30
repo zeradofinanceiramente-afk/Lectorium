@@ -158,7 +158,7 @@ export const DocToolbar: React.FC<Props> = ({
   return (
     <div 
         ref={menuContainerRef}
-        className="fixed bottom-8 left-1/2 -translate-x-1/2 z-40 bg-black border border-border p-2 rounded-2xl shadow-2xl flex items-center gap-1 animate-in slide-in-from-bottom-4 fade-in duration-500 overflow-visible max-w-[95vw] print:hidden"
+        className="fixed bottom-8 left-1/2 -translate-x-1/2 z-40 bg-black border border-border p-2 rounded-2xl shadow-2xl flex items-center gap-1 animate-in slide-in-from-bottom-4 fade-in duration-500 overflow-x-auto max-w-[95vw] print:hidden no-scrollbar"
     >
       
       {/* Font Family & Size */}

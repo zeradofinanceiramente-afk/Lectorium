@@ -136,8 +136,6 @@ export const usePdfAnnotations = (fileId: string, uid: string, pdfDoc: PDFDocume
     loadAndVerify();
   }, [fileId, uid, pdfDoc, currentBlob]); 
 
-  // Removed: useEffect hook for Firestore subscription
-
   const mergeAndSet = useCallback(() => {
     const map = new Map<string, Annotation>();
 

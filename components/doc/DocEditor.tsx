@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useDocEditorConfig } from '../../hooks/useDocEditorConfig';
 import { useDocFileHandler } from '../../hooks/useDocFileHandler';
@@ -264,15 +265,10 @@ export const DocEditor: React.FC<Props> = ({
       const config = pageLayout.pageSettings.pageNumber;
       if (!config || !config.enabled) return null;
 
-      // Logic: Show from X page (e.g. start showing on page 2)
-      // Logic: Start counting from Y (e.g. page 2 displays "1")
       const physicalPageNum = pageIndex + 1; // 1-based index
       
       if (physicalPageNum < (config.displayFromPage || 1)) return null;
 
-      // Calculate the number to display
-      // If startAt is set, we adjust. Usually startAt=1 means the first counted page is "1".
-      // offset is how many pages we skipped before starting to count/show
       const offset = (config.displayFromPage || 1) - 1;
       const displayNum = (physicalPageNum - offset) + (config.startAt - 1);
 
@@ -316,40 +312,47 @@ export const DocEditor: React.FC<Props> = ({
   return (
     <div className={`flex flex-col h-full bg-bg relative overflow-hidden text-text ${modes.focus ? 'focus-mode' : ''}`}>
        <div className="bg-surface border-b border-border z-50 shrink-0">
-             <div className="flex items-center justify-between px-4 pt-3 pb-1">
-                <div className="flex items-start gap-4">
-                    <button onClick={onBack} className="p-2 hover:bg-white/10 rounded-full text-text-sec mt-1"><ArrowLeft size={20} /></button>
-                    <div className="pt-2 text-blue-400"><FileText size={28} /></div>
-                    <div className="flex flex-col">
-                        <input value={fileHandler.currentName} onChange={e => fileHandler.setCurrentName(e.target.value)} onBlur={fileHandler.handleRename} className="bg-transparent text-text font-medium text-lg outline-none px-2 rounded -ml-2 focus:border-brand transition-colors" />
-                        <TopMenuBar 
-                            editor={editor} fileName={fileHandler.currentName} onSave={() => fileHandler.handleSave(pageLayout.pageSettings, comments, references)}
-                            onShare={handleNativeShare} onNew={onToggleMenu} onWordCount={() => toggleModal('wordCount', true)}
-                            onDownload={() => fileHandler.handleDownload(pageLayout.pageSettings, comments, references)} onDownloadLect={() => fileHandler.handleDownloadLect(pageLayout.pageSettings, comments)} onExportPdf={() => window.print()}
-                            onInsertImage={triggerImageUpload} onTrash={fileHandler.handleTrash} onPageSetup={() => toggleModal('pageSetup', true)}
-                            onPageNumber={() => toggleModal('pageNumber', true)} 
-                            currentPage={currentPage}
-                            onHeader={() => { setActiveHeaderFooterTab('header'); toggleModal('headerFooter', true); }} 
-                            onFooter={() => { setActiveHeaderFooterTab('footer'); toggleModal('headerFooter', true); }} 
-                            onAddFootnote={() => (editor.chain().focus() as any).setFootnote().run()}
-                            onAddCitation={() => toggleModal('citation', true)} onPrint={() => window.print()} onLanguage={() => toggleModal('language', true)}
-                            onSpellCheck={() => setSpellCheck(!spellCheck)} onFindReplace={() => toggleModal('findReplace', true)}
-                            onColumns={() => toggleModal('columns', true)}
-                            showRuler={pageLayout.showRuler} setShowRuler={pageLayout.setShowRuler} zoom={pageLayout.zoom} setZoom={pageLayout.setZoom}
-                            onFitWidth={pageLayout.handleFitWidth} viewMode={pageLayout.viewMode} setViewMode={pageLayout.setViewMode}
-                            focusMode={modes.focus} setFocusMode={v => toggleMode('focus', v)} showComments={sidebars.comments} setShowComments={v => toggleSidebar('comments', v)}
-                            suggestionMode={modes.suggestion} toggleSuggestionMode={() => toggleMode('suggestion')} toggleOutline={() => toggleSidebar('outline')} isOutlineOpen={sidebars.outline}
-                            toggleDictation={() => toggleMode('dictation')} isDictationActive={modes.dictation} onExportHtml={() => {}}
+             <div className="flex flex-col md:flex-row md:items-center justify-between px-2 md:px-4 pt-2 md:pt-3 pb-1 gap-2">
+                <div className="flex items-start gap-2 md:gap-4 overflow-hidden">
+                    <button onClick={onBack} className="p-2 hover:bg-white/10 rounded-full text-text-sec mt-1 shrink-0"><ArrowLeft size={20} /></button>
+                    <div className="pt-2 text-blue-400 shrink-0"><FileText size={24} className="md:w-7 md:h-7" /></div>
+                    <div className="flex flex-col min-w-0 flex-1">
+                        <input 
+                            value={fileHandler.currentName} 
+                            onChange={e => fileHandler.setCurrentName(e.target.value)} 
+                            onBlur={fileHandler.handleRename} 
+                            className="bg-transparent text-text font-medium text-sm md:text-lg outline-none px-2 rounded -ml-2 focus:border-brand transition-colors w-full truncate" 
                         />
+                        <div className="overflow-x-auto no-scrollbar -ml-2 w-full">
+                            <TopMenuBar 
+                                editor={editor} fileName={fileHandler.currentName} onSave={() => fileHandler.handleSave(pageLayout.pageSettings, comments, references)}
+                                onShare={handleNativeShare} onNew={onToggleMenu} onWordCount={() => toggleModal('wordCount', true)}
+                                onDownload={() => fileHandler.handleDownload(pageLayout.pageSettings, comments, references)} onDownloadLect={() => fileHandler.handleDownloadLect(pageLayout.pageSettings, comments)} onExportPdf={() => window.print()}
+                                onInsertImage={triggerImageUpload} onTrash={fileHandler.handleTrash} onPageSetup={() => toggleModal('pageSetup', true)}
+                                onPageNumber={() => toggleModal('pageNumber', true)} 
+                                currentPage={currentPage}
+                                onHeader={() => { setActiveHeaderFooterTab('header'); toggleModal('headerFooter', true); }} 
+                                onFooter={() => { setActiveHeaderFooterTab('footer'); toggleModal('headerFooter', true); }} 
+                                onAddFootnote={() => (editor.chain().focus() as any).setFootnote().run()}
+                                onAddCitation={() => toggleModal('citation', true)} onPrint={() => window.print()} onLanguage={() => toggleModal('language', true)}
+                                onSpellCheck={() => setSpellCheck(!spellCheck)} onFindReplace={() => toggleModal('findReplace', true)}
+                                onColumns={() => toggleModal('columns', true)}
+                                showRuler={pageLayout.showRuler} setShowRuler={pageLayout.setShowRuler} zoom={pageLayout.zoom} setZoom={pageLayout.setZoom}
+                                onFitWidth={pageLayout.handleFitWidth} viewMode={pageLayout.viewMode} setViewMode={pageLayout.setViewMode}
+                                focusMode={modes.focus} setFocusMode={v => toggleMode('focus', v)} showComments={sidebars.comments} setShowComments={v => toggleSidebar('comments', v)}
+                                suggestionMode={modes.suggestion} toggleSuggestionMode={() => toggleMode('suggestion')} toggleOutline={() => toggleSidebar('outline')} isOutlineOpen={sidebars.outline}
+                                toggleDictation={() => toggleMode('dictation')} isDictationActive={modes.dictation} onExportHtml={() => {}}
+                            />
+                        </div>
                     </div>
                 </div>
-                <div className="flex items-center gap-4 mt-2">
-                    <div className="text-text-sec">{fileHandler.isSaving ? <Loader2 size={20} className="animate-spin" /> : <Cloud size={20} />}</div>
-                    <button onClick={() => toggleSidebar('aiChat')} className={`p-2 rounded-full ${sidebars.aiChat ? 'bg-brand/20 text-brand' : 'text-text-sec'}`}><Sparkles size={20} /></button>
-                    <button onClick={() => toggleSidebar('comments')} className={`p-2 rounded-full ${sidebars.comments ? 'bg-brand/20 text-brand' : 'text-text-sec'}`}><Users size={20} /></button>
-                    <button onClick={() => toggleModal('share', true)} className="flex items-center gap-2 bg-[#c2e7ff] text-[#0b141a] px-4 py-2 rounded-full font-medium text-sm hover:brightness-110 transition-all disabled:opacity-50">
-                        {isSharing ? <Loader2 size={16} className="animate-spin"/> : <Share2 size={16} />}
-                        <span>Compartilhar</span>
+                <div className="flex items-center gap-2 md:gap-4 self-end md:self-auto md:mt-2 px-2">
+                    <div className="text-text-sec">{fileHandler.isSaving ? <Loader2 size={16} className="animate-spin" /> : <Cloud size={16} className="md:w-5 md:h-5" />}</div>
+                    <button onClick={() => toggleSidebar('aiChat')} className={`p-1.5 md:p-2 rounded-full ${sidebars.aiChat ? 'bg-brand/20 text-brand' : 'text-text-sec'}`}><Sparkles size={18} className="md:w-5 md:h-5" /></button>
+                    <button onClick={() => toggleSidebar('comments')} className={`p-1.5 md:p-2 rounded-full ${sidebars.comments ? 'bg-brand/20 text-brand' : 'text-text-sec'}`}><Users size={18} className="md:w-5 md:h-5" /></button>
+                    <button onClick={() => toggleModal('share', true)} className="flex items-center gap-2 bg-[#c2e7ff] text-[#0b141a] px-3 py-1.5 md:px-4 md:py-2 rounded-full font-medium text-xs md:text-sm hover:brightness-110 transition-all disabled:opacity-50">
+                        {isSharing ? <Loader2 size={14} className="animate-spin"/> : <Share2 size={14} className="md:w-4 md:h-4" />}
+                        <span className="hidden md:inline">Compartilhar</span>
                     </button>
                 </div>
              </div>
@@ -380,7 +383,7 @@ export const DocEditor: React.FC<Props> = ({
           {/* Main Scroll Container */}
           <div 
             ref={docScrollerRef} 
-            className="flex-1 flex justify-center px-12 pb-12 relative overflow-hidden items-center cursor-default"
+            className="flex-1 flex justify-center px-2 md:px-12 pb-12 relative overflow-hidden items-center cursor-default"
           >
              {/* Menus Flutuantes */}
              <TableBubbleMenu editor={editor} onOpenProperties={() => toggleModal('tableProperties', true)} />
@@ -391,7 +394,7 @@ export const DocEditor: React.FC<Props> = ({
              <FindReplaceBar editor={editor} isOpen={modals.findReplace} onClose={() => toggleModal('findReplace', false)} />
 
              <div 
-                className="relative my-8 transition-transform origin-top will-change-transform bg-transparent" 
+                className="relative my-4 md:my-8 transition-transform origin-top will-change-transform bg-transparent" 
                 style={{ 
                     transform: `scale(${pageLayout.zoom})`, 
                     width: pageLayout.currentPaper.widthPx,
@@ -400,7 +403,7 @@ export const DocEditor: React.FC<Props> = ({
                     boxShadow: '0 0 50px -10px rgba(0,0,0,0.5)'
                 }}
              >
-                {/* Régua Horizontal */}
+                {/* Régua Horizontal - Visível apenas se zoom permitir ou desktop */}
                 {pageLayout.showRuler && (
                     <div className="absolute -top-6 left-0 right-0 z-[60]">
                         <Ruler 

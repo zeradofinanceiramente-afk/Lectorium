@@ -156,7 +156,7 @@ const MenuButton = ({ label, isActive, onClick, onMouseEnter }: { label: string,
   <button
     onClick={onClick}
     onMouseEnter={onMouseEnter}
-    className={`px-3 py-1 rounded-md text-sm font-medium transition-colors cursor-default select-none ${
+    className={`px-2 md:px-3 py-1 rounded-md text-xs md:text-sm font-medium transition-colors cursor-default select-none whitespace-nowrap ${
       isActive 
         ? 'bg-[#444746] text-[#e3e3e3]' 
         : 'text-[#e3e3e3] hover:bg-[#303033]'
@@ -167,7 +167,7 @@ const MenuButton = ({ label, isActive, onClick, onMouseEnter }: { label: string,
 );
 
 const MenuDropdown: React.FC<{ children: React.ReactNode, className?: string }> = ({ children, className = "" }) => (
-  <div className={`absolute top-full left-0 mt-1 bg-[#1e1e1e] border border-[#444746] rounded-lg shadow-xl py-1.5 min-w-[280px] z-50 flex flex-col text-[#e3e3e3] animate-in fade-in zoom-in-95 duration-100 origin-top-left ${className}`}>
+  <div className={`absolute top-full left-0 mt-1 bg-[#1e1e1e] border border-[#444746] rounded-lg shadow-xl py-1.5 min-w-[280px] z-[100] flex flex-col text-[#e3e3e3] animate-in fade-in zoom-in-95 duration-100 origin-top-left ${className}`}>
     {children}
   </div>
 );
@@ -647,10 +647,10 @@ export const TopMenuBar: React.FC<Props> = (props) => {
   );
 
   return (
-    <div className="flex items-center gap-1 select-none px-2" ref={menuRef}>
+    <div className="flex items-center gap-1 select-none px-2 relative" ref={menuRef}>
       
-      {/* Undo/Redo Buttons (Visible & Neon White) */}
-      <div className="flex items-center gap-1 mr-2 border-r border-[#444746] pr-2">
+      {/* Undo/Redo Buttons (Visible on Desktop only) */}
+      <div className="hidden md:flex items-center gap-1 mr-2 border-r border-[#444746] pr-2">
          <button 
            onClick={() => editor.chain().focus().undo().run()}
            disabled={!editor.can().undo()}

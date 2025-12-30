@@ -9,6 +9,7 @@ import { indexDocumentForSearch } from '../services/ragService';
 import { scheduleWork, cancelWork } from '../utils/scheduler';
 import { SelectionState } from '../components/pdf/SelectionMenu';
 import { usePdfSelection } from '../hooks/usePdfSelection';
+import { usePdfStore } from '../stores/usePdfStore';
 
 export type ToolType = 'cursor' | 'text' | 'ink' | 'eraser' | 'note' | 'brush';
 
@@ -30,20 +31,25 @@ interface PdfSettings {
   toolbarYOffset: number;
 }
 
+// Simplified Context State (Removidos estados de UI como scale/currentPage que agora estão no Zustand)
 interface PdfContextState {
+  // Legacy accessors proxied to Zustand for compatibility during migration
   scale: number;
-  setScale: React.Dispatch<React.SetStateAction<number>>;
+  setScale: (s: number | ((p:number)=>number)) => void;
   currentPage: number;
-  setCurrentPage: (page: number) => void;
+  setCurrentPage: (p: number) => void;
   numPages: number;
+  activeTool: ToolType;
+  setActiveTool: (tool: ToolType) => void;
   isSpread: boolean;
   setIsSpread: (v: boolean) => void;
   spreadSide: 'left' | 'right';
-  setSpreadSide: (side: 'left' | 'right') => void;
+  setSpreadSide: (s: 'left' | 'right') => void;
   goNext: () => void;
   goPrev: () => void;
-  activeTool: ToolType;
-  setActiveTool: (tool: ToolType) => void;
+  jumpToPage: (page: number) => void;
+
+  // Data State (Continues in Context)
   settings: PdfSettings;
   updateSettings: (newSettings: Partial<PdfSettings>) => void;
   annotations: Annotation[];
@@ -61,7 +67,6 @@ interface PdfContextState {
   hasUnsavedOcr: boolean;
   setHasUnsavedOcr: (val: boolean) => void;
   ocrNotification: string | null;
-  jumpToPage: (page: number) => void;
   accessToken?: string | null;
   fileId: string;
   updateSourceBlob: (newBlob: Blob) => void;
@@ -70,12 +75,9 @@ interface PdfContextState {
   markOcrAsSaved: (pages: number[]) => void;
   chatRequest: string | null;
   setChatRequest: (msg: string | null) => void;
-  // RAG Indexing
   generateSearchIndex: (fullText: string) => Promise<void>;
-  // Page Offset Correction
   docPageOffset: number;
   setDocPageOffset: (offset: number) => void;
-  // Selection System (Global State)
   selection: SelectionState | null;
   setSelection: (s: SelectionState | null) => void;
   onSmartTap: (t: HTMLElement) => void;
@@ -127,17 +129,28 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
   children, initialScale, numPages, annotations, onAddAnnotation, onRemoveAnnotation, onJumpToPage, accessToken, fileId, pdfDoc,
   onUpdateSourceBlob, currentBlob, initialPageOffset, onSetPageOffset
 }) => {
-  const [scale, setScale] = useState(initialScale);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [activeTool, setActiveTool] = useState<ToolType>('cursor');
+  // Sync Data Props to Store on Mount/Change
+  useEffect(() => {
+    usePdfStore.getState().setNumPages(numPages);
+    usePdfStore.getState().setScale(initialScale);
+  }, [numPages, initialScale]);
+
+  // Read State from Store for Legacy Context Consumers
+  // Note: This causes re-renders in Context consumers, but we will migrate heavy components to useStore directly
+  const scale = usePdfStore(s => s.scale);
+  const currentPage = usePdfStore(s => s.currentPage);
+  const activeTool = usePdfStore(s => s.activeTool);
+  const isSpread = usePdfStore(s => s.isSpread);
+  const spreadSide = usePdfStore(s => s.spreadSide);
+
+  const { setScale, setCurrentPage, setActiveTool, setIsSpread, setSpreadSide, nextPage, prevPage, jumpToPage: storeJump } = usePdfStore();
+
   const [ocrMap, setOcrMap] = useState<Record<number, any[]>>({});
   const [nativeTextMap, setNativeTextMap] = useState<Record<number, string>>({}); 
   const [ocrStatusMap, setOcrStatusMap] = useState<Record<number, OcrStatus>>({});
   const [hasUnsavedOcr, setHasUnsavedOcr] = useState(false);
   const [ocrNotification, setOcrNotificationState] = useState<string | null>(null);
   const notificationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [isSpread, setIsSpread] = useState(false);
-  const [spreadSide, setSpreadSide] = useState<'left' | 'right'>('left');
   const ocrManagerRef = useRef<OcrManager | null>(null);
   const [chatRequest, setChatRequest] = useState<string | null>(null);
   const [showOcrModal, setShowOcrModal] = useState(false);
@@ -162,7 +175,7 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
     return DEFAULT_SETTINGS;
   });
 
-  // --- SELECTION STATE SYSTEM (GLOBAL) ---
+  // --- SELECTION SYSTEM ---
   const { selection, setSelection, onSmartTap } = usePdfSelection({ 
       activeTool, 
       scale 
@@ -173,52 +186,40 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
     if (!pdfDoc || numPages === 0) return;
 
     setNativeTextMap({});
-    
     let workId: number;
     let pageIndex = 1;
     let isCancelled = false;
 
     const extractNextPage = async (deadline: { timeRemaining: () => number, didTimeout: boolean }) => {
         if (isCancelled) return;
-
         while (pageIndex <= numPages && (deadline.timeRemaining() > 1 || deadline.didTimeout)) {
             try {
                 const page = await pdfDoc.getPage(pageIndex);
                 const textContent = await page.getTextContent();
                 const text = textContent.items.map((item: any) => item.str).join(' ');
-                
                 if (text.trim().length > 0) {
                     setNativeTextMap(prev => ({ ...prev, [pageIndex]: text }));
                 }
-            } catch (e) {
-            }
+            } catch (e) {}
             pageIndex++;
         }
-
         if (pageIndex <= numPages) {
             workId = scheduleWork(extractNextPage);
         }
     };
-
     workId = scheduleWork(extractNextPage);
-
-    return () => {
-        isCancelled = true;
-        cancelWork(workId);
-    };
+    return () => { isCancelled = true; cancelWork(workId); };
   }, [pdfDoc, numPages]);
 
   const getUnburntOcrMap = useCallback(() => {
       const fullMap = ocrMap || {};
       const filteredMap: Record<number, any[]> = {};
-      
       Object.entries(fullMap).forEach(([pageStr, words]) => {
           const page = parseInt(pageStr);
           if (!burnedPagesRef.current.has(page) && Array.isArray(words)) {
               filteredMap[page] = words;
           }
       });
-      
       return filteredMap;
   }, [ocrMap]);
 
@@ -238,13 +239,11 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
         if (data && Object.keys(data).length > 0) {
             setOcrMap(prev => ({ ...prev, ...data }));
             const statusUpdate: Record<number, OcrStatus> = {};
-            
             Object.keys(data).forEach(pStr => {
                 const p = parseInt(pStr);
                 statusUpdate[p] = 'done';
                 burnedPagesRef.current.add(p);
             });
-            
             setOcrStatusMap(prev => ({ ...prev, ...statusUpdate }));
         }
     });
@@ -274,47 +273,16 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
   const updateSettings = useCallback((newSettings: Partial<PdfSettings>) => {
     setSettings(prev => {
         const next = { ...prev, ...newSettings };
-        try {
-            localStorage.setItem('pdf_tool_preferences', JSON.stringify(next));
-        } catch (e) {
-            console.warn("Failed to persist PDF preferences", e);
-        }
+        localStorage.setItem('pdf_tool_preferences', JSON.stringify(next));
         return next;
     });
   }, []);
 
-  const jumpToPage = useCallback((page: number) => {
-    setCurrentPage(page);
+  // Sync Jump: Quando a UI pede jump (via toolbar ou sidebar), atualiza o store e notifica o pai
+  const handleJumpToPage = useCallback((page: number) => {
+    storeJump(page);
     onJumpToPage(page);
-    setSpreadSide('left');
-    setIsSpread(false);
-  }, [onJumpToPage]);
-
-  const goNext = useCallback(() => {
-    if (settings.detectColumns && isSpread && spreadSide === 'left') {
-        setSpreadSide('right');
-        return;
-    }
-    if (currentPage < numPages) {
-        setCurrentPage(p => p + 1);
-        setSpreadSide('left');
-        setIsSpread(false);
-        onJumpToPage(currentPage + 1);
-    }
-  }, [isSpread, spreadSide, currentPage, numPages, settings.detectColumns, onJumpToPage]);
-
-  const goPrev = useCallback(() => {
-    if (settings.detectColumns && isSpread && spreadSide === 'right') {
-        setSpreadSide('left');
-        return;
-    }
-    if (currentPage > 1) {
-        setCurrentPage(p => p - 1);
-        setSpreadSide('right'); 
-        setIsSpread(false);
-        onJumpToPage(currentPage - 1);
-    }
-  }, [isSpread, spreadSide, currentPage, settings.detectColumns, onJumpToPage]);
+  }, [onJumpToPage, storeJump]);
 
   const setPageOcrData = useCallback((page: number, words: any[]) => {
     setOcrMap(prev => ({ ...prev, [page]: words }));
@@ -334,9 +302,7 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
         if (fileId) {
             saveOcrData(fileId, page, pageWords).catch(() => {});
             setHasUnsavedOcr(true);
-            if (burnedPagesRef.current.has(page)) {
-                burnedPagesRef.current.delete(page);
-            }
+            if (burnedPagesRef.current.has(page)) burnedPagesRef.current.delete(page);
         }
         return next;
     });
@@ -352,20 +318,17 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
   const refinePageOcr = useCallback(async (page: number) => {
     const rawWords = ocrMap[page];
     if (!rawWords || rawWords.length === 0) return;
-
     showOcrNotification(`IA: Refinando texto da Página ${page}...`);
     setOcrStatusMap(prev => ({ ...prev, [page]: 'processing' }));
     
     try {
         const textArray = rawWords.map(w => w.text);
         const refinedTexts = await refineOcrWords(textArray);
-        
         const refinedWords = rawWords.map((word, i) => ({
             ...word,
             text: refinedTexts[i] || word.text,
             isRefined: true
         }));
-
         setPageOcrData(page, refinedWords);
         setOcrStatusMap(prev => ({ ...prev, [page]: 'done' }));
         showOcrNotification(`Refinamento concluído.`);
@@ -391,20 +354,23 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
   }, [fileId, showOcrNotification]);
 
   const value = useMemo(() => ({
+    // Proxied to Zustand
     scale, setScale, currentPage, setCurrentPage, numPages, activeTool, setActiveTool,
+    isSpread, setIsSpread, spreadSide, setSpreadSide, goNext: nextPage, goPrev: prevPage, jumpToPage: handleJumpToPage,
+    
+    // Data Context
     settings, updateSettings, annotations, addAnnotation: onAddAnnotation, removeAnnotation: onRemoveAnnotation,
     ocrMap, nativeTextMap, ocrStatusMap, setPageOcrData, updateOcrWord, 
     triggerOcr, showOcrModal, setShowOcrModal,
     refinePageOcr, hasUnsavedOcr, setHasUnsavedOcr, ocrNotification,
-    jumpToPage, accessToken, fileId, isSpread, setIsSpread, spreadSide, setSpreadSide, goNext, goPrev,
-    updateSourceBlob: onUpdateSourceBlob, currentBlobRef, 
+    accessToken, fileId, updateSourceBlob: onUpdateSourceBlob, currentBlobRef, 
     getUnburntOcrMap, markOcrAsSaved,
     chatRequest, setChatRequest,
     generateSearchIndex,
     docPageOffset: initialPageOffset, 
     setDocPageOffset: onSetPageOffset,
     selection, setSelection, onSmartTap
-  }), [scale, currentPage, numPages, activeTool, settings, annotations, onAddAnnotation, onRemoveAnnotation, ocrMap, nativeTextMap, ocrStatusMap, setPageOcrData, updateOcrWord, triggerOcr, showOcrModal, refinePageOcr, hasUnsavedOcr, setHasUnsavedOcr, ocrNotification, jumpToPage, accessToken, fileId, isSpread, spreadSide, goNext, goPrev, onUpdateSourceBlob, getUnburntOcrMap, markOcrAsSaved, chatRequest, generateSearchIndex, initialPageOffset, onSetPageOffset, selection, setSelection, onSmartTap]);
+  }), [scale, currentPage, numPages, activeTool, isSpread, spreadSide, nextPage, prevPage, handleJumpToPage, settings, annotations, onAddAnnotation, onRemoveAnnotation, ocrMap, nativeTextMap, ocrStatusMap, setPageOcrData, updateOcrWord, triggerOcr, showOcrModal, refinePageOcr, hasUnsavedOcr, setHasUnsavedOcr, ocrNotification, accessToken, fileId, onUpdateSourceBlob, getUnburntOcrMap, markOcrAsSaved, chatRequest, generateSearchIndex, initialPageOffset, onSetPageOffset, selection, setSelection, onSmartTap]);
 
   return <PdfContext.Provider value={value}>{children}</PdfContext.Provider>;
 };

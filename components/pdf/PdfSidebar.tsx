@@ -188,7 +188,7 @@ export const PdfSidebar: React.FC<Props> = ({
                                 <div key={ann.id || idx} onClick={() => jumpToPage(ann.page)} className="bg-[#1a1a1a] p-3 rounded-xl border border-white/5 hover:border-brand/50 cursor-pointer group transition-all hover:bg-white/5 relative">
                                     <div className="flex items-center gap-2 mb-2">
                                         <span className="w-2 h-2 rounded-full shadow-[0_0_5px_currentColor]" style={{ backgroundColor: ann.color || '#4ade80', color: ann.color || '#4ade80' }} />
-                                        <span className="text-[10px] text-gray-400 font-mono">PÁG {ann.page.toString().padStart(2, '0')}</span>
+                                        <span className="text-[10px] text-gray-400 font-mono">PÁG {(ann.page + docPageOffset).toString().padStart(2, '0')}</span>
                                         {ann.isBurned && <span className="text-[9px] bg-white/5 border border-white/10 px-1.5 py-0.5 rounded text-gray-400 ml-auto flex items-center gap-1"><Lock size={8}/> GRAVADO</span>}
                                     </div>
                                     <p className="text-sm text-gray-200 line-clamp-2 leading-relaxed font-medium">{ann.text || <span className="italic opacity-50 text-xs">Anotação usando caneta</span>}</p>
