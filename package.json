@@ -1,4 +1,3 @@
-
 {
   "name": "pdf-drive-annotator",
   "private": true,
@@ -61,7 +60,8 @@
     "uuid": "^13.0.0",
     "recharts": "^3.6.0",
     "@tiptap/extension-code-block-lowlight": "^2.11.5",
-    "lowlight": "^3.3.0"
+    "lowlight": "^3.3.0",
+    "zustand": "^4.5.0"
   },
   "overrides": {
     "@tiptap/extension-collaboration-cursor": {
