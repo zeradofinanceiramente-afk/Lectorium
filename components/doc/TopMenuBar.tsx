@@ -167,7 +167,7 @@ const MenuButton = ({ label, isActive, onClick, onMouseEnter }: { label: string,
 );
 
 const MenuDropdown: React.FC<{ children: React.ReactNode, className?: string }> = ({ children, className = "" }) => (
-  <div className={`absolute top-full left-0 mt-1 bg-[#1e1e1e] border border-[#444746] rounded-lg shadow-xl py-1.5 min-w-[280px] z-[100] flex flex-col text-[#e3e3e3] animate-in fade-in zoom-in-95 duration-100 origin-top-left ${className}`}>
+  <div className={`absolute top-full left-0 mt-1 bg-[#1e1e1e] border border-[#444746] rounded-lg py-1.5 min-w-[280px] z-[100] flex flex-col text-[#e3e3e3] animate-in fade-in zoom-in-95 duration-100 origin-top-left ${className}`}>
     {children}
   </div>
 );
@@ -654,7 +654,7 @@ export const TopMenuBar: React.FC<Props> = (props) => {
          <button 
            onClick={() => editor.chain().focus().undo().run()}
            disabled={!editor.can().undo()}
-           className={`p-1.5 rounded-md transition-all ${!editor.can().undo() ? 'opacity-30 cursor-not-allowed text-gray-400' : 'text-white hover:bg-white/10 hover:shadow-[0_0_8px_rgba(255,255,255,0.6)]'}`}
+           className={`p-1.5 rounded-md transition-all ${!editor.can().undo() ? 'opacity-30 cursor-not-allowed text-gray-400' : 'text-white hover:bg-white/10'}`}
            title="Desfazer (Ctrl+Z)"
          >
            <Undo size={18} />
@@ -662,7 +662,7 @@ export const TopMenuBar: React.FC<Props> = (props) => {
          <button 
            onClick={() => editor.chain().focus().redo().run()}
            disabled={!editor.can().redo()}
-           className={`p-1.5 rounded-md transition-all ${!editor.can().redo() ? 'opacity-30 cursor-not-allowed text-gray-400' : 'text-white hover:bg-white/10 hover:shadow-[0_0_8px_rgba(255,255,255,0.6)]'}`}
+           className={`p-1.5 rounded-md transition-all ${!editor.can().redo() ? 'opacity-30 cursor-not-allowed text-gray-400' : 'text-white hover:bg-white/10'}`}
            title="Refazer (Ctrl+Y)"
          >
            <Redo size={18} />

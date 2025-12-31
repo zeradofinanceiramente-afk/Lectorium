@@ -109,7 +109,7 @@ export const PdfSidebar: React.FC<Props> = ({
     <>
         {/* Backdrop */}
         <div 
-            className={`fixed inset-0 z-[55] bg-black/40 backdrop-blur-[2px] transition-opacity duration-300 ${isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`} 
+            className={`fixed inset-0 z-[55] bg-black/40 transition-opacity duration-300 ${isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`} 
             onClick={onClose} 
         />
         
@@ -125,7 +125,6 @@ export const PdfSidebar: React.FC<Props> = ({
                         h-24 w-6 
                         flex items-center justify-center 
                         rounded-l-2xl 
-                        shadow-[-5px_0_15px_-5px_rgba(0,0,0,0.8)]
                         transition-all duration-300
                         bg-black border-l border-y border-brand/50
                         cursor-pointer
@@ -133,20 +132,18 @@ export const PdfSidebar: React.FC<Props> = ({
                         group
                     `}
                 >
-                    <div className="h-8 w-1 bg-white/20 rounded-full group-hover:bg-brand group-hover:shadow-[0_0_8px_var(--brand)] transition-colors" />
+                    <div className="h-8 w-1 bg-white/20 rounded-full group-hover:bg-brand transition-colors" />
                 </button>
             </div>
 
             {/* MAIN PANEL */}
-            <div className="flex-1 h-full flex flex-col relative overflow-hidden">
-                <div className="absolute inset-0 bg-[#050505]/85 backdrop-blur-xl z-0" />
-                <div className="absolute inset-0 border-l border-brand/40 z-0 pointer-events-none shadow-[inset_10px_0_30px_-15px_rgba(var(--brand),0.3)] box-border" />
+            <div className="flex-1 h-full flex flex-col relative overflow-hidden bg-black border-l border-brand/40">
                 
                 {/* Header */}
                 <div className="flex items-center justify-between p-5 border-b border-white/5 bg-gradient-to-r from-brand/5 to-transparent relative z-10">
                     <div className="flex items-center gap-3">
-                        <div className="w-1.5 h-4 bg-brand rounded-full shadow-[0_0_10px_rgba(74,222,128,0.5)]"></div>
-                        <span className="font-bold text-white uppercase text-xs tracking-[0.2em] text-brand drop-shadow-sm">Painel Tático</span>
+                        <div className="w-1.5 h-4 bg-brand rounded-full"></div>
+                        <span className="font-bold text-white uppercase text-xs tracking-[0.2em] text-brand">Painel Tático</span>
                         {hasUnsavedOcr && (
                             <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-500/10 border border-orange-500/30 text-orange-500 text-[9px] font-bold" title="Dados temporários salvos no navegador">
                                 <AlertCircle size={10} /> <span>CACHE</span>
@@ -157,7 +154,7 @@ export const PdfSidebar: React.FC<Props> = ({
                 </div>
 
                 {/* Tabs */}
-                <div className="flex border-b border-white/5 p-1 mx-2 mt-2 gap-1 bg-black/20 rounded-xl relative z-10">
+                <div className="flex border-b border-white/5 p-1 mx-2 mt-2 gap-1 bg-white/5 rounded-xl relative z-10">
                     {[
                         { id: 'annotations', label: 'Anotações', icon: FileText },
                         { id: 'fichamento', label: 'Fichamento', icon: ScrollText },
@@ -167,15 +164,15 @@ export const PdfSidebar: React.FC<Props> = ({
                         <button 
                             key={tab.id} 
                             onClick={() => onTabChange(tab.id as SidebarTab)} 
-                            className={`flex-1 py-2 text-[10px] font-bold uppercase transition-all rounded-lg flex flex-col items-center gap-1 ${activeTab === tab.id ? 'bg-white/10 text-brand shadow-inner border border-white/5' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`}
+                            className={`flex-1 py-2 text-[10px] font-bold uppercase transition-all rounded-lg flex flex-col items-center gap-1 ${activeTab === tab.id ? 'bg-white/10 text-brand border border-white/5' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`}
                         >
-                            <tab.icon size={16} className={activeTab === tab.id ? "text-brand drop-shadow-[0_0_5px_rgba(var(--brand),0.5)]" : ""} />
+                            <tab.icon size={16} className={activeTab === tab.id ? "text-brand" : ""} />
                             {tab.label}
                         </button>
                     ))}
                 </div>
 
-                <div className="flex-1 overflow-hidden flex flex-col bg-black/10 relative z-10">
+                <div className="flex-1 overflow-hidden flex flex-col bg-black relative z-10">
                     {activeTab === 'annotations' ? (
                         <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
                             {uniqueAnnotations.length === 0 && (
@@ -187,7 +184,7 @@ export const PdfSidebar: React.FC<Props> = ({
                             {uniqueAnnotations.map((ann, idx) => (
                                 <div key={ann.id || idx} onClick={() => jumpToPage(ann.page)} className="bg-[#1a1a1a] p-3 rounded-xl border border-white/5 hover:border-brand/50 cursor-pointer group transition-all hover:bg-white/5 relative">
                                     <div className="flex items-center gap-2 mb-2">
-                                        <span className="w-2 h-2 rounded-full shadow-[0_0_5px_currentColor]" style={{ backgroundColor: ann.color || '#4ade80', color: ann.color || '#4ade80' }} />
+                                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: ann.color || '#4ade80', color: ann.color || '#4ade80' }} />
                                         <span className="text-[10px] text-gray-400 font-mono">PÁG {(ann.page + docPageOffset).toString().padStart(2, '0')}</span>
                                         {ann.isBurned && <span className="text-[9px] bg-white/5 border border-white/10 px-1.5 py-0.5 rounded text-gray-400 ml-auto flex items-center gap-1"><Lock size={8}/> GRAVADO</span>}
                                     </div>
@@ -244,7 +241,7 @@ export const PdfSidebar: React.FC<Props> = ({
                                                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                                             />
                                             <div className="bg-[#1a1a1a] border border-white/10 p-2 rounded-lg flex items-center gap-2 hover:border-white/20 transition-colors">
-                                                <div className="w-4 h-4 rounded-full border border-white/20 shadow-sm" style={{ backgroundColor: settings.pageColor }}></div>
+                                                <div className="w-4 h-4 rounded-full border border-white/20" style={{ backgroundColor: settings.pageColor }}></div>
                                                 <span className="text-[10px] font-mono text-gray-400">{settings.pageColor.toUpperCase()}</span>
                                             </div>
                                         </div>
@@ -259,7 +256,7 @@ export const PdfSidebar: React.FC<Props> = ({
                                                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                                             />
                                             <div className="bg-[#1a1a1a] border border-white/10 p-2 rounded-lg flex items-center gap-2 hover:border-white/20 transition-colors">
-                                                <div className="w-4 h-4 rounded-full border border-white/20 shadow-sm" style={{ backgroundColor: settings.textColor }}></div>
+                                                <div className="w-4 h-4 rounded-full border border-white/20" style={{ backgroundColor: settings.textColor }}></div>
                                                 <span className="text-[10px] font-mono text-gray-400">{settings.textColor.toUpperCase()}</span>
                                             </div>
                                         </div>
@@ -463,12 +460,11 @@ export const PdfSidebar: React.FC<Props> = ({
                         text-brand 
                         hover:w-8 hover:pr-2 
                         transition-all duration-300
-                        shadow-[-5px_0_15px_-5px_rgba(0,0,0,0.8)]
                         group
                     "
                     title="Abrir Painel"
                 >
-                    <div className="h-8 w-1 bg-white/20 rounded-full group-hover:bg-brand group-hover:shadow-[0_0_8px_var(--brand)] transition-all" />
+                    <div className="h-8 w-1 bg-white/20 rounded-full group-hover:bg-brand transition-all" />
                 </button>
             </div>
         )}

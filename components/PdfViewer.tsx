@@ -123,6 +123,22 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
   const [definition, setDefinition] = useState<any>(null);
   const [isDefinitionCopied, setIsDefinitionCopied] = useState(false);
 
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(() => {});
+    } else {
+        document.exitFullscreen().catch(() => {});
+    }
+  };
+
   useEffect(() => {
     isFileOffline(fileId).then(setIsOfflineAvailable);
   }, [fileId]);
@@ -466,7 +482,9 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
                 </button>
 
                 <button onClick={() => setShowSaveModal(true)} className="flex items-center gap-2 bg-brand text-[#0b141a] px-4 py-2 rounded-full text-xs font-bold shadow-lg shadow-brand/20 hover:scale-105 transition-all"><Save size={16}/> <span className="hidden sm:inline">SALVAR</span></button>
-                <button onClick={() => setShowSidebar(!showSidebar)} className={`p-2.5 hover:bg-white/10 rounded-full transition-colors ${showSidebar ? 'text-brand' : 'text-white/80 hover:text-white'}`}><Menu size={20}/></button>
+                <button onClick={toggleFullscreen} className="p-2.5 hover:bg-white/10 rounded-full text-white/80 hover:text-white transition-colors" title={isFullscreen ? "Sair da Tela Cheia" : "Tela Cheia"}>
+                    {isFullscreen ? <Minimize size={20}/> : <Maximize size={20}/>}
+                </button>
              </div>
          </div>
       </div>

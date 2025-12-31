@@ -56,7 +56,7 @@ export const PdfToolbar: React.FC<Props> = ({ onFitWidth }) => {
             relative p-2.5 rounded-xl transition-all duration-200 group
             flex items-center justify-center
             ${active 
-                ? 'text-brand bg-brand/10 shadow-[0_0_15px_-3px_var(--brand)] border border-brand/50' 
+                ? 'text-brand bg-brand/10 border border-brand/50' 
                 : 'text-[#8b949e] hover:bg-[#21262d] hover:text-white border border-transparent'}
             ${className}
         `} 
@@ -76,11 +76,9 @@ export const PdfToolbar: React.FC<Props> = ({ onFitWidth }) => {
     >
         <div className="
             flex items-center gap-3 p-1.5 px-2
-            bg-[#0d1117]/95 backdrop-blur-xl 
+            bg-[#0d1117]
             border border-[#30363d] 
             rounded-2xl 
-            shadow-[0_8px_32px_rgba(0,0,0,0.6)]
-            ring-1 ring-white/5
         ">
             
             {/* Zone 1: Tools */}

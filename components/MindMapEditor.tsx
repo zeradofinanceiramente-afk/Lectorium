@@ -639,7 +639,6 @@ export const MindMapEditor: React.FC<Props> = ({ fileId, fileName, fileBlob, acc
                 fill="none" 
                 strokeDasharray={edge.style === 'dashed' ? '5,5' : 'none'}
                 className="transition-all duration-300 pointer-events-none"
-                style={{ filter: isSelected ? 'drop-shadow(0 0 5px rgba(168, 85, 247, 0.8))' : 'none' }}
               />
               {edge.label && (
                   <foreignObject x={(sx+ex)/2 - 40} y={(sy+ey)/2 - 10} width="80" height="20">
@@ -719,7 +718,7 @@ export const MindMapEditor: React.FC<Props> = ({ fileId, fileName, fileBlob, acc
               {/* Selection Menu (Floating Context) */}
               {isSelected && !isEditing && !isDraggingCanvas && !isResizingNode && (
                   <div 
-                    className="absolute -top-16 left-1/2 -translate-x-1/2 flex gap-1 bg-[#1e1e1e] border border-[#333] p-1.5 rounded-xl shadow-2xl z-50 animate-in fade-in zoom-in duration-200"
+                    className="absolute -top-16 left-1/2 -translate-x-1/2 flex gap-1 bg-[#1e1e1e] border border-[#333] p-1.5 rounded-xl animate-in fade-in zoom-in duration-200"
                     onPointerDown={e => e.stopPropagation()}
                   >
                       {/* Color Picker Button & Popover */}
@@ -733,7 +732,7 @@ export const MindMapEditor: React.FC<Props> = ({ fileId, fileName, fileBlob, acc
                           </button>
                           
                           {showColorPicker && (
-                              <div className="absolute top-full left-0 mt-2 p-2 bg-[#252525] border border-[#444] rounded-lg shadow-xl grid grid-cols-5 gap-1 z-[60] w-[120px]">
+                              <div className="absolute top-full left-0 mt-2 p-2 bg-[#252525] border border-[#444] rounded-lg grid grid-cols-5 gap-1 z-[60] w-[120px]">
                                   {COLORS.map(c => (
                                       <button 
                                         key={c}
@@ -802,11 +801,11 @@ export const MindMapEditor: React.FC<Props> = ({ fileId, fileName, fileBlob, acc
 
         {/* Header Overlay */}
         <div className="absolute top-4 left-4 z-40 flex items-center gap-3 ui-layer">
-            <button onClick={onToggleMenu} className="p-2.5 bg-surface/90 backdrop-blur rounded-xl border border-border hover:border-brand/50 text-text-sec hover:text-text transition-colors shadow-lg">
+            <button onClick={onToggleMenu} className="p-2.5 bg-surface rounded-xl border border-border hover:border-brand/50 text-text-sec hover:text-text transition-colors">
                 <Menu size={22} />
             </button>
             <div className="flex flex-col">
-                <span className="font-bold text-sm bg-surface/50 backdrop-blur px-3 py-1 rounded-lg border border-white/5">{fileName.replace('.mindmap','')}</span>
+                <span className="font-bold text-sm bg-surface px-3 py-1 rounded-lg border border-white/5">{fileName.replace('.mindmap','')}</span>
             </div>
             {(isLocalFile || !navigator.onLine) && (
                 <div className="flex items-center gap-1.5 px-3 py-1.5 bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 rounded-lg text-xs font-bold">
@@ -817,11 +816,11 @@ export const MindMapEditor: React.FC<Props> = ({ fileId, fileName, fileBlob, acc
 
         {/* Save/Export Overlay */}
         <div className="absolute top-4 right-4 z-40 flex gap-2 ui-layer">
-            <button onClick={saveToLocal} className="p-2.5 bg-surface/90 backdrop-blur rounded-xl border border-border hover:bg-white/5 text-text transition-colors shadow-lg" title="Baixar Local">
+            <button onClick={saveToLocal} className="p-2.5 bg-surface rounded-xl border border-border hover:bg-white/5 text-text transition-colors" title="Baixar Local">
                 <Download size={20} />
             </button>
             {!isLocalFile && (
-                <button onClick={saveToDrive} className="flex items-center gap-2 px-4 py-2.5 bg-brand text-bg rounded-xl font-bold shadow-lg hover:brightness-110 transition-all">
+                <button onClick={saveToDrive} className="flex items-center gap-2 px-4 py-2.5 bg-brand text-bg rounded-xl font-bold hover:brightness-110 transition-all">
                     {isSaving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
                     <span className="hidden sm:inline">Salvar</span>
                 </button>
@@ -860,7 +859,7 @@ export const MindMapEditor: React.FC<Props> = ({ fileId, fileName, fileBlob, acc
         </div>
 
         {/* Bottom Toolbar */}
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-40 bg-[#1e1e1e]/90 backdrop-blur-xl border border-[#333] p-2 rounded-2xl shadow-2xl flex items-center gap-2 ui-layer animate-in slide-in-from-bottom-10">
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-40 bg-[#1e1e1e] border border-[#333] p-2 rounded-2xl flex items-center gap-2 ui-layer animate-in slide-in-from-bottom-10">
             <div className="flex gap-1 pr-2 border-r border-white/10">
                 <button onClick={undo} disabled={historyPast.length===0} className={`p-2 rounded-lg ${historyPast.length ? 'hover:bg-white/10 text-text' : 'text-zinc-600'}`}><Undo size={20}/></button>
                 <button onClick={redo} disabled={historyFuture.length===0} className={`p-2 rounded-lg ${historyFuture.length ? 'hover:bg-white/10 text-text' : 'text-zinc-600'}`}><Redo size={20}/></button>
@@ -879,7 +878,7 @@ export const MindMapEditor: React.FC<Props> = ({ fileId, fileName, fileBlob, acc
                         scale: 1,
                         shape: 'pill'
                     }]);
-                }} className="p-2 bg-brand text-bg rounded-lg hover:brightness-110 shadow-lg"><Plus size={22}/></button>
+                }} className="p-2 bg-brand text-bg rounded-lg hover:brightness-110"><Plus size={22}/></button>
             </div>
 
             <div className="w-px h-6 bg-white/10 mx-1"></div>

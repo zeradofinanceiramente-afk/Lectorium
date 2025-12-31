@@ -62,7 +62,7 @@ const ConfidenceWord: React.FC<ConfidenceWordProps> = ({ word, scale, wordIndex,
             />
             {isEditing && (
                 <div 
-                    className="absolute z-[300] bg-surface p-2 rounded-xl shadow-2xl border border-brand animate-in zoom-in-95"
+                    className="absolute z-[300] bg-surface p-2 rounded-xl border border-brand animate-in zoom-in-95"
                     style={{ left: word.bbox.x0 * scale, top: (word.bbox.y1 * scale) + 5 }}
                     onClick={e => e.stopPropagation()}
                 >
@@ -469,7 +469,7 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
 
   return (
     <div 
-        className="pdf-page-wrapper mx-auto mb-8 relative shadow-2xl rounded-sm bg-[#18181b]" 
+        className="pdf-page-wrapper mx-auto mb-8 relative bg-[#18181b] border border-[#333]" 
         style={{ 
             width: outerWidth, 
             height: pageDimensions?.height || 1100, 
@@ -492,7 +492,7 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
             onPointerUp={handlePointerUp}
         >
             {!hasText && rendered && isVisible && (
-                <div className="absolute top-4 left-4 flex items-center gap-2 text-xs bg-black/80 text-white px-4 py-2 rounded-full backdrop-blur-md z-[100] shadow-2xl border border-white/10 group animate-in fade-in duration-300 pointer-events-auto">
+                <div className="absolute top-4 left-4 flex items-center gap-2 text-xs bg-black/80 text-white px-4 py-2 rounded-full z-[100] border border-white/10 group animate-in fade-in duration-300 pointer-events-auto">
                     {ocrStatus === 'processing' ? (
                       <div className="flex items-center gap-3">
                         <Loader2 size={16} className="animate-spin text-brand" />
@@ -561,7 +561,7 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
 
             {brushSelection && (
                 <div 
-                    className="absolute z-50 bg-brand/20 border border-brand pointer-events-none shadow-[0_0_15px_rgba(var(--brand),0.3)] backdrop-blur-[1px]"
+                    className="absolute z-50 bg-brand/20 border border-brand pointer-events-none"
                     style={{
                         left: Math.min(brushSelection.start.x, brushSelection.current.x) * scale,
                         top: Math.min(brushSelection.start.y, brushSelection.current.y) * scale,
@@ -625,7 +625,7 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
             />
 
             {draftNote && (
-                <div className="absolute z-50 bg-yellow-100 p-3 rounded-lg shadow-2xl border border-yellow-300 animate-in zoom-in-95 pointer-events-auto" style={{ left: draftNote.x * scale, top: draftNote.y * scale }}>
+                <div className="absolute z-50 bg-yellow-100 p-3 rounded-lg border border-yellow-300 animate-in zoom-in-95 pointer-events-auto" style={{ left: draftNote.x * scale, top: draftNote.y * scale }}>
                     <textarea 
                         autoFocus 
                         className="bg-transparent border-none outline-none text-sm text-yellow-900 resize-none w-48 h-24" 

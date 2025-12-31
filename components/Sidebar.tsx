@@ -127,17 +127,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <>
-      {isOpen && <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 animate-in fade-in duration-200 print:hidden" onClick={onClose} />}
-      <div className={`fixed inset-y-0 left-0 z-50 bg-sidebar border-r border-border transition-transform duration-300 ease-in-out shadow-2xl flex flex-col w-72 ${isOpen ? 'translate-x-0' : '-translate-x-full'} print:hidden`}>
-        <div className="h-20 flex items-center justify-between px-6 border-b border-border shrink-0">
+      {isOpen && <div className="fixed inset-0 bg-black/80 z-40 animate-in fade-in duration-200 print:hidden" onClick={onClose} />}
+      <div className={`fixed inset-y-0 left-0 z-50 bg-sidebar border-r border-border transition-transform duration-300 ease-in-out flex flex-col w-72 ${isOpen ? 'translate-x-0' : '-translate-x-full'} print:hidden`}>
+        <div className="h-20 flex items-center justify-between px-6 border-b border-border shrink-0 bg-sidebar">
           <div className="flex items-center gap-3 overflow-hidden">
-            <div className="w-10 h-10 bg-brand rounded-xl flex items-center justify-center shadow-lg shadow-brand/20 shrink-0"><LayoutGrid className="text-bg font-bold" size={22} /></div>
+            <div className="w-10 h-10 bg-brand rounded-xl flex items-center justify-center border border-brand/20 shrink-0"><LayoutGrid className="text-bg font-bold" size={22} /></div>
             <div className="flex flex-col min-w-0"><span className="font-bold text-lg text-text tracking-tight leading-none whitespace-nowrap">Lectorium</span><span className="text-[9px] text-text-sec uppercase tracking-widest mt-0.5 whitespace-nowrap">Workspace</span></div>
           </div>
           <button onClick={onClose} className="p-2 text-text-sec hover:text-text rounded-full hover:bg-white/5 transition-colors"><X size={24} /></button>
         </div>
 
-        <nav className="flex-1 py-6 space-y-2 overflow-y-auto custom-scrollbar overflow-x-hidden">
+        <nav className="flex-1 py-6 space-y-2 overflow-y-auto custom-scrollbar overflow-x-hidden bg-sidebar">
           
           {/* Priority: Open Files at Top */}
           {openFiles.length > 0 && (
@@ -147,7 +147,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
               <div className="space-y-1">
                 {openFiles.map(file => (
-                    <div key={file.id} className={`group relative flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all cursor-pointer ${activeTab === file.id ? 'bg-surface text-text font-medium border border-border shadow-sm' : 'text-text-sec hover:bg-white/5 hover:text-text border border-transparent'}`} onClick={() => handleNavigation(file.id)}>
+                    <div key={file.id} className={`group relative flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all cursor-pointer ${activeTab === file.id ? 'bg-surface text-text font-medium border border-border' : 'text-text-sec hover:bg-white/5 hover:text-text border border-transparent'}`} onClick={() => handleNavigation(file.id)}>
                       {file.name.endsWith('.mindmap') ? <Workflow size={16} className="shrink-0 text-purple-400" /> : <FileText size={16} className="shrink-0 text-brand" />}
                       <span className="truncate text-sm flex-1 pr-6">{file.name}</span>
                       <button onClick={(e) => { e.stopPropagation(); onCloseFile(file.id); }} className="absolute right-2 p-1 text-text-sec hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all rounded hover:bg-red-500/10"><X size={14} /></button>
@@ -238,9 +238,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </nav>
 
-        <div className="p-3 border-t border-border mt-auto shrink-0 flex flex-col gap-2">
+        <div className="p-3 border-t border-border mt-auto shrink-0 flex flex-col gap-2 bg-sidebar">
           {user ? (
-            <div className="flex items-center gap-3 rounded-xl p-2 transition-all bg-surface/50">
+            <div className="flex items-center gap-3 rounded-xl p-2 transition-all bg-surface/50 border border-border">
                 {user.photoURL ? <img src={user.photoURL} alt="User" className="w-10 h-10 rounded-full border border-border shrink-0" /> : <div className="w-10 h-10 rounded-full bg-surface flex items-center justify-center border border-border shrink-0"><UserIcon size={20} className="text-text-sec" /></div>}
                 <div className="flex flex-col min-w-0 flex-1"><span className="text-sm font-medium text-text truncate">{user.displayName}</span><span className="text-xs text-text-sec truncate">{user.email}</span></div>
                 <button onClick={onLogout} className="p-2 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors" title="Sair"><LogOut size={18} /></button>

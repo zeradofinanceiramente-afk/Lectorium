@@ -123,7 +123,7 @@ const FileItem = React.memo(({ file, onSelect, onTogglePin, onDelete, onShare, o
         return (
             <div 
                 onClick={() => onSelect(file)} 
-                className="group relative h-32 md:h-40 w-full bg-[#0d1117] border border-[#30363d] rounded-2xl p-4 flex flex-col justify-between cursor-pointer transition-all duration-300 hover:border-brand/50 hover:shadow-[0_0_20px_-5px_var(--brand)] hover:-translate-y-1 overflow-hidden"
+                className="group relative h-32 md:h-40 w-full bg-[#0d1117] border border-[#30363d] rounded-2xl p-4 flex flex-col justify-between cursor-pointer transition-all duration-300 hover:border-brand/50 hover:-translate-y-1 overflow-hidden"
             >
                 {/* Background Grid Pattern */}
                 <div 
@@ -134,11 +134,11 @@ const FileItem = React.memo(({ file, onSelect, onTogglePin, onDelete, onShare, o
                 {/* Top Bar (Tab) */}
                 <div className="flex justify-between items-start relative z-10">
                     <div className="flex items-center gap-2">
-                        <div className="p-1.5 bg-[#161b22] border border-[#30363d] rounded-lg text-brand shadow-sm">
+                        <div className="p-1.5 bg-[#161b22] border border-[#30363d] rounded-lg text-brand">
                             <FolderOpen size={16} />
                         </div>
                         {isPinned ? (
-                            <div className="text-brand bg-[#161b22] p-1 rounded border border-brand/30 shadow-sm" title="Pasta Fixada">
+                            <div className="text-brand bg-[#161b22] p-1 rounded border border-brand/30" title="Pasta Fixada">
                                 <Pin size={10} fill="currentColor" />
                             </div>
                         ) : (
@@ -172,7 +172,7 @@ const FileItem = React.memo(({ file, onSelect, onTogglePin, onDelete, onShare, o
 
                 {/* Menu Dropdown */}
                 {isActiveMenu && !isLocalMode && (
-                    <div className="absolute top-10 right-2 w-48 bg-[#161b22] border border-[#30363d] shadow-2xl rounded-xl overflow-hidden z-30 animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
+                    <div className="absolute top-10 right-2 w-48 bg-[#161b22] border border-[#30363d] rounded-xl overflow-hidden z-30 animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
                         <button onClick={() => onTogglePin(file)} className="w-full text-left px-4 py-3 hover:bg-[#21262d] text-xs flex items-center gap-2 text-[#c9d1d9]">
                             {isPinned ? <><PinOff size={14} /> Desafixar</> : <><Pin size={14} /> Fixar no Topo</>}
                         </button>
@@ -188,9 +188,9 @@ const FileItem = React.memo(({ file, onSelect, onTogglePin, onDelete, onShare, o
 
     // --- RENDERIZADOR DE ARQUIVO (Mantendo estilo anterior mas refinado) ---
     return (
-        <div onClick={() => onSelect(file)} className="group relative bg-surface p-3 rounded-2xl border border-border hover:border-brand/50 transition-all cursor-pointer flex flex-col h-full hover:shadow-lg">
+        <div onClick={() => onSelect(file)} className="group relative bg-surface p-3 rounded-2xl border border-border hover:border-brand/50 transition-all cursor-pointer flex flex-col h-full">
             <div className="w-full aspect-[3/4] bg-black/20 rounded-xl mb-3 relative flex items-center justify-center overflow-hidden border border-white/5">
-                {isPinned && <div className="absolute top-2 left-2 text-brand bg-bg/80 backdrop-blur p-1.5 rounded-full z-10 border border-brand/20 shadow-lg"><Pin size={10} fill="currentColor"/></div>}
+                {isPinned && <div className="absolute top-2 left-2 text-brand bg-bg/80 p-1.5 rounded-full z-10 border border-brand/20"><Pin size={10} fill="currentColor"/></div>}
                 {isOffline && !isPinned && !isLocalMode && <div className="absolute top-2 right-2 text-green-500 z-10 bg-black/50 rounded-full p-1"><CheckCircle size={12}/></div>}
                 
                 {thumbnailSrc && !imgError ? (
@@ -225,7 +225,7 @@ const FileItem = React.memo(({ file, onSelect, onTogglePin, onDelete, onShare, o
             </div>
 
             {isActiveMenu && !isLocalMode && (
-                <div className="absolute bottom-10 right-2 w-48 bg-[#161b22] border border-[#30363d] shadow-2xl rounded-xl overflow-hidden z-30 animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
+                <div className="absolute bottom-10 right-2 w-48 bg-[#161b22] border border-[#30363d] rounded-xl overflow-hidden z-30 animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
                     <button onClick={() => onTogglePin(file)} className="w-full text-left px-4 py-3 hover:bg-[#21262d] text-xs flex items-center gap-2 text-[#c9d1d9]">
                         {isPinned ? <><PinOff size={14} /> Soltar do disco</> : <><Pin size={14} /> Manter Offline</>}
                     </button>
@@ -429,7 +429,7 @@ export const DriveBrowser: React.FC<Props> = ({
 
   return (
     <div className="flex flex-col h-full bg-bg text-text relative">
-      <div className="p-4 md:p-6 border-b border-border flex items-center justify-between sticky top-0 bg-bg/80 backdrop-blur z-20">
+      <div className="p-4 md:p-6 border-b border-border flex items-center justify-between sticky top-0 bg-bg z-20">
          <div className="flex items-center gap-3 overflow-hidden">
              <button onClick={onToggleMenu} className="p-2 -ml-2 text-text-sec hover:text-text rounded-full hover:bg-white/5"><Menu size={24} /></button>
              {folderHistory.length > 1 && mode === 'default' && <button onClick={handleNavigateUp} className="p-2 -ml-2 text-text-sec hover:text-text rounded-full hover:bg-white/5"><ArrowLeft size={24} /></button>}
@@ -462,7 +462,7 @@ export const DriveBrowser: React.FC<Props> = ({
                  </p>
                  <button 
                     onClick={onAuthError} 
-                    className="flex items-center gap-2 bg-brand text-[#0b141a] px-6 py-3 rounded-xl font-bold hover:brightness-110 transition-all shadow-lg"
+                    className="flex items-center gap-2 bg-brand text-[#0b141a] px-6 py-3 rounded-xl font-bold hover:brightness-110 transition-all"
                  >
                      <LogIn size={18} /> Reconectar Agora
                  </button>
@@ -481,8 +481,8 @@ export const DriveBrowser: React.FC<Props> = ({
          )}
       </div>
       
-      {actionLoading && !openingFileId && <div className="absolute inset-0 z-50 bg-bg/50 backdrop-blur-sm flex items-center justify-center"><Loader2 size={40} className="animate-spin text-brand" /></div>}
-      {openingFileId && <div className="absolute inset-0 z-[60] bg-bg/90 backdrop-blur-md flex flex-col items-center justify-center animate-in fade-in duration-300"><div className="relative mb-6"><div className="absolute inset-0 bg-brand/20 rounded-full blur-xl animate-pulse"></div><div className="relative bg-surface p-4 rounded-full border border-brand/30 shadow-2xl"><Cloud size={40} className="text-brand animate-pulse" /></div><div className="absolute -bottom-2 -right-2 bg-bg rounded-full p-1 border border-border"><Loader2 size={20} className="animate-spin text-white" /></div></div><h3 className="text-xl font-bold text-white mb-2">Abrindo Arquivo</h3><p className="text-sm text-text-sec max-w-xs text-center truncate px-4">{openingFileName || "Carregando..."}</p><div className="mt-8 flex gap-2"><div className="w-2 h-2 rounded-full bg-brand animate-bounce [animation-delay:-0.3s]"></div><div className="w-2 h-2 rounded-full bg-brand animate-bounce [animation-delay:-0.15s]"></div><div className="w-2 h-2 rounded-full bg-brand animate-bounce"></div></div></div>}
+      {actionLoading && !openingFileId && <div className="absolute inset-0 z-50 bg-bg/50 flex items-center justify-center"><Loader2 size={40} className="animate-spin text-brand" /></div>}
+      {openingFileId && <div className="absolute inset-0 z-[60] bg-bg/90 flex flex-col items-center justify-center animate-in fade-in duration-300"><div className="relative mb-6"><div className="absolute inset-0 bg-brand/20 rounded-full blur-xl animate-pulse"></div><div className="relative bg-surface p-4 rounded-full border border-brand/30"><Cloud size={40} className="text-brand animate-pulse" /></div><div className="absolute -bottom-2 -right-2 bg-bg rounded-full p-1 border border-border"><Loader2 size={20} className="animate-spin text-white" /></div></div><h3 className="text-xl font-bold text-white mb-2">Abrindo Arquivo</h3><p className="text-sm text-text-sec max-w-xs text-center truncate px-4">{openingFileName || "Carregando..."}</p><div className="mt-8 flex gap-2"><div className="w-2 h-2 rounded-full bg-brand animate-bounce [animation-delay:-0.3s]"></div><div className="w-2 h-2 rounded-full bg-brand animate-bounce [animation-delay:-0.15s]"></div><div className="w-2 h-2 rounded-full bg-brand animate-bounce"></div></div></div>}
       <MoveFileModal isOpen={moveFileModalOpen} onClose={() => setMoveFileModalOpen(false)} fileToMove={fileToMove} accessToken={accessToken} onMoveSuccess={() => { loadFiles(); setFileToMove(null); }} />
     </div>
   );

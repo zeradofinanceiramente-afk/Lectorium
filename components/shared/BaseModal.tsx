@@ -24,9 +24,9 @@ export const BaseModal: React.FC<BaseModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-200 print:hidden">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 p-4 animate-in fade-in duration-200 print:hidden">
       <div 
-        className={`bg-surface border border-border rounded-[2rem] shadow-2xl w-full ${maxWidth} relative animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]`}
+        className={`bg-surface border border-border rounded-[2rem] w-full ${maxWidth} relative animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

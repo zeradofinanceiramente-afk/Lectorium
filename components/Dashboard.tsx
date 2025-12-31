@@ -110,9 +110,9 @@ const RecentFileItem: React.FC<RecentFileItemProps> = ({ file, styles, onClick }
     return (
         <div 
             onClick={onClick} 
-            className={`group bg-black/30 backdrop-blur-[4px] rounded-3xl ${styles.recentP} hover:bg-white/5 transition-all cursor-pointer border border-white/5 hover:border-white/20 flex items-center ${styles.recentGap} shadow-lg`}
+            className={`group bg-black border border-[#333] rounded-3xl ${styles.recentP} hover:bg-white/5 transition-all cursor-pointer hover:border-white/20 flex items-center ${styles.recentGap}`}
         >
-            <div className={`${styles.recentIconWrap} bg-white/5 rounded-2xl shrink-0 flex items-center justify-center text-white/30 relative border border-white/5 shadow-inner overflow-hidden`}>
+            <div className={`${styles.recentIconWrap} bg-white/5 rounded-2xl shrink-0 flex items-center justify-center text-white/30 relative border border-white/5 overflow-hidden`}>
                 {thumbUrl && !imgError ? (
                     <img 
                         src={thumbUrl} 
@@ -128,7 +128,7 @@ const RecentFileItem: React.FC<RecentFileItemProps> = ({ file, styles, onClick }
                     </>
                 )}
                 
-                {file.pinned && <div className="absolute -top-1.5 -right-1.5 text-brand bg-[#0b141a] rounded-full p-1 border border-brand/50 shadow-lg shadow-brand/20 z-10"><Pin size={10} fill="currentColor" /></div>}
+                {file.pinned && <div className="absolute -top-1.5 -right-1.5 text-brand bg-[#0b141a] rounded-full p-1 border border-brand/50 z-10"><Pin size={10} fill="currentColor" /></div>}
             </div>
             <div className="min-w-0 flex-1">
                 <h3 className="font-bold text-white/90 truncate text-sm mb-1 group-hover:text-white transition-colors" title={file.name}>{file.name}</h3>
@@ -231,10 +231,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
       {/* Background Layer with adaptive overlay */}
       <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden bg-[#050505]">
           {wallpapers.landscape && (
-              <img src={wallpapers.landscape} className="hidden md:block absolute inset-0 w-full h-full object-cover opacity-50 scale-105 blur-[0.4px] transition-opacity duration-1000" alt="" />
+              <img src={wallpapers.landscape} className="hidden md:block absolute inset-0 w-full h-full object-cover opacity-50 scale-105" alt="" />
           )}
           {wallpapers.portrait && (
-              <img src={wallpapers.portrait} className="md:hidden absolute inset-0 w-full h-full object-cover opacity-50 scale-105 blur-[0.4px] transition-opacity duration-1000" alt="" />
+              <img src={wallpapers.portrait} className="md:hidden absolute inset-0 w-full h-full object-cover opacity-50 scale-105" alt="" />
           )}
           {/* Gradient for legibility - Darker at bottom for floating dock feel */}
           <div className="absolute inset-0 bg-gradient-to-br from-bg/20 via-bg/40 to-bg/90 z-10" />
@@ -243,22 +243,22 @@ export const Dashboard: React.FC<DashboardProps> = ({
       <div className="relative z-10 h-full overflow-y-auto p-4 md:p-12 custom-scrollbar">
           {/* Top Navigation Control Bar */}
           <div className="mb-6 md:mb-10 flex flex-wrap justify-between items-center gap-4">
-            <button onClick={onToggleMenu} className="p-3 -ml-3 text-white/70 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl transition-all shadow-xl backdrop-blur-[2px]">
+            <button onClick={onToggleMenu} className="p-3 -ml-3 text-white/70 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl transition-all">
               <Menu size={28} />
             </button>
             
             <div className="flex items-center gap-2 md:gap-3 flex-wrap">
                 {onToggleSyncStrategy && (
-                    <div className="flex bg-black/40 backdrop-blur-[5px] p-1.5 rounded-2xl border border-white/10 shadow-2xl">
+                    <div className="flex bg-black p-1.5 rounded-2xl border border-white/10">
                         <button 
                             onClick={() => onToggleSyncStrategy('smart')}
-                            className={`flex items-center gap-2 px-3 md:px-4 py-2 rounded-xl text-xs font-bold transition-all ${syncStrategy === 'smart' ? 'bg-brand text-[#0b141a] shadow-[0_0_15px_rgba(74,222,128,0.4)]' : 'text-white/50 hover:text-white'}`}
+                            className={`flex items-center gap-2 px-3 md:px-4 py-2 rounded-xl text-xs font-bold transition-all ${syncStrategy === 'smart' ? 'bg-brand text-[#0b141a]' : 'text-white/50 hover:text-white'}`}
                         >
                             <Zap size={14} /> <span className="hidden sm:inline">Smart Sync</span>
                         </button>
                         <button 
                             onClick={() => onToggleSyncStrategy('online')}
-                            className={`flex items-center gap-2 px-3 md:px-4 py-2 rounded-xl text-xs font-bold transition-all ${syncStrategy === 'online' ? 'bg-blue-500 text-white shadow-[0_0_15px_rgba(59,130,246,0.4)]' : 'text-white/50 hover:text-white'}`}
+                            className={`flex items-center gap-2 px-3 md:px-4 py-2 rounded-xl text-xs font-bold transition-all ${syncStrategy === 'online' ? 'bg-blue-500 text-white' : 'text-white/50 hover:text-white'}`}
                         >
                             <Cloud size={14} /> <span className="hidden sm:inline">Online Puro</span>
                         </button>
@@ -267,14 +267,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
                 <button 
                     onClick={() => setShowSyncModal(true)}
-                    className={`flex items-center gap-2 px-3 md:px-4 py-2.5 bg-black/40 backdrop-blur-[5px] border rounded-2xl text-xs font-bold transition-all shadow-2xl ${
+                    className={`flex items-center gap-2 px-3 md:px-4 py-2.5 bg-black border rounded-2xl text-xs font-bold transition-all ${
                         queue.length > 0 ? 'border-yellow-500/50 text-yellow-500 animate-pulse' : 'border-white/10 text-white/70 hover:text-white'
                     }`}
                 >
                     {queue.length > 0 ? <><AlertCircle size={14} /> <span className="hidden sm:inline">{queue.length} Pendentes</span><span className="sm:hidden">{queue.length}</span></> : <><CheckCircle size={14} className="text-brand"/> <span className="hidden sm:inline">Sincronizado</span></>}
                 </button>
 
-                <button onClick={openStorageModal} className="flex items-center gap-2 px-3 md:px-4 py-2.5 bg-black/40 backdrop-blur-[5px] border border-white/10 rounded-2xl text-white/70 hover:text-white transition-all text-xs font-bold shadow-2xl">
+                <button onClick={openStorageModal} className="flex items-center gap-2 px-3 md:px-4 py-2.5 bg-black border border-white/10 rounded-2xl text-white/70 hover:text-white transition-all text-xs font-bold">
                     <Database size={14} /> <span className="hidden sm:inline">Armazenamento</span>
                 </button>
             </div>
@@ -282,7 +282,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
           {/* Dynamic Welcome Section */}
           <header className="mb-8 md:mb-14 animate-in fade-in slide-in-from-left-6 duration-700">
-            <div className="inline-flex items-center gap-2 px-3 py-1 bg-brand/10 border border-brand/20 rounded-full text-brand text-[10px] font-bold uppercase tracking-widest mb-4 backdrop-blur-sm">
+            <div className="inline-flex items-center gap-2 px-3 py-1 bg-brand/10 border border-brand/20 rounded-full text-brand text-[10px] font-bold uppercase tracking-widest mb-4">
                 <LayoutGrid size={12} /> Academia de Conhecimento
             </div>
             <h1 className="text-3xl md:text-5xl lg:text-6xl font-light text-white mb-4 tracking-tight leading-tight">
@@ -296,7 +296,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     {syncStrategy === 'smart' ? "Seus documentos estão seguros e prontos para consulta, com ou sem conexão." : "Conectado ao Drive em tempo real. Os data não serão salvos neste dispositivo."}
                 </p>
                 {isVisitor && onLogin && (
-                    <button onClick={onLogin} className="flex items-center gap-3 bg-white text-black hover:bg-brand hover:text-[#0b141a] px-6 py-3 rounded-2xl transition-all group self-start shadow-2xl font-bold text-sm">
+                    <button onClick={onLogin} className="flex items-center gap-3 bg-white text-black hover:bg-brand hover:text-[#0b141a] px-6 py-3 rounded-2xl transition-all group self-start font-bold text-sm">
                         <Cloud size={18} className="group-hover:scale-110 transition-transform" />
                         <span>Conectar ao Drive</span>
                     </button>
@@ -316,8 +316,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 
                 {/* CONDICIONAL: Se visitante, mostra Mapas Mentais. Se logado, Meus Arquivos */}
                 {isVisitor ? (
-                    <button onClick={() => onChangeView('mindmaps')} className={`${styles.p} rounded-[2rem] bg-black/40 backdrop-blur-[8px] hover:bg-black/60 transition-all group text-left border border-purple-500/30 hover:border-purple-500/60 flex flex-col items-start gap-4 md:gap-6 shadow-2xl hover:scale-[1.02] active:scale-[0.98]`}>
-                      <div className={`${styles.iconWrap} rounded-2xl bg-purple-500/10 text-purple-400 flex items-center justify-center group-hover:scale-110 transition-transform border border-purple-500/20 shadow-inner`}>
+                    <button onClick={() => onChangeView('mindmaps')} className={`${styles.p} rounded-[2rem] bg-black hover:bg-[#111] transition-all group text-left border-2 border-purple-500/30 hover:border-purple-500/60 flex flex-col items-start gap-4 md:gap-6 hover:scale-[1.02] active:scale-[0.98]`}>
+                      <div className={`${styles.iconWrap} rounded-2xl bg-purple-500/10 text-purple-400 flex items-center justify-center group-hover:scale-110 transition-transform border border-purple-500/20`}>
                         <Workflow className={styles.iconClass} />
                       </div>
                       <div>
@@ -326,8 +326,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       </div>
                     </button>
                 ) : (
-                    <button onClick={() => onChangeView('browser')} className={`${styles.p} rounded-[2rem] bg-black/40 backdrop-blur-[8px] hover:bg-black/60 transition-all group text-left border border-brand/30 hover:border-brand/60 flex flex-col items-start gap-4 md:gap-6 shadow-2xl hover:scale-[1.02] active:scale-[0.98]`}>
-                      <div className={`${styles.iconWrap} rounded-2xl bg-brand/10 text-brand flex items-center justify-center group-hover:scale-110 transition-transform border border-brand/20 shadow-inner`}>
+                    <button onClick={() => onChangeView('browser')} className={`${styles.p} rounded-[2rem] bg-black hover:bg-[#111] transition-all group text-left border-2 border-brand/30 hover:border-brand/60 flex flex-col items-start gap-4 md:gap-6 hover:scale-[1.02] active:scale-[0.98]`}>
+                      <div className={`${styles.iconWrap} rounded-2xl bg-brand/10 text-brand flex items-center justify-center group-hover:scale-110 transition-transform border border-brand/20`}>
                         {isOnline ? <FileText className={styles.iconClass} /> : <WifiOff className={styles.iconClass} />}
                       </div>
                       <div>
@@ -338,7 +338,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 )}
 
                 {(!hasNativeFS || isEmbedded) ? (
-                    <label className={`${styles.p} rounded-[2rem] bg-black/40 backdrop-blur-[8px] hover:bg-black/60 transition-all group text-left border border-brand/30 hover:border-brand/60 cursor-pointer flex flex-col items-start gap-4 md:gap-6 shadow-2xl hover:scale-[1.02] active:scale-[0.98]`}>
+                    <label className={`${styles.p} rounded-[2rem] bg-black hover:bg-[#111] transition-all group text-left border-2 border-brand/30 hover:border-brand/60 cursor-pointer flex flex-col items-start gap-4 md:gap-6 hover:scale-[1.02] active:scale-[0.98]`}>
                         <div className={`${styles.iconWrap} rounded-2xl bg-orange-500/10 text-orange-400 flex items-center justify-center group-hover:scale-110 transition-transform border border-orange-500/20`}>
                             <FileUp className={styles.iconClass} />
                         </div>
@@ -346,19 +346,19 @@ export const Dashboard: React.FC<DashboardProps> = ({
                         <input type="file" className="hidden" onChange={onUploadLocal} />
                     </label>
                 ) : (
-                    <button onClick={savedLocalDirHandle ? onReconnectLocalFolder : onOpenLocalFolder} className={`${styles.p} rounded-[2rem] bg-black/40 backdrop-blur-[8px] hover:bg-black/60 transition-all group text-left border border-brand/30 hover:border-brand/60 flex flex-col items-start gap-4 md:gap-6 shadow-2xl relative overflow-hidden hover:scale-[1.02] active:scale-[0.98]`}>
+                    <button onClick={savedLocalDirHandle ? onReconnectLocalFolder : onOpenLocalFolder} className={`${styles.p} rounded-[2rem] bg-black hover:bg-[#111] transition-all group text-left border-2 border-brand/30 hover:border-brand/60 flex flex-col items-start gap-4 md:gap-6 relative overflow-hidden hover:scale-[1.02] active:scale-[0.98]`}>
                         <div className={`${styles.iconWrap} rounded-2xl bg-orange-500/10 text-orange-400 flex items-center justify-center group-hover:scale-110 transition-transform border border-orange-500/20`}><FolderTree className={styles.iconClass} /></div>
                         <div><h3 className={`${styles.title} font-bold mb-1 text-white`}>{savedLocalDirHandle ? 'Reconectar' : 'Pasta Local'}</h3><p className={`${styles.desc} text-white/40 leading-relaxed truncate max-w-full`}>{savedLocalDirHandle ? savedLocalDirHandle.name : 'Vincular pasta do sistema.'}</p></div>
                         {savedLocalDirHandle && <div className="absolute top-6 right-6 bg-orange-500/20 text-orange-400 p-2 rounded-full animate-pulse"><ArrowRight size={16} /></div>}
                     </button>
                 )}
 
-                <button onClick={onCreateDocument} className={`${styles.p} rounded-[2rem] bg-black/40 backdrop-blur-[8px] hover:bg-black/60 transition-all group text-left border border-brand/30 hover:border-brand/60 flex flex-col items-start gap-4 md:gap-6 shadow-2xl hover:scale-[1.02] active:scale-[0.98]`}>
+                <button onClick={onCreateDocument} className={`${styles.p} rounded-[2rem] bg-black hover:bg-[#111] transition-all group text-left border-2 border-brand/30 hover:border-brand/60 flex flex-col items-start gap-4 md:gap-6 hover:scale-[1.02] active:scale-[0.98]`}>
                   <div className={`${styles.iconWrap} rounded-2xl bg-blue-500/10 text-blue-400 flex items-center justify-center group-hover:scale-110 transition-transform border border-blue-500/20`}><FilePlus className={styles.iconClass} /></div>
                   <div><h3 className={`${styles.title} font-bold mb-1 text-white`}>Novo Documento</h3><p className={`${styles.desc} text-white/40 leading-relaxed`}>Criar texto acadêmico seguindo normas ABNT.</p></div>
                 </button>
 
-                <button onClick={() => setShowHelpModal(true)} className={`${styles.p} rounded-[2rem] bg-black/40 backdrop-blur-[8px] hover:bg-black/60 transition-all group text-left border border-brand/30 hover:border-brand/60 flex flex-col items-start gap-4 md:gap-6 shadow-2xl hover:scale-[1.02] active:scale-[0.98]`}>
+                <button onClick={() => setShowHelpModal(true)} className={`${styles.p} rounded-[2rem] bg-black hover:bg-[#111] transition-all group text-left border-2 border-brand/30 hover:border-brand/60 flex flex-col items-start gap-4 md:gap-6 hover:scale-[1.02] active:scale-[0.98]`}>
                   <div className={`${styles.iconWrap} rounded-2xl bg-purple-500/10 text-purple-400 flex items-center justify-center group-hover:scale-110 transition-transform border border-purple-500/20`}><Info className={styles.iconClass} /></div>
                   <div><h3 className={`${styles.title} font-bold mb-1 text-white`}>Suporte</h3><p className={`${styles.desc} text-white/40 leading-relaxed`}>Aprender atalhos e dicas de pesquisa com IA.</p></div>
                 </button>
@@ -383,7 +383,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     />
                 ))}
                 {recents.length === 0 && (
-                  <div className="text-center py-16 bg-white/5 rounded-[2rem] border border-dashed border-white/10 backdrop-blur-[2px]">
+                  <div className="text-center py-16 bg-white/5 rounded-[2rem] border border-dashed border-white/10">
                     <Clock size={32} className="mx-auto mb-3 text-white/10" />
                     <p className="text-sm text-white/20">Sua jornada acadêmica começa aqui.</p>
                   </div>
@@ -398,20 +398,20 @@ export const Dashboard: React.FC<DashboardProps> = ({
       <SyncStatusModal isOpen={showSyncModal} onClose={() => setShowSyncModal(false)} queue={queue} isSyncing={syncStatus.active} onForceSync={triggerSync} onRemoveItem={removeItem} onClearQueue={clearQueue} />
 
       {showStorageModal && (
-          <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-[5px] flex items-center justify-center p-4 animate-in fade-in duration-300">
-              <div className="bg-[#1e1e1e] border border-white/10 rounded-[2.5rem] p-8 max-w-md w-full shadow-2xl relative">
+          <div className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center p-4 animate-in fade-in duration-300">
+              <div className="bg-[#1e1e1e] border border-white/10 rounded-[2.5rem] p-8 max-w-md w-full relative">
                   <button onClick={() => setShowStorageModal(false)} className="absolute top-6 right-6 text-white/40 hover:text-white transition-colors"><X size={24}/></button>
                   <div className="flex items-center gap-4 mb-8">
                       <div className="bg-brand/10 p-3 rounded-2xl text-brand"><Database size={28} /></div>
                       <h3 className="text-2xl font-bold text-white">Armazenamento</h3>
                   </div>
-                  <div className="bg-black/40 p-6 rounded-3xl border border-white/5 mb-8">
+                  <div className="bg-black p-6 rounded-3xl border border-white/5 mb-8">
                       <div className="flex justify-between items-end mb-4">
                           <span className="text-sm text-white/60">Uso Total: <span className="text-white font-bold">{storageData ? formatBytes(storageData.usage) : '...'}</span></span>
                           <button onClick={handleManualJanitor} className="text-[10px] text-brand font-bold bg-brand/10 px-3 py-1 rounded-full hover:bg-brand hover:text-black transition-all">LIMPAR CACHE</button>
                       </div>
                       
-                      <div className="w-full bg-white/5 h-3 rounded-full overflow-hidden mb-4 shadow-inner">
+                      <div className="w-full bg-white/5 h-3 rounded-full overflow-hidden mb-4">
                           <div className="h-full bg-gradient-to-r from-brand to-brand-to transition-all duration-1000" style={{ width: storageData ? `${Math.min(100, (storageData.usage / (storageData.quota || 1)) * 100)}%` : '0%' }} />
                       </div>
 
