@@ -26,7 +26,7 @@ export const FootnoteExtension = Node.create({
   addAttributes() {
     return {
       id: {
-        default: 0, // Inicia com 0, o plugin corrigirá para 1, 2, 3...
+        default: 0, 
         parseHTML: element => parseInt(element.getAttribute('data-id') || '0'),
         renderHTML: attributes => ({
           'data-id': attributes.id,
@@ -57,7 +57,7 @@ export const FootnoteExtension = Node.create({
           'data-footnote': '',
           'style': 'cursor: pointer; color: var(--brand); font-weight: bold; vertical-align: super; font-size: 0.7em;'
       }),
-      `${node.attrs.id > 0 ? node.attrs.id : '?'}`, // Mostra ? temporariamente se ID for 0
+      `${node.attrs.id > 0 ? node.attrs.id : '?'}`, 
     ];
   },
 
@@ -73,7 +73,6 @@ export const FootnoteExtension = Node.create({
           const tr = newState.tr;
           let counter = 1;
 
-          // Varre o documento para garantir numeração sequencial (1, 2, 3...)
           newState.doc.descendants((node, pos) => {
             if (node.type.name === 'footnote') {
               if (node.attrs.id !== counter) {
@@ -96,30 +95,21 @@ export const FootnoteExtension = Node.create({
   addCommands() {
     return {
       setFootnote:
-        () =>
+        (attributes?: { content: string }) =>
         ({ state, dispatch }: any) => {
           const { schema, tr } = state;
           const type = schema.nodes[this.name];
           
           if (!type) return false;
 
-          // Cria o nó com ID 0. O plugin de renumeração ajustará o ID automaticamente.
-          const node = type.create({ id: 0, content: '' });
+          const node = type.create({ id: 0, content: attributes?.content || '' });
           
           if (dispatch) {
             const { from } = state.selection;
-            
-            // 1. Insere o nó na posição do cursor
             tr.insert(from, node);
-            
-            // 2. Força a seleção do nó recém-criado (NodeSelection)
-            // Isso é CRÍTICO para que o BubbleMenu detecte 'isActive' e abra.
             const selection = NodeSelection.create(tr.doc, from);
             tr.setSelection(selection);
-            
-            // 3. Rola até a visualização
             tr.scrollIntoView();
-            
             dispatch(tr);
           }
           

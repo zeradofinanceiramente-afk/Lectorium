@@ -1,40 +1,19 @@
 
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { useDocEditorConfig } from '../../hooks/useDocEditorConfig';
-import { useDocFileHandler } from '../../hooks/useDocFileHandler';
-import { usePageLayout } from '../../hooks/usePageLayout';
-import { useDocUI } from '../../hooks/useDocUI';
-import { EditorContent } from '@tiptap/react';
-import { TopMenuBar } from './TopMenuBar';
-import { DocToolbar } from './DocToolbar';
-import { CommentsSidebar, CommentData } from './CommentsSidebar';
-import { OutlineSidebar } from './OutlineSidebar';
-import { DocAiSidebar } from '../DocAiSidebar';
-import { PageSetupModal } from './modals/PageSetupModal';
-import { WordCountModal } from './modals/WordCountModal';
-import { CitationModal } from './modals/CitationModal';
-import { ShareModal } from './modals/ShareModal';
-import { ColumnsModal } from './modals/ColumnsModal';
-import { HeaderFooterModal } from './modals/HeaderFooterModal';
-import { VersionHistoryModal } from './modals/VersionHistoryModal';
-import { ImageOptionsSidebar } from './ImageOptionsSidebar';
-import { TableBubbleMenu } from './TableBubbleMenu';
-import { ImageBubbleMenu } from './ImageBubbleMenu';
-import { AiBubbleMenu } from './AiBubbleMenu';
-import { SuggestionBubbleMenu } from './SuggestionBubbleMenu';
-import { FootnoteBubbleMenu } from './FootnoteBubbleMenu';
-import { FindReplaceBar } from './FindReplaceBar';
-import { Ruler } from './Ruler';
-import { VerticalRuler } from './VerticalRuler';
-import { FootnotesLayer } from './FootnotesLayer';
+import { useDocEditorConfig } from '../hooks/useDocEditorConfig';
+import { useDocFileHandler } from '../hooks/useDocFileHandler';
+import { usePageLayout } from '../hooks/usePageLayout';
+import { useDocUI } from '../hooks/useDocUI';
+import { TopMenuBar } from './doc/TopMenuBar';
+import { DocToolbar } from './doc/DocToolbar';
+import { DocCanvas } from './doc/layout/DocCanvas';
+import { DocModals } from './doc/layout/DocModals';
+import { CommentData } from './doc/CommentsSidebar';
 import { Loader2, ArrowLeft, FileText, Cloud, Sparkles, Users, Share2, Lock } from 'lucide-react';
-import { Reference, EditorStats, MIME_TYPES } from '../../types';
-import { auth } from '../../firebase';
-import { generateDocxBlob } from '../../services/docxService';
-import { useSlideNavigation } from '../../hooks/useSlideNavigation';
-import { SlideNavigationControls } from './SlideNavigationControls';
-import { TablePropertiesModal } from './modals/TablePropertiesModal';
-import { CM_TO_PX } from './constants';
+import { Reference, EditorStats, MIME_TYPES } from '../types';
+import { auth } from '../firebase';
+import { generateDocxBlob } from '../services/docxService';
+import { useSlideNavigation } from '../hooks/useSlideNavigation';
 
 interface Props {
   fileId: string;
@@ -66,11 +45,8 @@ export const DocEditor: React.FC<Props> = ({
   const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
   const [activeHeaderFooterTab, setActiveHeaderFooterTab] = useState<'header' | 'footer'>('header');
   const [isSharing, setIsSharing] = useState(false);
-  
-  // Estado de Página Atual
   const [currentPage, setCurrentPage] = useState(1);
 
-  // Referência para o input de arquivo oculto
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const userInfo = useMemo(() => {
@@ -104,7 +80,7 @@ export const DocEditor: React.FC<Props> = ({
   };
 
   // --- SLIDE NAVIGATION (Hooks) ---
-  const isSlideMode = true; // Always true as requested
+  const isSlideMode = true; // Always true
 
   const { nextPage, prevPage } = useSlideNavigation({
     currentPage,
@@ -113,7 +89,7 @@ export const DocEditor: React.FC<Props> = ({
     onPageChange: (newPage) => {
       setCurrentPage(newPage);
       if (docScrollerRef.current) {
-          docScrollerRef.current.scrollTo({ top: 0 });
+          docScrollerRef.current.scrollTop = 0;
       }
     }
   });
@@ -208,7 +184,7 @@ export const DocEditor: React.FC<Props> = ({
   }, [editor]);
 
   const handleRegionClick = (type: 'header' | 'footer', e: React.MouseEvent) => {
-      if (e.detail === 2) { // Double click is enough
+      if (e.detail === 2) { 
           e.preventDefault();
           e.stopPropagation();
           setActiveHeaderFooterTab(type);
@@ -238,7 +214,7 @@ export const DocEditor: React.FC<Props> = ({
         URL.revokeObjectURL(url);
       }
     } catch (e: any) {
-      if (e.name !== 'AbortError') { console.error("Erro ao compartilhar:", e); alert("Não foi possível compartilhar o arquivo."); }
+      if (e.name !== 'AbortError') { alert("Não foi possível compartilhar o arquivo."); }
     } finally {
       setIsSharing(false);
     }
@@ -254,75 +230,125 @@ export const DocEditor: React.FC<Props> = ({
       pageLayout.setPageSettings(prev => ({ ...prev, headerText: header, footerText: footer }));
   };
 
-  if (!editor) return <ViewLoader />;
-
-  // Translate content to simulate slide view
-  const effectivePageHeight = pageLayout.currentPaper.heightPx + 20; // Altura + Gap
-  const contentTranslateY = -((currentPage - 1) * effectivePageHeight);
-
-  // Render Page Number Helper
-  const renderPageNumber = (pageIndex: number) => {
-      const config = pageLayout.pageSettings.pageNumber;
-      if (!config || !config.enabled) return null;
-
-      // Logic: Show from X page (e.g. start showing on page 2)
-      // Logic: Start counting from Y (e.g. page 2 displays "1")
-      const physicalPageNum = pageIndex + 1; // 1-based index
-      
-      if (physicalPageNum < (config.displayFromPage || 1)) return null;
-
-      // Calculate the number to display
-      // If startAt is set, we adjust. Usually startAt=1 means the first counted page is "1".
-      // offset is how many pages we skipped before starting to count/show
-      const offset = (config.displayFromPage || 1) - 1;
-      const displayNum = (physicalPageNum - offset) + (config.startAt - 1);
-
-      // Positioning styles
-      const isHeader = config.position === 'header';
-      const align = config.alignment || 'right';
-      
-      const style: React.CSSProperties = {
-          position: 'absolute',
-          pointerEvents: 'none',
-          fontSize: '10pt',
-          fontFamily: '"Times New Roman", Times, serif',
-          color: '#000000',
-          zIndex: 20
-      };
-
-      if (isHeader) {
-          style.top = `${pageLayout.pageSettings.marginTop / 2}cm`; // Center vertically in margin
-      } else {
-          style.bottom = `${pageLayout.pageSettings.marginBottom / 2}cm`;
+  const insertFootnote = (content: string) => {
+      if (editor) {
+          (editor.chain().focus() as any).setFootnote({ content }).run();
       }
-
-      // Horizontal Positioning based on margins
-      const marginLeft = `${pageLayout.pageSettings.marginLeft}cm`;
-      const marginRight = `${pageLayout.pageSettings.marginRight}cm`;
-
-      if (align === 'left') style.left = marginLeft;
-      else if (align === 'right') style.right = marginRight;
-      else {
-          style.left = '50%';
-          style.transform = 'translateX(-50%)';
-      }
-
-      return (
-          <div style={style}>
-              {displayNum}
-          </div>
-      );
   };
+
+  // Event listener for double click on header/footer regions
+  useEffect(() => {
+      const handleRegionEdit = (e: Event) => {
+          const detail = (e as CustomEvent).detail;
+          if (detail && detail.type) {
+              setActiveHeaderFooterTab(detail.type);
+              toggleModal('headerFooter', true);
+          }
+      };
+      window.addEventListener('edit-region', handleRegionEdit);
+      return () => window.removeEventListener('edit-region', handleRegionEdit);
+  }, []);
+
+  if (!editor) return <ViewLoader />;
 
   return (
     <div className={`flex flex-col h-full bg-bg relative overflow-hidden text-text ${modes.focus ? 'focus-mode' : ''}`}>
        <div className="bg-surface border-b border-border z-50 shrink-0">
-             <div className="flex flex-col md:flex-row md:items-center justify-between px-2 md:px-4 pt-2 md:pt-3 pb-1 gap-2">
-                <div className="flex items-start gap-2 md:gap-4 overflow-hidden">
-                    <button onClick={onBack} className="p-2 hover:bg-white/10 rounded-full text-text-sec mt-1 shrink-0"><ArrowLeft size={20} /></button>
-                    <div className="pt-2 text-blue-400 shrink-0"><FileText size={24} className="md:w-7 md:h-7" /></div>
-                    <div className="flex flex-col min-w-0 flex-1">
-                        <input 
-                            value={fileHandler.currentName} 
-                            onChange={e => fileHandler.setCurrentName(e.target.value)} 
-                            onBlur={
+             <div className="flex items-center justify-between px-4 pt-3 pb-1">
+                <div className="flex items-start gap-4">
+                    <button onClick={onBack} className="p-2 hover:bg-white/10 rounded-full text-text-sec mt-1"><ArrowLeft size={20} /></button>
+                    <div className="pt-2 text-blue-400"><FileText size={28} /></div>
+                    <div className="flex flex-col">
+                        <input value={fileHandler.currentName} onChange={e => fileHandler.setCurrentName(e.target.value)} onBlur={fileHandler.handleRename} className="bg-transparent text-text font-medium text-lg outline-none px-2 rounded -ml-2 focus:border-brand transition-colors" />
+                        <TopMenuBar 
+                            editor={editor} fileName={fileHandler.currentName} onSave={() => fileHandler.handleSave(pageLayout.pageSettings, comments, references)}
+                            onShare={handleNativeShare} onNew={onToggleMenu} onWordCount={() => toggleModal('wordCount', true)}
+                            onDownload={() => fileHandler.handleDownload(pageLayout.pageSettings, comments, references)} onDownloadLect={() => fileHandler.handleDownloadLect(pageLayout.pageSettings, comments)} onExportPdf={() => window.print()}
+                            onInsertImage={triggerImageUpload} onTrash={fileHandler.handleTrash} onPageSetup={() => toggleModal('pageSetup', true)}
+                            onPageNumber={() => toggleModal('pageNumber', true)} 
+                            currentPage={currentPage}
+                            onHeader={() => { setActiveHeaderFooterTab('header'); toggleModal('headerFooter', true); }} 
+                            onFooter={() => { setActiveHeaderFooterTab('footer'); toggleModal('headerFooter', true); }} 
+                            onAddFootnote={() => toggleModal('footnote', true)}
+                            onAddCitation={() => toggleModal('citation', true)} onPrint={() => window.print()} onLanguage={() => toggleModal('language', true)}
+                            onSpellCheck={() => setSpellCheck(!spellCheck)} onFindReplace={() => toggleModal('findReplace', true)}
+                            onColumns={() => toggleModal('columns', true)}
+                            showRuler={pageLayout.showRuler} setShowRuler={pageLayout.setShowRuler} zoom={pageLayout.zoom} setZoom={pageLayout.setZoom}
+                            onFitWidth={pageLayout.handleFitWidth} viewMode={pageLayout.viewMode} setViewMode={pageLayout.setViewMode}
+                            focusMode={modes.focus} setFocusMode={v => toggleMode('focus', v)} showComments={sidebars.comments} setShowComments={v => toggleSidebar('comments', v)}
+                            suggestionMode={modes.suggestion} toggleSuggestionMode={() => toggleMode('suggestion')} toggleOutline={() => toggleSidebar('outline')} isOutlineOpen={sidebars.outline}
+                            toggleDictation={() => toggleMode('dictation')} isDictationActive={modes.dictation} onExportHtml={() => {}}
+                        />
+                    </div>
+                </div>
+                <div className="flex items-center gap-4 mt-2">
+                    <div className="text-text-sec">{fileHandler.isSaving ? <Loader2 size={20} className="animate-spin" /> : <Cloud size={20} />}</div>
+                    <button onClick={() => toggleSidebar('aiChat')} className={`p-2 rounded-full ${sidebars.aiChat ? 'bg-brand/20 text-brand' : 'text-text-sec'}`}><Sparkles size={20} /></button>
+                    <button onClick={() => toggleSidebar('comments')} className={`p-2 rounded-full ${sidebars.comments ? 'bg-brand/20 text-brand' : 'text-text-sec'}`}><Users size={20} /></button>
+                    <button onClick={() => toggleModal('share', true)} className="flex items-center gap-2 bg-[#c2e7ff] text-[#0b141a] px-4 py-2 rounded-full font-medium text-sm hover:brightness-110 transition-all disabled:opacity-50">
+                        {isSharing ? <Loader2 size={16} className="animate-spin"/> : <Share2 size={16} />}
+                        <span>Compartilhar</span>
+                    </button>
+                </div>
+             </div>
+          </div>
+
+       {!modes.focus && (
+           <DocToolbar 
+               editor={editor} 
+               onInsertImage={triggerImageUpload} 
+               onAddFootnote={() => toggleModal('footnote', true)} 
+               currentPage={currentPage} 
+               totalPages={pageLayout.totalPages} 
+               onJumpToPage={handleJumpToPage} 
+           />
+       )}
+       
+       <DocCanvas 
+          editor={editor}
+          fileHandler={fileHandler}
+          pageLayout={pageLayout}
+          modes={modes}
+          modals={modals}
+          sidebars={sidebars}
+          toggleModal={toggleModal}
+          toggleSidebar={toggleSidebar}
+          currentPage={currentPage}
+          docScrollerRef={docScrollerRef}
+          contentRef={contentRef}
+          nextPage={nextPage}
+          prevPage={prevPage}
+          handleJumpToPage={handleJumpToPage}
+          comments={comments}
+          handleAddComment={handleAddComment}
+          onResolveComment={() => {}}
+          onDeleteComment={() => {}}
+          activeCommentId={activeCommentId}
+          setActiveCommentId={setActiveCommentId}
+          userInfo={userInfo}
+       />
+
+       <DocModals 
+          modals={modals}
+          toggleModal={toggleModal}
+          editor={editor}
+          pageLayout={pageLayout}
+          stats={stats}
+          references={references}
+          setReferences={setReferences}
+          fileId={fileId}
+          fileName={fileName}
+          isLocalFile={isLocalFile}
+          activeHeaderFooterTab={activeHeaderFooterTab}
+          handleHeaderFooterApply={handleHeaderFooterApply}
+          handleVersionRestore={handleVersionRestore}
+          insertFootnote={insertFootnote}
+          handleApplyColumns={handleApplyColumns}
+          spellCheck={spellCheck}
+          setSpellCheck={setSpellCheck}
+       />
+       
+       <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageUpload} />
+    </div>
+  );
+};

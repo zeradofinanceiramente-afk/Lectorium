@@ -19,7 +19,8 @@ export const useDocUI = () => {
     tableProperties: false,
     headerFooter: false,
     styleConfig: false,
-    columns: false // Novo modal
+    columns: false,
+    footnote: false
   });
 
   const [sidebars, setSidebars] = useState({
