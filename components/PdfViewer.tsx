@@ -406,10 +406,6 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
   const handleTouchEnd = (e: React.TouchEvent) => { if (!touchStartRef.current) return; if (selection || (window.getSelection()?.toString() || '').length > 0 || activeTool === 'ink' || activeTool === 'eraser' || activeTool === 'brush') { touchStartRef.current = null; return; } const touchEnd = { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY }; const diffX = touchStartRef.current.x - touchEnd.x; const diffY = touchStartRef.current.y - touchEnd.y; const startX = touchStartRef.current.x; const width = window.innerWidth; const threshold = 50; if (Math.abs(diffX) > 50 && Math.abs(diffY) < 100) { if (diffX > 0 && startX > width - threshold) goNext(); else if (diffX < 0 && startX < threshold) goPrev(); } touchStartRef.current = null; };
   const handleOcrConfirm = useCallback(() => { setShowOcrModal(false); onBack(); }, [onBack, setShowOcrModal]);
 
-  const toggleViewMode = () => {
-      setViewMode(viewMode === 'single' ? 'continuous' : 'single');
-  };
-
   // Virtualization Helpers
   const PAGE_GAP = 40; 
   const itemHeight = pageDimensions ? (pageDimensions.height * scale) + PAGE_GAP : 1100;
@@ -472,15 +468,6 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
              </div>
              
              <div className="flex items-center gap-1 pr-1">
-                {/* View Mode Toggle */}
-                <button 
-                    onClick={toggleViewMode}
-                    className="p-2 hover:bg-white/10 rounded-full text-white/80 hover:text-brand transition-colors"
-                    title={viewMode === 'single' ? "Modo Slide" : "Modo Contínuo"}
-                >
-                    {viewMode === 'single' ? <FileTextIcon size={18}/> : <Rows size={18}/>}
-                </button>
-
                 <button onClick={() => setShowSaveModal(true)} className="flex items-center gap-2 bg-brand text-[#0b141a] px-4 py-2 rounded-full text-xs font-bold shadow-lg shadow-brand/20 hover:scale-105 transition-all"><Save size={16}/> <span className="hidden sm:inline">SALVAR</span></button>
                 <button onClick={toggleFullscreen} className="p-2.5 hover:bg-white/10 rounded-full text-white/80 hover:text-white transition-colors" title={isFullscreen ? "Sair da Tela Cheia" : "Tela Cheia"}>
                     {isFullscreen ? <Minimize size={20}/> : <Maximize size={20}/>}
