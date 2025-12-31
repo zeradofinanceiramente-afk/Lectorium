@@ -1,18 +1,17 @@
+
 import React, { useEffect, useState } from 'react';
 import { Check, Palette, Sliders } from 'lucide-react';
 
 const themes = [
   { id: 'forest', name: 'Verde (Padrão)' },
   { id: 'azul', name: 'Azul' },
+  { id: 'roxo', name: 'Roxo' },
+  { id: 'magenta', name: 'Magenta' },
+  { id: 'rosa', name: 'Rosa' },
   { id: 'vermelho', name: 'Vermelho' },
   { id: 'laranja', name: 'Laranja' },
   { id: 'amarelo', name: 'Amarelo' },
   { id: 'lima', name: 'Lima' },
-  { id: 'ciano', name: 'Ciano' },
-  { id: 'roxo', name: 'Roxo' },
-  { id: 'rosa', name: 'Rosa' },
-  { id: 'magenta', name: 'Magenta' },
-  { id: 'dourado', name: 'Dourado' },
   { id: 'prata', name: 'Prata' },
   { id: 'custom', name: 'Personalizado' },
 ];
@@ -27,7 +26,7 @@ export const ThemeSwitcher: React.FC<Props> = ({ className = '', onThemeSelect }
     if (typeof localStorage !== 'undefined') {
       const saved = localStorage.getItem('app-theme');
       // Migração e limpeza de temas deletados ou legados
-      const deleted = ['nordic', 'gruvbox', 'dracula', 'high-contrast', 'muryokusho', 'synthwave', 'parchment'];
+      const deleted = ['nordic', 'gruvbox', 'dracula', 'high-contrast', 'muryokusho', 'synthwave', 'parchment', 'ciano', 'vinho', 'dourado'];
       if (deleted.includes(saved || '')) return 'forest';
       return saved || 'forest';
     }
@@ -47,7 +46,7 @@ export const ThemeSwitcher: React.FC<Props> = ({ className = '', onThemeSelect }
     // Limpeza de classes de todos os temas possíveis
     themes.forEach(t => root.classList.remove(t.id));
     // Remove também classes legadas para garantir limpeza
-    root.classList.remove('nordic', 'gruvbox', 'dracula', 'high-contrast');
+    root.classList.remove('nordic', 'gruvbox', 'dracula', 'high-contrast', 'ciano', 'vinho', 'dourado');
     
     if (themeId === 'custom') {
       root.classList.add('custom');
@@ -74,7 +73,7 @@ export const ThemeSwitcher: React.FC<Props> = ({ className = '', onThemeSelect }
     // Aplicação inicial garantida
     const root = document.documentElement;
     themes.forEach(t => root.classList.remove(t.id));
-    root.classList.remove('nordic', 'gruvbox', 'dracula', 'high-contrast');
+    root.classList.remove('nordic', 'gruvbox', 'dracula', 'high-contrast', 'ciano', 'vinho', 'dourado');
 
     if (currentTheme === 'custom') {
       root.classList.add('custom');

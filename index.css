@@ -81,11 +81,9 @@ html.vermelho,
 html.laranja,
 html.amarelo,
 html.lima,
-html.ciano,
 html.roxo,
 html.rosa,
 html.magenta,
-html.dourado,
 html.prata,
 html.custom {
   --bg-main: #000000;
@@ -97,39 +95,34 @@ html.custom {
   --border-color: #ffffff;
 }
 
-/* Specific Brands & Gradients */
-/* Azul -> Cyan */
-html.azul { --brand: #009DFF; --brand-to: #22d3ee; }
+/* Specific Brands & Gradients - REFINED TACTICAL PALETTE */
 
-/* Vermelho -> Laranja (Fiery) */
+/* Azul: Tech Blue (Interstellar) */
+html.azul { --brand: #3b82f6; --brand-to: #60a5fa; }
+
+/* Vermelho: Fiery (Mantido Original) */
 html.vermelho { --brand: #FF0000; --brand-to: #fb923c; }
 
-/* Laranja -> Amarelo */
-html.laranja { --brand: #FF8800; --brand-to: #facc15; }
+/* Laranja: Safety Orange (Industrial) */
+html.laranja { --brand: #f97316; --brand-to: #fb923c; }
 
-/* Amarelo -> Laranja */
-html.amarelo { --brand: #FFFF00; --brand-to: #fb923c; }
+/* Amarelo: Warning (Hazard) */
+html.amarelo { --brand: #eab308; --brand-to: #facc15; }
 
-/* Lima -> Verde */
-html.lima { --brand: #CCFF00; --brand-to: #4ade80; }
+/* Lima: Bio (Toxic) */
+html.lima { --brand: #84cc16; --brand-to: #a3e635; }
 
-/* Ciano -> Azul */
-html.ciano { --brand: #00FFFF; --brand-to: #3b82f6; }
+/* Roxo: Void (Deep Space) */
+html.roxo { --brand: #8b5cf6; --brand-to: #a78bfa; }
 
-/* Roxo -> Fuchsia */
-html.roxo { --brand: #BF5AF2; --brand-to: #e879f9; }
-
-/* Rosa -> Roxo */
+/* Rosa: Mantido Original */
 html.rosa { --brand: #FF0080; --brand-to: #a855f7; }
 
-/* Magenta -> Violeta */
-html.magenta { --brand: #FF00FF; --brand-to: #9333ea; }
+/* Magenta: Pure Magenta (Corrigido: Removeu o roxo) */
+html.magenta { --brand: #ff00ff; --brand-to: #e000cc; }
 
-/* Dourado -> Laranja */
-html.dourado { --brand: #FFD700; --brand-to: #fb923c; }
-
-/* Prata -> Branco */
-html.prata { --brand: #E0E0E0; --brand-to: #ffffff; }
+/* Prata: Titanium (Mech) */
+html.prata { --brand: #94a3b8; --brand-to: #cbd5e1; }
 
 /* Custom Theme Variable Injection handled by React */
 html.custom { 
