@@ -1,3 +1,4 @@
+
 import React, { useRef, useState, useEffect, useMemo, useCallback } from 'react';
 import { Loader2, Sparkles, ScanLine, X, Save, RefreshCw, Columns, ArrowLeft, ArrowRight, CheckCircle2, FileSearch, AlertCircle, Wand2, Check } from 'lucide-react';
 import { renderCustomTextLayer } from '../../utils/pdfRenderUtils';
@@ -368,7 +369,7 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
         return;
     }
 
-    // 2. Brush Logic
+    // 2. Brush Logic (RESTORED TEXT CAPTURE)
     if (isBrushingRef.current && cursorStartRef.current) {
         e.currentTarget.releasePointerCapture(e.pointerId);
         isBrushingRef.current = false;
@@ -384,14 +385,51 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
 
         if (w > 5 && h > 5) {
             let capturedText = "";
-            // Logic to capture text within bounds remains same
-            // ... (keeping implementation brief for XML response)
+            
+            // --- TEXT CAPTURE ENGINE ---
+            const spans = textLayerRef.current?.querySelectorAll('span');
+            if (spans) {
+                const selectedWords: { text: string, x: number, y: number }[] = [];
+                
+                spans.forEach((span) => {
+                    // Normalize Coordinates: Dataset values are SCALED (CSS pixels)
+                    // We need them unscaled to compare with our unscaled selection box
+                    const sx = parseFloat(span.dataset.pdfX || '0') / scale;
+                    const sy = parseFloat(span.dataset.pdfTop || '0') / scale;
+                    const sw = parseFloat(span.dataset.pdfWidth || '0') / scale;
+                    const sh = parseFloat(span.dataset.pdfHeight || '0') / scale;
+
+                    // Calculate Intersection Area
+                    const overlapW = Math.max(0, Math.min(x + w, sx + sw) - Math.max(x, sx));
+                    const overlapH = Math.max(0, Math.min(y + h, sy + sh) - Math.max(y, sy));
+                    
+                    // Significant Overlap Threshold (50% of height)
+                    if (overlapH > sh * 0.5 && overlapW > 0) {
+                        selectedWords.push({
+                            text: span.textContent || '',
+                            x: sx,
+                            y: sy
+                        });
+                    }
+                });
+
+                // Reconstruct Reading Order (Top->Bottom, Left->Right)
+                selectedWords.sort((a, b) => {
+                    const lineDiff = Math.abs(a.y - b.y);
+                    if (lineDiff < 5) return a.x - b.x; // Same line tolerance
+                    return a.y - b.y;
+                });
+
+                capturedText = selectedWords.map(w => w.text).join('');
+            }
+            // ---------------------------
+
             addAnnotation({
                 id: `hl-${Date.now()}`,
                 page: pageNumber,
                 bbox: [x, y, w, h],
                 type: 'highlight',
-                text: capturedText,
+                text: capturedText, // Captured text now correctly passed
                 color: settings.highlightColor,
                 opacity: settings.highlightOpacity,
                 createdAt: new Date().toISOString()
