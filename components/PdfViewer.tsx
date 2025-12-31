@@ -454,7 +454,7 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
         ref={headerRef}
         className={`fixed top-4 left-1/2 -translate-x-1/2 w-[95%] max-w-5xl z-[50] transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] ${isHeaderVisible ? 'translate-y-0 opacity-100 pointer-events-auto' : '-translate-y-32 opacity-0 pointer-events-none'}`}
       >
-         <div className="bg-[#121212]/80 backdrop-blur-xl border border-white/10 flex items-center justify-between px-2 py-1.5 rounded-full shadow-2xl relative z-20">
+         <div className="bg-[#0a0a0a] border border-[#333] flex items-center justify-between px-2 py-1.5 rounded-full shadow-2xl relative z-20">
              <div className="flex items-center gap-1 pl-1">
                 {onToggleNavigation && <button onClick={onToggleNavigation} className="p-2.5 hover:bg-white/10 rounded-full text-white/80 hover:text-white transition-colors"><Menu size={20}/></button>}
                 <button onClick={onBack} className="p-2.5 hover:bg-white/10 rounded-full text-white/80 hover:text-white transition-colors"><ArrowLeft size={20}/></button>
