@@ -33,20 +33,6 @@ export const getValidDriveToken = (): string | null => {
   }
 };
 
-// Retorna o tempo restante em minutos (ou 0 se expirado/inexistente)
-export const getTokenTimeRemaining = (): number => {
-  const data = localStorage.getItem(TOKEN_DATA_KEY);
-  if (!data) return 0;
-  
-  try {
-    const { expiresAt } = JSON.parse(data);
-    const remaining = expiresAt - Date.now();
-    return remaining > 0 ? Math.floor(remaining / 60000) : 0;
-  } catch (e) {
-    return 0;
-  }
-};
-
 export async function signInWithGoogleDrive() {
   const provider = new GoogleAuthProvider();
   
