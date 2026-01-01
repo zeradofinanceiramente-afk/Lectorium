@@ -4,6 +4,7 @@ import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy } from 'pdfjs-d
 import { downloadDriveFile } from '../services/driveService';
 import { getOfflineFile } from '../services/storageService';
 import { blobRegistry } from '../services/blobRegistry';
+import { usePdfStore } from '../stores/usePdfStore';
 
 // Configuração do Worker - CRÍTICO: Versão deve bater com importmap
 GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@4.8.69/build/pdf.worker.min.mjs`;
@@ -30,8 +31,9 @@ export const usePdfDocument = ({ fileId, fileBlob, accessToken, onAuthError }: U
   // Janitor Hook: Limpa Blobs ao desmontar ou trocar arquivo
   useEffect(() => {
     return () => {
-      // Quando o componente desmonta, limpamos TUDO (incluindo thumbnails gerados por PdfPage)
       blobRegistry.revokeAll();
+      // Limpa dimensões ao desmontar
+      usePdfStore.getState().setPageSizes([]);
     };
   }, []);
 
@@ -42,6 +44,7 @@ export const usePdfDocument = ({ fileId, fileBlob, accessToken, onAuthError }: U
       try {
         setLoading(true);
         setError(null);
+        usePdfStore.getState().setPageSizes([]); // Reset dimensions
 
         let blob: Blob | undefined;
 
@@ -90,6 +93,7 @@ export const usePdfDocument = ({ fileId, fileBlob, accessToken, onAuthError }: U
           setPdfDoc(pdf);
           setNumPages(pdf.numPages);
           
+          // Setup Page 1 (Critical Path)
           try {
             const page = await pdf.getPage(1);
             const viewport = page.getViewport({ scale: 1 });
@@ -105,6 +109,31 @@ export const usePdfDocument = ({ fileId, fileBlob, accessToken, onAuthError }: U
           } catch (e) {
             console.warn("Erro no auto-fit:", e);
           }
+
+          // 3. BACKGROUND: Fetch Dimensions for ALL Pages (Variable Height Support)
+          // Isso roda de forma não bloqueante
+          setTimeout(async () => {
+              if (!mounted) return;
+              const sizes: { width: number, height: number }[] = [];
+              
+              for (let i = 1; i <= pdf.numPages; i++) {
+                  try {
+                      // Nota: getPage em loop pode ser pesado para docs gigantes.
+                      // O PDF.js cacheia essas chamadas. Apenas metadados são leves.
+                      const page = await pdf.getPage(i);
+                      const vp = page.getViewport({ scale: 1 });
+                      sizes.push({ width: vp.width, height: vp.height });
+                  } catch (e) {
+                      // Fallback em caso de erro na página: usa a anterior ou padrão
+                      sizes.push(sizes.length > 0 ? sizes[sizes.length-1] : { width: 600, height: 800 });
+                  }
+              }
+              
+              if (mounted) {
+                  console.log(`[PDF Layout] Mapa de alturas gerado para ${pdf.numPages} páginas.`);
+                  usePdfStore.getState().setPageSizes(sizes);
+              }
+          }, 100);
         }
       } catch (err: any) {
         console.error("Erro ao carregar PDF:", err);

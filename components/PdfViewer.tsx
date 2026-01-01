@@ -9,7 +9,7 @@ import { usePdfAnnotations } from '../hooks/usePdfAnnotations';
 import { PdfProvider, usePdfContext } from '../context/PdfContext';
 import { usePdfStore } from '../stores/usePdfStore';
 import { usePdfSaver } from '../hooks/usePdfSaver';
-import { usePdfGestures } from '../hooks/usePdfGestures'; // Novo Hook
+import { usePdfGestures } from '../hooks/usePdfGestures'; 
 
 // Components
 import { PdfPage } from './pdf/PdfPage';
@@ -67,6 +67,7 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
   const handleScroll = usePdfStore(state => state.handleScroll);
   const goNext = usePdfStore(state => state.nextPage);
   const goPrev = usePdfStore(state => state.prevPage);
+  const pageSizes = usePdfStore(state => state.pageSizes);
 
   // Context Data
   const { 
@@ -89,17 +90,53 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
   // --- Logic Extraction: Gestures ---
   const { handlers: gestureHandlers } = usePdfGestures(visualContentRef);
 
+  const PAGE_GAP = 40; 
+
+  // Pre-calculate all page offsets if we have variable heights
+  const pageOffsets = useMemo(() => {
+      if (pageSizes.length !== numPages) return null;
+      
+      const offsets = [];
+      let acc = 0;
+      for (const size of pageSizes) {
+          offsets.push(acc);
+          acc += (size.height * scale) + PAGE_GAP;
+      }
+      return offsets;
+  }, [pageSizes, numPages, scale]);
+
+  // Total Scroll Height Calculation
+  const totalHeight = useMemo(() => {
+      if (pageOffsets && pageSizes.length > 0) {
+          const lastIndex = pageSizes.length - 1;
+          return pageOffsets[lastIndex] + (pageSizes[lastIndex].height * scale) + PAGE_GAP;
+      }
+      return numPages * ((pageDimensions ? pageDimensions.height * scale : 1100) + PAGE_GAP);
+  }, [pageOffsets, pageSizes, scale, numPages, pageDimensions]);
+
   // Expose Jump Logic to Parent Ref
   useEffect(() => {
     jumpToPageRef.current = (page: number) => {
         setCurrentPage(page);
-        if (viewMode === 'continuous' && containerRef.current && pageDimensions) {
-            const PAGE_GAP = 40;
-            const itemHeight = (pageDimensions.height * scale) + PAGE_GAP;
-            containerRef.current.scrollTo({ top: (page - 1) * itemHeight, behavior: 'auto' });
+        if (viewMode === 'continuous' && containerRef.current) {
+            let targetY = 0;
+            if (pageOffsets) {
+                targetY = pageOffsets[page - 1];
+            } else if (pageDimensions) {
+                const itemHeight = (pageDimensions.height * scale) + PAGE_GAP;
+                targetY = (page - 1) * itemHeight;
+            }
+            containerRef.current.scrollTo({ top: targetY, behavior: 'auto' });
         }
     };
-  }, [jumpToPageRef, setCurrentPage, viewMode, scale, pageDimensions]);
+  }, [jumpToPageRef, setCurrentPage, viewMode, scale, pageDimensions, pageOffsets]);
+
+  // Reset scroll when page changes in Single View Mode
+  useEffect(() => {
+    if (viewMode === 'single' && containerRef.current) {
+        containerRef.current.scrollTop = 0;
+    }
+  }, [currentPage, viewMode]);
 
   const [showSidebar, setShowSidebar] = useState(false);
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('annotations');
@@ -217,10 +254,6 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
   
   const handleOcrConfirm = useCallback(() => { setShowOcrModal(false); onBack(); }, [onBack, setShowOcrModal]);
 
-  const PAGE_GAP = 40; 
-  const itemHeight = pageDimensions ? (pageDimensions.height * scale) + PAGE_GAP : 1100;
-  const totalHeight = numPages * itemHeight;
-
   return (
     <div className="flex flex-col h-screen bg-[#050505] text-text relative overflow-hidden font-sans" onContextMenu={(e) => e.preventDefault()}>
       <svg style={{ width: 0, height: 0, position: 'absolute' }}>
@@ -308,13 +341,21 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
                         const pageNum = pageIndex + 1;
                         if (pageNum > numPages) return null;
 
+                        // Calculate absolute TOP using variable offsets if available
+                        const top = pageOffsets ? pageOffsets[pageIndex] : (pageIndex * ((pageDimensions?.height || 1100) * scale + PAGE_GAP));
+                        
+                        // Dimensions
+                        const currentHeight = pageOffsets && pageSizes[pageIndex] 
+                            ? (pageSizes[pageIndex].height * scale) 
+                            : (pageDimensions?.height || 1100) * scale;
+
                         return (
                             <div 
                                 key={pageNum} 
                                 className="absolute w-full flex justify-center"
                                 style={{ 
-                                    top: pageIndex * itemHeight,
-                                    height: pageDimensions ? pageDimensions.height * scale : 'auto'
+                                    top: top,
+                                    height: currentHeight
                                 }}
                             >
                                 <div style={{ boxShadow: '0 0 30px -10px rgba(0,0,0,0.5)' }}>

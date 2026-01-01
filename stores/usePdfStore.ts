@@ -15,7 +15,10 @@ interface PdfUiState {
   viewMode: 'single' | 'continuous'; // Novo: Modo de visualização
   isSpread: boolean;
   spreadSide: 'left' | 'right';
-  pageDimensions: { width: number, height: number } | null;
+  
+  // Dimensions State (Variable Page Size Support)
+  pageDimensions: { width: number, height: number } | null; // Fallback (Página 1)
+  pageSizes: { width: number, height: number }[]; // Mapa exato de todas as páginas
   
   // Virtualization State (Novo)
   scrollTop: number;
@@ -33,6 +36,7 @@ interface PdfUiState {
   setSpreadSide: (side: 'left' | 'right') => void;
   setActiveTool: (tool: ToolType) => void;
   setPageDimensions: (dims: { width: number, height: number } | null) => void;
+  setPageSizes: (sizes: { width: number, height: number }[]) => void;
   setViewMode: (mode: 'single' | 'continuous') => void;
   
   // Virtualization Logic
@@ -59,6 +63,7 @@ export const usePdfStore = create<PdfUiState>()(
     isSpread: false,
     spreadSide: 'left',
     pageDimensions: null,
+    pageSizes: [], // Inicialmente vazio
     activeTool: 'cursor',
     scrollTop: 0,
     visibleRange: { start: 0, end: 1 },
@@ -82,38 +87,74 @@ export const usePdfStore = create<PdfUiState>()(
     setSpreadSide: (spreadSide) => set({ spreadSide }),
     setActiveTool: (activeTool) => set({ activeTool }),
     setPageDimensions: (pageDimensions) => set({ pageDimensions }),
+    setPageSizes: (pageSizes) => set({ pageSizes }),
     setViewMode: (viewMode) => set({ viewMode }),
 
-    // Lógica de Virtualização Otimizada
+    // Lógica de Virtualização Otimizada (Suporta Altura Variável)
     handleScroll: (scrollTop, viewportHeight) => {
-        const { numPages, pageDimensions, scale } = get();
+        const { numPages, pageDimensions, scale, pageSizes } = get();
         if (!pageDimensions || numPages === 0) return;
 
-        // Altura estimada de cada página + gap (assumindo altura uniforme por enquanto)
-        // Otimização: Em PDFs mistos, isso precisaria de um mapa de alturas, mas p/ MVP usamos a pág 1.
         const PAGE_GAP = 40; 
-        const itemHeight = (pageDimensions.height * scale) + PAGE_GAP;
         
-        // Cálculo da Janela Visível
-        const startIndex = Math.floor(scrollTop / itemHeight);
-        const endIndex = Math.min(
-            numPages - 1,
-            Math.floor((scrollTop + viewportHeight) / itemHeight)
-        );
+        let start = 0;
+        let end = 0;
+        let centerPage = 1;
 
-        // Adiciona Buffer (1 página acima, 1 abaixo) para scroll suave
-        const bufferedStart = Math.max(0, startIndex - 1);
-        const bufferedEnd = Math.min(numPages - 1, endIndex + 1);
+        // Modo 1: Altura Variável (Precision Mode)
+        if (pageSizes.length === numPages) {
+            let currentY = 0;
+            let foundStart = false;
+            let foundCenter = false;
+            const centerY = scrollTop + (viewportHeight / 2);
+
+            for (let i = 0; i < numPages; i++) {
+                const h = (pageSizes[i].height * scale) + PAGE_GAP;
+                const top = currentY;
+                const bottom = currentY + h;
+
+                // Detect Start (First visible pixel)
+                if (!foundStart && bottom > scrollTop) {
+                    start = i;
+                    foundStart = true;
+                }
+
+                // Detect Center Page
+                if (!foundCenter && top <= centerY && bottom >= centerY) {
+                    centerPage = i + 1;
+                    foundCenter = true;
+                }
+
+                // Detect End (Last visible pixel)
+                if (top < scrollTop + viewportHeight) {
+                    end = i;
+                } else if (foundStart) {
+                    // Se já passamos do viewport e já achamos o inicio, podemos parar
+                    break;
+                }
+
+                currentY += h;
+            }
+        } 
+        // Modo 2: Altura Uniforme (Fallback Fast Mode)
+        else {
+            const itemHeight = (pageDimensions.height * scale) + PAGE_GAP;
+            start = Math.floor(scrollTop / itemHeight);
+            end = Math.min(numPages - 1, Math.floor((scrollTop + viewportHeight) / itemHeight));
+            centerPage = Math.floor((scrollTop + (viewportHeight / 2)) / itemHeight) + 1;
+        }
+
+        // Buffer de segurança (1 página acima/abaixo)
+        const bufferedStart = Math.max(0, start - 1);
+        const bufferedEnd = Math.min(numPages - 1, end + 1);
 
         set({ 
             scrollTop, 
             visibleRange: { start: bufferedStart, end: bufferedEnd } 
         });
 
-        // Atualiza página atual baseada no centro da tela (para sincronizar com HUD)
-        const centerPage = Math.floor((scrollTop + (viewportHeight / 2)) / itemHeight) + 1;
+        // Atualiza HUD da página atual
         const safePage = Math.max(1, Math.min(numPages, centerPage));
-        
         if (safePage !== get().currentPage) {
             set({ currentPage: safePage });
         }
@@ -142,16 +183,13 @@ export const usePdfStore = create<PdfUiState>()(
     },
 
     jumpToPage: (page: number) => {
-        const { setNumPages, setCurrentPage, setSpreadSide, setIsSpread, viewMode } = get();
+        const { setCurrentPage, setSpreadSide, setIsSpread, viewMode } = get();
         
         setCurrentPage(page);
         
         if (viewMode === 'single') {
             setSpreadSide('left');
             setIsSpread(false);
-        } else {
-            // Em modo contínuo, jumpToPage precisa ser tratado pela UI para rolar o container
-            // O estado é atualizado aqui, mas o efeito colateral de scroll fica no componente
         }
     },
 

@@ -5,10 +5,11 @@ import { renderCustomTextLayer } from '../../utils/pdfRenderUtils';
 import { usePageOcr } from '../../hooks/usePageOcr';
 import { NoteMarker } from './NoteMarker';
 import { usePdfContext } from '../../context/PdfContext';
-import { usePdfStore } from '../../stores/usePdfStore'; // NEW IMPORT
+import { usePdfStore } from '../../stores/usePdfStore'; 
 import { PDFDocumentProxy } from 'pdfjs-dist';
 import { BaseModal } from '../shared/BaseModal';
 import { scheduleWork, cancelWork } from '../../utils/scheduler';
+import { bitmapCache } from '../../services/bitmapCacheService';
 
 interface PdfPageProps {
   pageNumber: number;
@@ -100,11 +101,16 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
     settings, 
     annotations, addAnnotation, removeAnnotation,
     ocrMap, updateOcrWord, refinePageOcr,
-    setShowOcrModal, onSmartTap, selection
+    setShowOcrModal, onSmartTap, selection,
+    fileId // Need fileId for caching keys
   } = usePdfContext();
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const inkCanvasRef = useRef<HTMLCanvasElement>(null); // NEW: Canvas layer dedicated to Ink
+  
+  // OPTIMIZATION: Double Buffering for Ink
+  const staticInkCanvasRef = useRef<HTMLCanvasElement>(null);
+  const activeInkCanvasRef = useRef<HTMLCanvasElement>(null);
+  
   const textLayerRef = useRef<HTMLDivElement>(null);
   const pageContainerRef = useRef<HTMLDivElement>(null);
   
@@ -138,6 +144,9 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
     return (r * 299 + g * 587 + b * 114) / 1000 < 128;
   }, [settings.pageColor, settings.disableColorFilter]);
 
+  // Unique key for Bitmap Cache
+  const cacheKey = useMemo(() => `${fileId}-p${pageNumber}-s${scale.toFixed(2)}`, [fileId, pageNumber, scale]);
+
   useEffect(() => {
     const element = pageContainerRef.current;
     if (!element) return;
@@ -167,7 +176,7 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
 
   const isSplitActive = settings.detectColumns && (pageDimensions ? pageDimensions.width > pageDimensions.height * 1.1 : false);
 
-  // --- PDF RENDERING LOOP ---
+  // --- PDF RENDERING LOOP (With Bitmap Caching) ---
   useEffect(() => {
     if (!isVisible || !pageDimensions || !pageProxy || !canvasRef.current) return;
     let active = true;
@@ -181,20 +190,52 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
         const canvas = canvasRef.current!;
         const ctx = canvas.getContext('2d', { willReadFrequently: true, alpha: false });
         if (!ctx) return;
+        
         if (renderTaskRef.current) try { renderTaskRef.current.cancel(); } catch {}
 
-        canvas.width = Math.floor(viewport.width * cappedDpr);
-        canvas.height = Math.floor(viewport.height * cappedDpr);
+        // 1. Prepare Canvas
+        const targetWidth = Math.floor(viewport.width * cappedDpr);
+        const targetHeight = Math.floor(viewport.height * cappedDpr);
+        
+        // Only resize if necessary (Avoids clearing if size matches)
+        if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
+            canvas.width = targetWidth;
+            canvas.height = targetHeight;
+        }
+        
         canvas.style.width = `${viewport.width}px`;
         canvas.style.height = `${viewport.height}px`;
+
+        // 2. Optimistic UI: Draw Cached Bitmap (Instant Feedback)
+        const cachedBitmap = bitmapCache.get(cacheKey);
+        if (cachedBitmap) {
+            // Draw cached bitmap immediately to fill the void
+            ctx.drawImage(cachedBitmap, 0, 0, targetWidth, targetHeight);
+        } else {
+            // If no cache, we might want to clear or keep previous content?
+            // Usually PDF.js render will clear, but we can clear to avoid artifacts if size changed
+            // ctx.clearRect(0, 0, targetWidth, targetHeight);
+        }
+
+        // 3. Render High-Quality PDF (Async)
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.scale(cappedDpr, cappedDpr);
 
         const task = pageProxy.render({ canvasContext: ctx, viewport });
         renderTaskRef.current = task;
         await task.promise;
+        
         if (renderTaskRef.current !== task || !active) return;
 
+        // 4. Cache Result (Background)
+        // Store the freshly rendered high-quality canvas as a bitmap
+        // We use createImageBitmap which is off-main-thread friendly
+        createImageBitmap(canvas).then(bitmap => {
+            if (active) bitmapCache.set(cacheKey, bitmap);
+            else bitmap.close(); // Cleanup if unmounted
+        });
+
+        // 5. Process Text Layer
         const textContent = await pageProxy.getTextContent();
         if (!active) return;
         
@@ -213,43 +254,37 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
         setRendered(true);
       } catch (e: any) { if (e?.name !== 'RenderingCancelledException') console.error(e); }
     };
+    
     render();
+    
     return () => { 
         active = false; 
         if (renderTaskRef.current) try { renderTaskRef.current.cancel(); } catch {}
     };
-  }, [pageProxy, scale, isVisible, settings.detectColumns]);
+  }, [pageProxy, scale, isVisible, settings.detectColumns, cacheKey]);
 
-  // --- INK RENDERING LOOP (HIGH PERFORMANCE CANVAS) ---
+  // --- STATIC INK LAYER (Heavy, Cached) ---
+  // Renders only SAVED annotations. Triggered by 'annotations' change.
   useEffect(() => {
-    if (!inkCanvasRef.current || !pageDimensions) return;
+    if (!staticInkCanvasRef.current || !pageDimensions) return;
     
-    const canvas = inkCanvasRef.current;
+    const canvas = staticInkCanvasRef.current;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Sync dimensions with PDF Canvas
+    // Sync dimensions
     canvas.width = pageDimensions.width;
     canvas.height = pageDimensions.height;
     canvas.style.width = `${pageDimensions.width}px`;
     canvas.style.height = `${pageDimensions.height}px`;
 
-    // Clear previous frame
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Apply scaling context
-    // We don't scale the context because points are already pre-scaled or handled in raw
-    // Logic: annotations points are relative (0-1) or absolute? 
-    // Checking types: bbox is absolute coords from PDF. 
-    // Ink points are raw PDF coords. We need to scale them by `scale`.
     
     const pageInks = annotations.filter(a => a.page === pageNumber && a.type === 'ink' && !a.isBurned);
     
-    // Configurações de desenho
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
-    // 1. Render Saved Inks
     pageInks.forEach(ann => {
         if (!ann.points || ann.points.length < 2) return;
         
@@ -267,9 +302,31 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
         }
         ctx.stroke();
     });
+  }, [annotations, pageNumber, scale, pageDimensions]); // Dependency List: Does NOT include currentPoints
 
-    // 2. Render Current Drawing (Real-time feedback)
+  // --- ACTIVE INK LAYER (Light, Fast) ---
+  // Renders only the stroke CURRENTLY being drawn. Triggered by 'currentPoints'.
+  useEffect(() => {
+    if (!activeInkCanvasRef.current || !pageDimensions) return;
+    
+    const canvas = activeInkCanvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Ensure dimension sync (cheap check usually)
+    if (canvas.width !== pageDimensions.width || canvas.height !== pageDimensions.height) {
+        canvas.width = pageDimensions.width;
+        canvas.height = pageDimensions.height;
+        canvas.style.width = `${pageDimensions.width}px`;
+        canvas.style.height = `${pageDimensions.height}px`;
+    }
+
+    // Always clear active layer on every frame (it only holds one stroke)
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
     if (currentPoints.length > 1) {
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
         ctx.beginPath();
         ctx.lineWidth = (settings.inkStrokeWidth / 5) * scale;
         ctx.strokeStyle = settings.inkColor;
@@ -284,8 +341,7 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
         }
         ctx.stroke();
     }
-
-  }, [annotations, pageNumber, scale, pageDimensions, currentPoints, settings.inkColor, settings.inkStrokeWidth, settings.inkOpacity]);
+  }, [currentPoints, scale, pageDimensions, settings.inkColor, settings.inkStrokeWidth, settings.inkOpacity]);
 
 
   const { status: ocrStatus, ocrData, requestOcr } = usePageOcr({ pageNumber });
@@ -589,10 +645,13 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
             {/* LAYER 0: PDF Base */}
             <canvas ref={canvasRef} className="select-none absolute top-0 left-0" style={{ filter: settings.disableColorFilter ? 'none' : 'url(#pdf-recolor)', display: 'block', visibility: isVisible ? 'visible' : 'hidden', zIndex: 5 }} />
             
-            {/* LAYER 1: Ink Canvas (New!) */}
-            <canvas ref={inkCanvasRef} className="select-none absolute top-0 left-0 pointer-events-none" style={{ zIndex: 35, display: 'block' }} />
+            {/* LAYER 1: STATIC Ink Canvas (Saved Strokes) */}
+            <canvas ref={staticInkCanvasRef} className="select-none absolute top-0 left-0 pointer-events-none" style={{ zIndex: 35, display: 'block' }} />
 
-            {/* LAYER 2: OCR Confidence Overlay */}
+            {/* LAYER 2: ACTIVE Ink Canvas (Drawing Now) */}
+            <canvas ref={activeInkCanvasRef} className="select-none absolute top-0 left-0 pointer-events-none" style={{ zIndex: 36, display: 'block' }} />
+
+            {/* LAYER 3: OCR Confidence Overlay */}
             {settings.showConfidenceOverlay && ocrData && ocrData.length > 0 && rendered && ocrData.length < 1500 && (
                 <div className="absolute inset-0 z-20 pointer-events-none overflow-hidden">
                     {ocrData
@@ -609,7 +668,7 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
                 </div>
             )}
 
-            {/* LAYER 3: Virtual Selections */}
+            {/* LAYER 4: Virtual Selections */}
             {selection && selection.page === pageNumber && (
                 <div className="absolute inset-0 z-[35] pointer-events-none">
                     {selection.relativeRects.map((rect, i) => {
@@ -646,7 +705,7 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
                 />
             )}
 
-            {/* LAYER 4: DOM Annotations (Highlights & Notes only) */}
+            {/* LAYER 5: DOM Annotations (Highlights & Notes only) */}
             <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 40 }}>
                 {pageAnnotations.filter(a => a.type === 'highlight' && !a.isBurned).map((ann, i) => (
                     <div 
@@ -669,7 +728,7 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
                 ))}
             </div>
 
-            {/* LAYER 5: Invisible Text Layer */}
+            {/* LAYER 6: Invisible Text Layer */}
             <div 
                 ref={textLayerRef} 
                 className="textLayer notranslate" 
