@@ -1,10 +1,9 @@
-
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   Folder, FileText, MoreVertical, Trash2, Edit2, Download, 
   Share2, ArrowLeft, Loader2, WifiOff, RefreshCw, Menu,
   X, Image as ImageIcon, Activity, CheckCircle, CloudOff, Package, Pin, PinOff,
-  Workflow, Zap, Plus, HardDrive, BookOpen, FolderInput, Cloud, Sparkles, FolderOpen, ChevronRight, Lock, LogIn
+  Workflow, Zap, Plus, HardDrive, BookOpen, FolderInput, Cloud, Sparkles, FolderOpen, ChevronRight, Lock, LogIn, FilePlus
 } from 'lucide-react';
 import { DriveFile, MIME_TYPES } from '../types';
 import { 
@@ -57,7 +56,7 @@ async function generateLocalThumbnail(file: DriveFile): Promise<string | null> {
 
 interface FileItemProps {
     file: DriveFile;
-    onSelect: (file: DriveFile) => void;
+    onSelect: (file: DriveFile, background?: boolean) => void;
     onTogglePin: (file: DriveFile) => void;
     onDelete: (file: DriveFile) => void;
     onShare: (file: DriveFile) => void;
@@ -226,6 +225,9 @@ const FileItem = React.memo(({ file, onSelect, onTogglePin, onDelete, onShare, o
 
             {isActiveMenu && !isLocalMode && (
                 <div className="absolute bottom-10 right-2 w-48 bg-[#161b22] border border-[#30363d] rounded-xl overflow-hidden z-30 animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
+                    <button onClick={() => { onSelect(file, true); setActiveMenu(null); }} className="w-full text-left px-4 py-3 hover:bg-[#21262d] text-xs flex items-center gap-2 text-[#c9d1d9]">
+                        <FilePlus size={14} /> Abrir em 2º Plano
+                    </button>
                     <button onClick={() => onTogglePin(file)} className="w-full text-left px-4 py-3 hover:bg-[#21262d] text-xs flex items-center gap-2 text-[#c9d1d9]">
                         {isPinned ? <><PinOff size={14} /> Soltar do disco</> : <><Pin size={14} /> Manter Offline</>}
                     </button>
@@ -241,7 +243,7 @@ const FileItem = React.memo(({ file, onSelect, onTogglePin, onDelete, onShare, o
 
 interface Props {
   accessToken: string;
-  onSelectFile: (file: DriveFile) => Promise<void> | void;
+  onSelectFile: (file: DriveFile, background?: boolean) => Promise<void> | void;
   onLogout: () => void;
   onAuthError: () => void;
   onToggleMenu: () => void;
@@ -249,11 +251,13 @@ interface Props {
   onCreateMindMap?: (parentId?: string) => void; 
   onGenerateMindMapWithAi?: (topic: string) => void;
   localDirectoryHandle?: any;
+  onLogin?: () => void; // Nova prop para ação direta de login
 }
 
 export const DriveBrowser: React.FC<Props> = ({ 
   accessToken, onSelectFile, onLogout, onAuthError, 
-  onToggleMenu, mode = 'default', onCreateMindMap, onGenerateMindMapWithAi, localDirectoryHandle
+  onToggleMenu, mode = 'default', onCreateMindMap, onGenerateMindMapWithAi, localDirectoryHandle,
+  onLogin
 }) => {
   const [files, setFiles] = useState<DriveFile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -277,8 +281,16 @@ export const DriveBrowser: React.FC<Props> = ({
   }, []);
 
   const loadFiles = useCallback(async () => {
-    setLoading(true);
     setAuthError(false);
+    
+    // Verificação antecipada de token para o modo Drive
+    if (mode === 'default' && !accessToken) {
+        setAuthError(true);
+        setLoading(false);
+        return;
+    }
+
+    setLoading(true);
     try {
       let fetchedFiles: DriveFile[] = [];
       if (mode === 'offline') fetchedFiles = await listOfflineFiles();
@@ -403,11 +415,11 @@ export const DriveBrowser: React.FC<Props> = ({
 
   const handleMove = useCallback((file: DriveFile) => { setActiveMenuId(null); setFileToMove(file); setMoveFileModalOpen(true); }, []);
 
-  const handleSelect = useCallback(async (file: DriveFile) => {
+  const handleSelect = useCallback(async (file: DriveFile, background?: boolean) => {
       if (openingFileId) return;
       if (file.mimeType === MIME_TYPES.FOLDER) handleFolderClick(file); else {
-          setOpeningFileId(file.id);
-          try { await onSelectFile(file); } catch (e) { console.error(e); } finally { setOpeningFileId(null); }
+          if (!background) setOpeningFileId(file.id);
+          try { await onSelectFile(file, background); } catch (e) { console.error(e); } finally { setOpeningFileId(null); }
       }
   }, [handleFolderClick, onSelectFile, openingFileId]);
 
@@ -441,7 +453,7 @@ export const DriveBrowser: React.FC<Props> = ({
                      <Sparkles size={16} /><span className="hidden sm:inline">Gerar com IA</span>
                  </button>
              )}
-             {(mode === 'mindmaps' || mode === 'default') && onCreateMindMap && (
+             {(mode === 'mindmaps' || mode === 'default') && !authError && onCreateMindMap && (
                  <button onClick={handleCreateNew} className="flex items-center gap-2 bg-brand text-bg px-3 py-2 rounded-lg font-bold text-xs hover:brightness-110 shadow-lg transition-all animate-in fade-in">
                      <Plus size={16} /><span className="hidden sm:inline">Novo</span>
                  </button>
@@ -453,19 +465,22 @@ export const DriveBrowser: React.FC<Props> = ({
       <div className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar relative">
          {authError ? (
              <div className="flex flex-col items-center justify-center h-full py-12 animate-in fade-in text-center">
-                 <div className="bg-yellow-500/10 p-6 rounded-full mb-4 border border-yellow-500/20">
+                 <div className="bg-yellow-500/10 p-6 rounded-full mb-4 border border-yellow-500/20 shadow-[0_0_30px_-10px_rgba(234,179,8,0.2)]">
                      <Lock className="text-yellow-500" size={48} />
                  </div>
                  <h3 className="text-xl font-bold text-white mb-2">Conexão Expirada</h3>
-                 <p className="text-sm text-text-sec max-w-sm mb-6">
-                     Por segurança, o acesso ao Google Drive expirou. Reconecte sua conta para continuar visualizando seus arquivos.
+                 <p className="text-sm text-text-sec max-w-sm mb-8 leading-relaxed">
+                     Para acessar seus arquivos na nuvem, você precisa renovar sua conexão com o Google Drive.
                  </p>
                  <button 
-                    onClick={onAuthError} 
-                    className="flex items-center gap-2 bg-brand text-[#0b141a] px-6 py-3 rounded-xl font-bold hover:brightness-110 transition-all"
+                    onClick={onLogin} 
+                    className="flex items-center gap-3 bg-brand text-[#0b141a] px-8 py-3 rounded-xl font-bold hover:brightness-110 transition-all shadow-lg hover:scale-105 active:scale-95"
                  >
-                     <LogIn size={18} /> Reconectar Agora
+                     <LogIn size={20} /> Conectar ao Drive
                  </button>
+                 <p className="text-[10px] text-text-sec mt-6 opacity-60">
+                    Seus arquivos offline continuam acessíveis no menu lateral.
+                 </p>
              </div>
          ) : loading && files.length === 0 ? (
              <div className="flex items-center justify-center h-64"><Loader2 size={32} className="animate-spin text-brand" /></div>

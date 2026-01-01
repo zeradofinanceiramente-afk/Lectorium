@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Highlighter, Sparkles, Book, Copy, X } from 'lucide-react';
+import { Highlighter, Sparkles, Book, Copy, X, Eraser } from 'lucide-react';
 
 export interface SelectionState {
   page: number;
@@ -17,6 +17,7 @@ interface Props {
   onExplainAi: () => void;
   onDefine: () => void;
   onCopy: () => void;
+  onDelete?: () => void;
   onClose: () => void;
 }
 
@@ -26,6 +27,7 @@ export const SelectionMenu: React.FC<Props> = ({
   onExplainAi,
   onDefine,
   onCopy,
+  onDelete,
   onClose
 }) => {
   
@@ -89,6 +91,16 @@ export const SelectionMenu: React.FC<Props> = ({
             label="Copiar" 
             colorClass="text-blue-400"
           />
+
+          {onDelete && (
+            <MenuBtn 
+              onClick={onDelete} 
+              icon={Eraser} 
+              label="Apagar" 
+              colorClass="text-red-400"
+              hoverClass="hover:text-red-400"
+            />
+          )}
 
           <div className="w-px h-4 bg-[#30363d] mx-1"></div>
 

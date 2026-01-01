@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useMemo, Suspense, lazy } from 'react';
 import { auth } from './firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
@@ -232,7 +231,7 @@ const AppContent = () => {
   }, [savedLocalDirHandle, handleOpenLocalFolder]);
 
   // CONSTRAINT: Check if OCR is running before opening new heavy files
-  const handleOpenFile = useCallback(async (file: DriveFile) => {
+  const handleOpenFile = useCallback(async (file: DriveFile, background: boolean = false) => {
     // RESTRIÇÃO RÍGIDA: Se OCR está rodando e já existe pelo menos 1 arquivo aberto, BLOQUEAR.
     if (isOcrRunning && openFiles.length >= 1) {
         addNotification("Limite de performance: Apenas 1 documento para leitura é permitido enquanto o OCR processa em segundo plano.", "error");
@@ -249,8 +248,13 @@ const AppContent = () => {
     if (file.id.startsWith('native-') && file.handle && !file.blob) { try { file.blob = await file.handle.getFile(); } catch (e) { alert("Erro ao ler arquivo local."); return; } }
     addRecentFile(file);
     setOpenFiles(prev => prev.find(f => f.id === file.id) ? prev : [...prev, file]);
-    setActiveTab(file.id);
-    setIsSidebarOpen(false);
+    
+    if (!background) {
+        setActiveTab(file.id);
+        setIsSidebarOpen(false);
+    } else {
+        addNotification(`"${file.name}" aberto em segundo plano.`, 'success');
+    }
   }, [accessToken, syncStrategy, isOcrRunning, openFiles.length, addNotification]);
 
   const handleCreateMindMap = useCallback((parentId?: string) => {
@@ -301,7 +305,7 @@ const AppContent = () => {
     if (activeTab === 'dashboard') return <Dashboard userName={user?.displayName} onOpenFile={handleOpenFile} onUploadLocal={(e) => { const f = e.target.files?.[0]; if (f) handleCreateFileFromBlob(f, f.name, f.type); }} onCreateMindMap={() => handleCreateMindMap()} onCreateDocument={() => handleCreateDocument()} onCreateFileFromBlob={handleCreateFileFromBlob} onChangeView={(view) => setActiveTab(view)} onToggleMenu={() => setIsSidebarOpen(true)} storageMode={storageMode} onToggleStorageMode={setStorageMode} onLogin={handleLogin} onOpenLocalFolder={handleOpenLocalFolder} savedLocalDirHandle={savedLocalDirHandle} onReconnectLocalFolder={handleReconnectLocalFolder} syncStrategy={syncStrategy} onToggleSyncStrategy={handleToggleSyncStrategy} />;
     if (activeTab === 'browser' || activeTab === 'mindmaps' || activeTab === 'offline' || activeTab === 'local-fs') {
         const mode = activeTab === 'browser' ? 'default' : activeTab === 'local-fs' ? 'local' : activeTab as any;
-        return <DriveBrowser accessToken={accessToken || ''} onSelectFile={handleOpenFile} onLogout={logout} onAuthError={handleAuthError} onToggleMenu={() => setIsSidebarOpen(true)} mode={mode} onCreateMindMap={(parentId) => mode === 'mindmaps' ? handleCreateMindMap(parentId) : handleCreateDocument(parentId)} onGenerateMindMapWithAi={handleGenerateMindMapWithAi} localDirectoryHandle={mode === 'local' ? localDirHandle : undefined} />;
+        return <DriveBrowser accessToken={accessToken || ''} onSelectFile={handleOpenFile} onLogout={logout} onAuthError={handleAuthError} onToggleMenu={() => setIsSidebarOpen(true)} mode={mode} onCreateMindMap={(parentId) => mode === 'mindmaps' ? handleCreateMindMap(parentId) : handleCreateDocument(parentId)} onGenerateMindMapWithAi={handleGenerateMindMapWithAi} localDirectoryHandle={mode === 'local' ? localDirHandle : undefined} onLogin={handleLogin} />;
     }
     const file = openFiles.find(f => f.id === activeTab);
     if (!file) return <GlobalLoader />;

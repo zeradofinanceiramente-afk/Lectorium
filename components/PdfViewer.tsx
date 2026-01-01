@@ -72,7 +72,7 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
   // Context Data
   const { 
     settings, 
-    annotations, addAnnotation,
+    annotations, addAnnotation, removeAnnotation,
     ocrNotification,
     currentBlobRef,
     getUnburntOcrMap,
@@ -216,6 +216,42 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
     window.getSelection()?.removeAllRanges();
   };
 
+  // New Delete Selection Logic
+  const handleDeleteSelection = useCallback(() => {
+    if (!selection) return;
+    
+    // Identificar anotações na página atual que não estão "queimadas"
+    const pageAnns = annotations.filter(a => a.page === selection.page && !a.isBurned);
+    const idsToDelete = new Set<string>();
+
+    selection.relativeRects.forEach(selRect => {
+       pageAnns.forEach(ann => {
+           // Verifica intersecção com anotações baseadas em bbox (Highlights)
+           if (ann.bbox && ann.bbox[2] > 0) { 
+               const [ax, ay, aw, ah] = ann.bbox;
+               const [sx, sy, sw, sh] = [selRect.x, selRect.y, selRect.width, selRect.height];
+
+               // Intersecção AABB simples
+               const intersects = (ax < sx + sw) && (ax + aw > sx) && (ay < sy + sh) && (ay + ah > sy);
+               
+               if (intersects && ann.id) {
+                   idsToDelete.add(ann.id);
+               }
+           }
+       });
+    });
+
+    if (idsToDelete.size > 0) {
+        idsToDelete.forEach(id => {
+            const ann = pageAnns.find(a => a.id === id);
+            if (ann) removeAnnotation(ann);
+        });
+    }
+
+    setSelection(null);
+    if (window.getSelection) window.getSelection()?.removeAllRanges();
+  }, [selection, annotations, removeAnnotation]);
+
   const handleFitWidth = async () => { 
       if (!pdfDoc || !containerRef.current) return; 
       try { 
@@ -320,7 +356,17 @@ const PdfViewerContent: React.FC<PdfViewerContentProps> = ({
             onScroll={onContainerScroll}
         >
             <PdfToolbar onFitWidth={handleFitWidth} />
-            {selection && <SelectionMenu selection={selection} onHighlight={createHighlight} onExplainAi={handleExplainAi} onDefine={handleDefine} onCopy={() => navigator.clipboard.writeText(selection.text)} onClose={() => setSelection(null)} />}
+            {selection && (
+                <SelectionMenu 
+                    selection={selection} 
+                    onHighlight={createHighlight} 
+                    onExplainAi={handleExplainAi} 
+                    onDefine={handleDefine} 
+                    onCopy={() => navigator.clipboard.writeText(selection.text)} 
+                    onDelete={handleDeleteSelection}
+                    onClose={() => setSelection(null)} 
+                />
+            )}
             
             {viewMode === 'single' ? (
                 <div 

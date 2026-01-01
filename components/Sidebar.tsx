@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 // Added FileText icon to the imports below to fix "Cannot find name 'FileText'" error on line 155
-import { Home, FolderOpen, LogOut, User as UserIcon, X, Palette, ChevronDown, ChevronRight, Workflow, DownloadCloud, CheckCircle, Loader2, LayoutGrid, Cloud, CloudOff, LogIn, Wrench, Key, Scale, Monitor, Smartphone, Upload, Trash2, RefreshCw, FileText, Maximize, Minimize, Sliders } from 'lucide-react';
+import { Home, FolderOpen, LogOut, User as UserIcon, X, Palette, ChevronDown, ChevronRight, Workflow, DownloadCloud, CheckCircle, Loader2, LayoutGrid, Cloud, CloudOff, LogIn, Wrench, Key, Scale, Monitor, Smartphone, Upload, Trash2, RefreshCw, FileText, Maximize, Minimize, Sliders, Clock } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { ThemeSwitcher } from './ThemeSwitcher';
 import { DriveFile } from '../types';
@@ -13,6 +13,7 @@ import { getStoredApiKey } from '../utils/apiKeyUtils';
 import { BaseModal } from './shared/BaseModal';
 import { getWallpaper, saveWallpaper, removeWallpaper } from '../services/storageService';
 import { useGlobalContext } from '../context/GlobalContext';
+import { getTokenTimeRemaining, DRIVE_TOKEN_EVENT } from '../services/authService';
 
 interface SidebarProps {
   activeTab: string;
@@ -48,6 +49,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [cacheProgress, setCacheProgress] = useState(0);
   const [downloadSize, setDownloadSize] = useState<string | null>(null);
   const [hasUserKey, setHasUserKey] = useState(false);
+  
+  // Session Monitor
+  const [sessionMinutes, setSessionMinutes] = useState(0);
 
   const { dashboardScale, setDashboardScale } = useGlobalContext();
 
@@ -82,6 +86,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
         window.removeEventListener('apikey-changed', checkKey);
         if (wallpapers.landscape) URL.revokeObjectURL(wallpapers.landscape);
         if (wallpapers.portrait) URL.revokeObjectURL(wallpapers.portrait);
+    };
+  }, []);
+
+  // Monitor de Sessão
+  useEffect(() => {
+    const updateSession = () => setSessionMinutes(getTokenTimeRemaining());
+    
+    // Atualiza agora e a cada minuto
+    updateSession();
+    const interval = setInterval(updateSession, 60000); // 1 min
+    
+    // Escuta renovações de token
+    window.addEventListener(DRIVE_TOKEN_EVENT, updateSession);
+    
+    return () => {
+        clearInterval(interval);
+        window.removeEventListener(DRIVE_TOKEN_EVENT, updateSession);
     };
   }, []);
 
@@ -239,6 +260,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </nav>
 
         <div className="p-3 border-t border-border mt-auto shrink-0 flex flex-col gap-2 bg-sidebar">
+          {/* Session Monitor */}
+          {user && (
+              <div className="flex items-center justify-between bg-black/40 border border-[#333] rounded-lg px-3 py-1.5 mb-1">
+                  <div className="flex items-center gap-2">
+                      <div className={`w-2 h-2 rounded-full ${sessionMinutes > 10 ? 'bg-green-500 shadow-[0_0_5px_#22c55e]' : sessionMinutes > 0 ? 'bg-yellow-500 animate-pulse' : 'bg-red-500'}`} />
+                      <div className="flex flex-col">
+                          <span className="text-[9px] text-text-sec uppercase font-bold tracking-wider">Conexão Drive</span>
+                          <span className={`text-[10px] font-mono ${sessionMinutes > 10 ? 'text-green-400' : 'text-yellow-400'}`}>
+                              {sessionMinutes > 0 ? `${sessionMinutes} min restantes` : 'Expirada'}
+                          </span>
+                      </div>
+                  </div>
+                  {onLogin && (
+                      <button onClick={onLogin} className="p-1 hover:bg-white/10 rounded text-text-sec hover:text-white transition-colors" title="Renovar Sessão">
+                          <RefreshCw size={12} />
+                      </button>
+                  )}
+              </div>
+          )}
+
           {user ? (
             <div className="flex items-center gap-3 rounded-xl p-2 transition-all bg-surface/50 border border-border">
                 {user.photoURL ? <img src={user.photoURL} alt="User" className="w-10 h-10 rounded-full border border-border shrink-0" /> : <div className="w-10 h-10 rounded-full bg-surface flex items-center justify-center border border-border shrink-0"><UserIcon size={20} className="text-text-sec" /></div>}
