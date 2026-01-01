@@ -104,6 +104,7 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
   } = usePdfContext();
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const inkCanvasRef = useRef<HTMLCanvasElement>(null); // NEW: Canvas layer dedicated to Ink
   const textLayerRef = useRef<HTMLDivElement>(null);
   const pageContainerRef = useRef<HTMLDivElement>(null);
   
@@ -166,6 +167,7 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
 
   const isSplitActive = settings.detectColumns && (pageDimensions ? pageDimensions.width > pageDimensions.height * 1.1 : false);
 
+  // --- PDF RENDERING LOOP ---
   useEffect(() => {
     if (!isVisible || !pageDimensions || !pageProxy || !canvasRef.current) return;
     let active = true;
@@ -217,6 +219,74 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
         if (renderTaskRef.current) try { renderTaskRef.current.cancel(); } catch {}
     };
   }, [pageProxy, scale, isVisible, settings.detectColumns]);
+
+  // --- INK RENDERING LOOP (HIGH PERFORMANCE CANVAS) ---
+  useEffect(() => {
+    if (!inkCanvasRef.current || !pageDimensions) return;
+    
+    const canvas = inkCanvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Sync dimensions with PDF Canvas
+    canvas.width = pageDimensions.width;
+    canvas.height = pageDimensions.height;
+    canvas.style.width = `${pageDimensions.width}px`;
+    canvas.style.height = `${pageDimensions.height}px`;
+
+    // Clear previous frame
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Apply scaling context
+    // We don't scale the context because points are already pre-scaled or handled in raw
+    // Logic: annotations points are relative (0-1) or absolute? 
+    // Checking types: bbox is absolute coords from PDF. 
+    // Ink points are raw PDF coords. We need to scale them by `scale`.
+    
+    const pageInks = annotations.filter(a => a.page === pageNumber && a.type === 'ink' && !a.isBurned);
+    
+    // Configurações de desenho
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    // 1. Render Saved Inks
+    pageInks.forEach(ann => {
+        if (!ann.points || ann.points.length < 2) return;
+        
+        ctx.beginPath();
+        ctx.lineWidth = (ann.strokeWidth || 3) * scale;
+        ctx.strokeStyle = ann.color || '#ff0000';
+        ctx.globalAlpha = ann.opacity || 1;
+
+        const first = ann.points[0];
+        ctx.moveTo(first[0] * scale, first[1] * scale);
+
+        for (let i = 1; i < ann.points.length; i++) {
+            const p = ann.points[i];
+            ctx.lineTo(p[0] * scale, p[1] * scale);
+        }
+        ctx.stroke();
+    });
+
+    // 2. Render Current Drawing (Real-time feedback)
+    if (currentPoints.length > 1) {
+        ctx.beginPath();
+        ctx.lineWidth = (settings.inkStrokeWidth / 5) * scale;
+        ctx.strokeStyle = settings.inkColor;
+        ctx.globalAlpha = settings.inkOpacity;
+
+        const first = currentPoints[0];
+        ctx.moveTo(first[0] * scale, first[1] * scale);
+
+        for (let i = 1; i < currentPoints.length; i++) {
+            const p = currentPoints[i];
+            ctx.lineTo(p[0] * scale, p[1] * scale);
+        }
+        ctx.stroke();
+    }
+
+  }, [annotations, pageNumber, scale, pageDimensions, currentPoints, settings.inkColor, settings.inkStrokeWidth, settings.inkOpacity]);
+
 
   const { status: ocrStatus, ocrData, requestOcr } = usePageOcr({ pageNumber });
 
@@ -441,7 +511,7 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
         return;
     }
 
-    // 3. Ink Logic
+    // 3. Ink Logic (Final Commit)
     if (!isDrawing.current) return;
     isDrawing.current = false;
     e.currentTarget.releasePointerCapture(e.pointerId);
@@ -450,7 +520,7 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
         addAnnotation({
             id: `ink-${Date.now()}`,
             page: pageNumber,
-            bbox: [0, 0, 0, 0],
+            bbox: [0, 0, 0, 0], // Ink uses points, not bbox
             type: 'ink',
             points: currentPoints,
             color: settings.inkColor,
@@ -516,8 +586,13 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
                 </div>
             )}
 
+            {/* LAYER 0: PDF Base */}
             <canvas ref={canvasRef} className="select-none absolute top-0 left-0" style={{ filter: settings.disableColorFilter ? 'none' : 'url(#pdf-recolor)', display: 'block', visibility: isVisible ? 'visible' : 'hidden', zIndex: 5 }} />
             
+            {/* LAYER 1: Ink Canvas (New!) */}
+            <canvas ref={inkCanvasRef} className="select-none absolute top-0 left-0 pointer-events-none" style={{ zIndex: 35, display: 'block' }} />
+
+            {/* LAYER 2: OCR Confidence Overlay */}
             {settings.showConfidenceOverlay && ocrData && ocrData.length > 0 && rendered && ocrData.length < 1500 && (
                 <div className="absolute inset-0 z-20 pointer-events-none overflow-hidden">
                     {ocrData
@@ -534,7 +609,7 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
                 </div>
             )}
 
-            {/* Visual Selection Layer (Virtual) - Feedback para seleção de texto */}
+            {/* LAYER 3: Virtual Selections */}
             {selection && selection.page === pageNumber && (
                 <div className="absolute inset-0 z-[35] pointer-events-none">
                     {selection.relativeRects.map((rect, i) => {
@@ -571,28 +646,8 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
                 />
             )}
 
+            {/* LAYER 4: DOM Annotations (Highlights & Notes only) */}
             <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 40 }}>
-                <svg className="absolute inset-0 w-full h-full">
-                    <g transform={`scale(${scale})`}>
-                        {currentPoints.length > 0 && <path d={currentPoints.map((p, i) => (i === 0 ? `M ${p[0]} ${p[1]}` : `L ${p[0]} ${p[1]}`)).join(' ')} stroke={settings.inkColor} strokeWidth={settings.inkStrokeWidth / 5} fill="none" strokeLinecap="round" strokeLinejoin="round" opacity={settings.inkOpacity} />}
-                        
-                        {pageAnnotations.filter(a => a.type === 'ink' && !a.isBurned).map(ann => (
-                            <path 
-                                key={ann.id} 
-                                d={(ann.points || []).map((p, i) => (i === 0 ? `M ${p[0]} ${p[1]}` : `L ${p[0]} ${p[1]}`)).join(' ')} 
-                                stroke={ann.color} 
-                                strokeWidth={ann.strokeWidth || 3} 
-                                fill="none" 
-                                strokeLinecap="round" 
-                                strokeLinejoin="round" 
-                                opacity={ann.opacity} 
-                                className={activeTool === 'eraser' ? 'pointer-events-auto cursor-pointer' : 'pointer-events-none'} 
-                                onClick={e => { if(activeTool === 'eraser') { e.stopPropagation(); removeAnnotation(ann); }}} 
-                            />
-                        ))}
-                    </g>
-                </svg>
-                
                 {pageAnnotations.filter(a => a.type === 'highlight' && !a.isBurned).map((ann, i) => (
                     <div 
                         key={ann.id || i} 
@@ -614,6 +669,7 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
                 ))}
             </div>
 
+            {/* LAYER 5: Invisible Text Layer */}
             <div 
                 ref={textLayerRef} 
                 className="textLayer notranslate" 
@@ -645,7 +701,7 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
                                     }); 
                                 }
                                 setDraftNote(null);
-                                setActiveTool('cursor'); // Opcional: voltar para cursor após nota?
+                                setActiveTool('cursor'); 
                             } 
                             if (e.key === 'Escape') setDraftNote(null); 
                         }} 
