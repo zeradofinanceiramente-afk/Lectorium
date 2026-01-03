@@ -28,7 +28,7 @@ export default defineConfig(({ mode }) => {
       target: 'esnext',
       chunkSizeWarningLimit: 1600,
       rollupOptions: {
-        external: ['unrar-js'],
+        external: ['unrar-js', '@xenova/transformers'],
         output: {
           manualChunks: {
             'vendor-react': ['react', 'react-dom'],
