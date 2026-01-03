@@ -372,22 +372,6 @@ function detectColumnsViaProjection(grayData: Uint8Array, width: number, height:
     return gutters;
 }
 
-export async function maskRegions(
-    canvas: HTMLCanvasElement | OffscreenCanvas,
-    regions: { bbox: number[] }[]
-): Promise<void> {
-    const ctx = canvas.getContext('2d', { alpha: false }) as any;
-    ctx.fillStyle = '#FFFFFF';
-    
-    // Florence Coordinates (bbox) are [x1, y1, x2, y2]
-    regions.forEach(region => {
-        const [x1, y1, x2, y2] = region.bbox;
-        const w = x2 - x1;
-        const h = y2 - y1;
-        ctx.fillRect(x1, y1, w, h);
-    });
-}
-
 export async function extractImageTile(
     sourceCanvas: HTMLCanvasElement | OffscreenCanvas,
     rect: { x: number, y: number, w: number, h: number }
@@ -517,53 +501,6 @@ export async function processImageAndLayout(canvas: HTMLCanvasElement | Offscree
 
     const columnSplits = detectColumnsViaProjection(grayData, w, h);
     return { buffer: d, width: w, height: h, columnSplits, processedCanvas: workingCanvas };
-}
-
-export async function preprocessImageForNeural(canvas: HTMLCanvasElement | OffscreenCanvas): Promise<{ 
-    columnSplits: number[],
-    processedCanvas: HTMLCanvasElement | OffscreenCanvas
-}> {
-    const skewAngle = detectSkewAngle(canvas);
-    let workingCanvas: HTMLCanvasElement | OffscreenCanvas;
-    const isOffscreenSupported = typeof OffscreenCanvas !== 'undefined';
-    
-    const w = canvas.width;
-    const h = canvas.height;
-    workingCanvas = isOffscreenSupported ? new OffscreenCanvas(w, h) : document.createElement('canvas');
-    if (!isOffscreenSupported) {
-        (workingCanvas as HTMLCanvasElement).width = w;
-        (workingCanvas as HTMLCanvasElement).height = h;
-    }
-
-    const ctx = workingCanvas.getContext('2d', { willReadFrequently: true, alpha: false }) as any;
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillRect(0, 0, w, h);
-
-    if (Math.abs(skewAngle) > 0.2) {
-        ctx.translate(w/2, h/2);
-        ctx.rotate(skewAngle * Math.PI / 180);
-        ctx.drawImage(canvas, -w/2, -h/2);
-        ctx.rotate(-skewAngle * Math.PI / 180);
-        ctx.translate(-w/2, -h/2);
-    } else {
-        ctx.drawImage(canvas, 0, 0);
-    }
-
-    const rawData = ctx.getImageData(0, 0, w, h);
-    normalizePolarity(rawData.data, w, h);
-    applyContrastStretching(rawData.data);
-    applyGammaCorrection(rawData.data, 0.7); 
-    applyUnsharpMask(rawData.data, w, h);
-    ctx.putImageData(rawData, 0, 0);
-
-    const grayData = new Uint8Array(w * h);
-    const d = rawData.data;
-    for (let i = 0; i < d.length; i += 4) {
-        grayData[i / 4] = (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114);
-    }
-    
-    const columnSplits = detectColumnsViaProjection(grayData, w, h);
-    return { columnSplits, processedCanvas: workingCanvas };
 }
 
 export async function preprocessImageForOcr(sourceCanvas: HTMLCanvasElement | OffscreenCanvas): Promise<ProcessedImageResult> {
