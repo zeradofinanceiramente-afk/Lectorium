@@ -268,12 +268,6 @@ export class OcrManager {
         };
 
         // Calculamos o fator de escala final
-        // O viewport.scale (ex: 3.0) era do PDF.js.
-        // O processImageAndLayout pode ter feito um upscale adicional.
-        // Precisamos normalizar as coordenadas finais para o sistema PDF (72dpi, scale 1.0)
-        // width é a largura do processedCanvas. viewport.width era o anterior.
-        // scaleTotal = width / (pdfPageWidthOriginal)
-        // pdfPageWidthOriginal = viewport.width / this.ocrScale
         const totalScaleFactor = width / (viewport.width / this.ocrScale);
 
         for (let r = 0; r < rows; r++) {
@@ -375,13 +369,27 @@ export class OcrManager {
     }
 
     private sortWords(words: WeightedWord[]) {
+        // Cálculo da Altura Média para Threshold Dinâmico
+        let totalHeight = 0;
+        let count = 0;
+        for(const w of words) {
+            totalHeight += (w.bbox.y1 - w.bbox.y0);
+            count++;
+        }
+        
+        // Tolerância de linha: 40% da altura média da fonte
+        // Isso lida com títulos grandes e textos pequenos dinamicamente
+        const avgHeight = count > 0 ? totalHeight / count : 12;
+        const lineThreshold = avgHeight * 0.4;
+
         // ORDEM DE LEITURA CORRIGIDA: Coluna -> Linha -> X
         words.sort((a, b) => {
             // 1. Coluna
             if (a.column !== b.column) return a.column - b.column;
             
-            // 2. Linha (Threshold de 10px para considerar mesma linha)
-            if (Math.abs(a.bbox.y0 - b.bbox.y0) > 10) return a.bbox.y0 - b.bbox.y0;
+            // 2. Linha (Threshold Dinâmico)
+            const yDiff = Math.abs(a.bbox.y0 - b.bbox.y0);
+            if (yDiff > lineThreshold) return a.bbox.y0 - b.bbox.y0;
             
             // 3. Horizontal
             return a.bbox.x0 - b.bbox.x0;

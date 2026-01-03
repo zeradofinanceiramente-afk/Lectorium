@@ -206,11 +206,14 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
         if (isCancelled) return;
         while (pageIndex <= numPages && (deadline.timeRemaining() > 1 || deadline.didTimeout)) {
             try {
-                const page = await pdfDoc.getPage(pageIndex);
-                const textContent = await page.getTextContent();
-                const text = textContent.items.map((item: any) => item.str).join(' ');
-                if (text.trim().length > 0) {
-                    setNativeTextMap(prev => ({ ...prev, [pageIndex]: text }));
+                // Check if page already has OCR data to avoid redundant native extraction
+                if (!ocrMap[pageIndex]) {
+                    const page = await pdfDoc.getPage(pageIndex);
+                    const textContent = await page.getTextContent();
+                    const text = textContent.items.map((item: any) => item.str).join(' ');
+                    if (text.trim().length > 0) {
+                        setNativeTextMap(prev => ({ ...prev, [pageIndex]: text }));
+                    }
                 }
             } catch (e) {}
             pageIndex++;
@@ -325,6 +328,22 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
 
   const triggerOcr = useCallback((page: number) => {
     if (ocrManagerRef.current) {
+        // NUCLEAR OPTION: Eliminar camada nativa defeituosa
+        // Removemos o texto nativo do mapa para garantir que a UI não tente renderizá-lo
+        // enquanto o OCR processa ou após a conclusão.
+        setNativeTextMap(prev => {
+            const copy = { ...prev };
+            delete copy[page];
+            return copy;
+        });
+        
+        // Limpar OCR anterior se houver (reset visual para 'processing')
+        setOcrMap(prev => {
+            const copy = { ...prev };
+            delete copy[page];
+            return copy;
+        });
+
         ocrManagerRef.current.schedule(page, 'high');
         const engineName = settings.ocrEngine === 'florence' ? 'Neural (Florence)' : 'Padrão (Tesseract)';
         showOcrNotification(`Lendo Página ${page} (${engineName})...`);

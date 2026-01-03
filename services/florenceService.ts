@@ -73,7 +73,7 @@ export class FlorenceService {
   }
 
   /**
-   * Parser otimizado para o formato do Florence-2 com Filtros de Ruído
+   * Parser otimizado para o formato do Florence-2 com Filtros de Ruído e Anti-Alucinação
    * Formato: "word<loc_1><loc_2><loc_3><loc_4>"
    */
   private parseFlorenceOutput(text: string): any[] {
@@ -83,6 +83,7 @@ export class FlorenceService {
     const regex = /([^<]+)((?:<loc_\d+>){4})/g;
     
     let match;
+    let lastWord = ""; // Para detecção de loop simples
 
     while ((match = regex.exec(text)) !== null) {
       // Limpeza: remove quebras de linha e trim
@@ -90,16 +91,19 @@ export class FlorenceService {
       
       if (!wordText) continue;
 
-      // FILTRO DE RUÍDO (NOISE GATE)
-      // 1. Rejeita palavras de 1 ou 2 letras que não sejam comuns ou numéricas
-      // Ex: "ue", "aa", "Tr" (ruído comum de OCR)
-      // Aceita: "a", "e", "o", "da", "de", "do", "em", "um", "1", "10"
+      // 1. FILTRO DE ALUCINAÇÃO (Loop Detector)
+      // Se a palavra for idêntica à anterior e tiver < 3 letras, provavelmente é um loop
+      if (wordText === lastWord && wordText.length < 3) continue;
+      lastWord = wordText;
+
+      // 2. FILTRO DE RUÍDO (NOISE GATE)
+      // Rejeita palavras de 1 ou 2 letras que não sejam comuns ou numéricas
       if (wordText.length <= 2) {
           const validShorts = /^(?:[aàeéioóu0-9]|da|de|do|em|na|no|os|as|um|un|is|it|at|in|on|to|by|of|or)$/i;
           if (!validShorts.test(wordText)) continue;
       }
 
-      // 2. Rejeita repetições absurdas (ex: "iiiii", ".....")
+      // 3. Rejeita repetições absurdas (ex: "iiiii", ".....")
       if (/(.)\1{3,}/.test(wordText)) continue;
 
       const locs = match[2].match(/\d+/g);
@@ -107,7 +111,7 @@ export class FlorenceService {
       if (locs && locs.length === 4) {
         const [x1, y1, x2, y2] = locs.map(Number);
         
-        // 3. Rejeita caixas muito pequenas (pontos de sujeira) ou esmagadas
+        // 4. Rejeita caixas muito pequenas (pontos de sujeira) ou esmagadas
         if (Math.abs(x2 - x1) < 8 || Math.abs(y2 - y1) < 8) continue;
 
         words.push({

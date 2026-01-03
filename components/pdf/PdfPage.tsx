@@ -171,6 +171,9 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
 
   const [draftNote, setDraftNote] = useState<{x: number, y: number, text: string} | null>(null);
 
+  // Hook OCR do componente para saber status local
+  const { status: ocrStatus, ocrData, requestOcr } = usePageOcr({ pageNumber });
+
   const isDarkPage = useMemo(() => {
     if (settings.disableColorFilter) return false;
     const hex = settings.pageColor.replace('#', '');
@@ -279,21 +282,31 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
             else bitmap.close(); // Cleanup if unmounted
         });
 
-        // 5. Process Text Layer
-        const textContent = await pageProxy.getTextContent();
-        if (!active) return;
-        
-        const fullText = textContent.items.map((i: any) => i.str).join('').replace(/\s/g, '').trim();
-        const pdfHasGoodText = fullText.length > 20;
-        setHasText(pdfHasGoodText);
+        // 5. Process Text Layer (MUTUAL EXCLUSION: Only if no OCR data)
+        // Se já temos OCR (ocrData) ou estamos processando (ocrStatus !== idle), ignoramos a camada nativa defeituosa.
+        if ((!ocrData || ocrData.length === 0) && ocrStatus === 'idle') {
+            const textContent = await pageProxy.getTextContent();
+            if (!active) return;
+            
+            const fullText = textContent.items.map((i: any) => i.str).join('').replace(/\s/g, '').trim();
+            const pdfHasGoodText = fullText.length > 20;
+            setHasText(pdfHasGoodText);
 
-        if (textLayerRef.current) {
-           textLayerRef.current.innerHTML = '';
-           textLayerRef.current.style.width = `${viewport.width}px`;
-           textLayerRef.current.style.height = `${viewport.height}px`;
-           if (pdfHasGoodText) {
-             renderCustomTextLayer(textContent, textLayerRef.current, viewport, settings.detectColumns);
-           }
+            if (textLayerRef.current) {
+               textLayerRef.current.innerHTML = '';
+               textLayerRef.current.style.width = `${viewport.width}px`;
+               textLayerRef.current.style.height = `${viewport.height}px`;
+               if (pdfHasGoodText) {
+                 renderCustomTextLayer(textContent, textLayerRef.current, viewport, settings.detectColumns);
+               }
+            }
+        } else {
+            // Se temos OCR ou estamos processando, limpamos o layer nativo para evitar fantasmas
+            if (textLayerRef.current) {
+                textLayerRef.current.innerHTML = '';
+            }
+            // Assume que não tem texto nativo útil (para mostrar UI de OCR se necessário)
+            setHasText(false); 
         }
         setRendered(true);
       } catch (e: any) { if (e?.name !== 'RenderingCancelledException') console.error(e); }
@@ -305,7 +318,7 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
         active = false; 
         if (renderTaskRef.current) try { renderTaskRef.current.cancel(); } catch {}
     };
-  }, [pageProxy, scale, isVisible, settings.detectColumns, cacheKey]);
+  }, [pageProxy, scale, isVisible, settings.detectColumns, cacheKey, ocrData, ocrStatus]);
 
   // --- STATIC INK LAYER (Heavy, Cached with Smoothing) ---
   useEffect(() => {
@@ -372,8 +385,6 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
     }
   }, [currentPoints, scale, pageDimensions, settings.inkColor, settings.inkStrokeWidth, settings.inkOpacity]);
 
-
-  const { status: ocrStatus, ocrData, requestOcr } = usePageOcr({ pageNumber });
 
   const rawExtractedText = useMemo(() => {
     if (!ocrData || ocrData.length === 0) return "";
