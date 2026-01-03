@@ -195,6 +195,36 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
       scale 
   });
 
+  // --- LISTENER FOR BACKGROUND OCR RESULTS ---
+  useEffect(() => {
+      const handleOcrResult = (e: Event) => {
+          const detail = (e as CustomEvent).detail;
+          if (detail && detail.fileId === fileId) {
+              const { page, markdown, segments } = detail;
+              
+              // 1. Update Markdown Sidebar
+              setLensData(prev => ({
+                  ...prev,
+                  [page]: { markdown, processedAt: Date.now() }
+              }));
+
+              // 2. Map Segments to Words for Visual Layer
+              // We need page dimensions. As we are in context, we assume page 1 dimensions approximate valid.
+              // Ideally mapSegmentsToWords logic should be shared or executed here.
+              // For simplicity, we assume segments are already mapped or we reload from Storage?
+              // The GlobalContext saves to Storage. So we can just reload from storage for that page.
+              loadOcrData(fileId).then(data => {
+                  if (data && data[page]) {
+                      setOcrMap(prev => ({ ...prev, [page]: data[page] }));
+                  }
+              });
+          }
+      };
+
+      window.addEventListener('semantic-page-processed', handleOcrResult);
+      return () => window.removeEventListener('semantic-page-processed', handleOcrResult);
+  }, [fileId]);
+
   // --- NATIVE TEXT EXTRACTION ENGINE (Background) ---
   useEffect(() => {
     if (!pdfDoc || numPages === 0) return;

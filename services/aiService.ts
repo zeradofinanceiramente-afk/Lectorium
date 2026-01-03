@@ -127,9 +127,10 @@ export async function extractTextFromTile(base64Image: string): Promise<string> 
   }
 }
 
-export async function performSemanticOcr(base64Image: string): Promise<string> {
+export async function performSemanticOcr(base64Image: string, targetLanguage?: string): Promise<string> {
   const ai = getAiClient();
-  const prompt = `Atue como um especialista em digitalização de documentos.
+  
+  let prompt = `Atue como um especialista em digitalização de documentos.
 Analise a imagem desta página e transcreva TODO o texto em formato Markdown estruturado.
 
 REGRAS CRÍTICAS DE LEITURA:
@@ -137,9 +138,15 @@ REGRAS CRÍTICAS DE LEITURA:
 2. **Formatação:** Use cabeçalhos (#, ##) para títulos. Use negrito para destaques.
 3. **Correção:** Corrija hifenização de quebra de linha (ex: "cons-titução" -> "constituição").
 4. **Tabelas:** Se houver tabelas, tente representá-las como Markdown tables.
-5. **Ruído:** Ignore números de página, cabeçalhos repetitivos ou sujeira de digitalização.
+5. **Ruído:** Ignore números de página, cabeçalhos repetitivos ou sujeira de digitalização.`;
 
-Retorne APENAS o Markdown.`;
+  if (targetLanguage) {
+      prompt += `\n\n[IMPORTANTE] TRADUÇÃO OBRIGATÓRIA:
+      Traduza todo o conteúdo extraído para o idioma: ${targetLanguage}.
+      Mantenha a formatação Markdown intacta, traduzindo apenas o texto.`;
+  }
+
+  prompt += `\nRetorne APENAS o Markdown.`;
 
   try {
     const response = await ai.models.generateContent({
@@ -220,11 +227,11 @@ export async function performLayoutOcr(base64Image: string): Promise<{ text: str
 /**
  * Translation OCR: Identifies text blocks, translates them to PT-BR, and returns positions for overlay.
  */
-export async function performTranslatedLayoutOcr(base64Image: string): Promise<{ text: string, box_2d: number[] }[]> {
+export async function performTranslatedLayoutOcr(base64Image: string, targetLanguage: string = 'Portuguese'): Promise<{ text: string, box_2d: number[] }[]> {
   const ai = getAiClient();
   const prompt = `Analyze this document page image.
   Identify text blocks/paragraphs.
-  Translate the content of each block to Portuguese (PT-BR).
+  Translate the content of each block to ${targetLanguage}.
   Return the TRANSLATED text and the ORIGINAL bounding box [ymin, xmin, ymax, xmax] (0-1000 scale) of the text block.
   Goal: Overlay the translation on top of the original text.
   Return JSON only.`;
@@ -248,7 +255,7 @@ export async function performTranslatedLayoutOcr(base64Image: string): Promise<{
               items: {
                 type: Type.OBJECT,
                 properties: {
-                  text: { type: Type.STRING, description: "Translated text in Portuguese" },
+                  text: { type: Type.STRING, description: "Translated text" },
                   box_2d: { 
                     type: Type.ARRAY, 
                     items: { type: Type.INTEGER },

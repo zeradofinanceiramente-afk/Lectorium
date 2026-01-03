@@ -1,6 +1,6 @@
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
 import { saveOcrData, touchOfflineFile } from './storageService';
-import { performLayoutOcr, performSemanticOcr } from './aiService';
+import { performLayoutOcr, performSemanticOcr, performTranslatedLayoutOcr } from './aiService';
 
 // Configuração do Worker
 GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@4.8.69/build/pdf.worker.min.mjs`;
@@ -10,11 +10,12 @@ export interface BackgroundOcrOptions {
   blob: Blob;
   startPage: number;
   endPage: number;
-  mode?: 'simple' | 'semantic'; // Added mode
+  mode?: 'simple' | 'semantic';
+  targetLanguage?: string; // Novo Parâmetro
   onProgress: (page: number, total: number) => void;
   onComplete: () => void;
   onError: (error: string) => void;
-  onQuotaExceeded?: (lastPage: number) => void; // Novo callback
+  onQuotaExceeded?: (lastPage: number) => void;
   onSemanticResult?: (page: number, markdown: string, segments: any[]) => void;
 }
 
@@ -28,7 +29,7 @@ async function blobToBase64(blob: Blob): Promise<string> {
 }
 
 export async function runBackgroundOcr({ 
-  fileId, blob, startPage, endPage, mode = 'simple', onProgress, onComplete, onError, onQuotaExceeded, onSemanticResult 
+  fileId, blob, startPage, endPage, mode = 'simple', targetLanguage, onProgress, onComplete, onError, onQuotaExceeded, onSemanticResult 
 }: BackgroundOcrOptions) {
   try {
     const arrayBuffer = await blob.arrayBuffer();
@@ -77,11 +78,24 @@ export async function runBackgroundOcr({
             const pureBase64 = base64.split(',')[1];
             
             if (mode === 'semantic') {
-                // SEMANTIC LENS BATCH (Markdown + Layout)
-                const [markdown, segments] = await Promise.all([
-                    performSemanticOcr(pureBase64),
-                    performLayoutOcr(pureBase64)
-                ]);
+                let markdown: string;
+                let segments: any[];
+
+                if (targetLanguage) {
+                    // TRANSLATED SEMANTIC BATCH
+                    // 1. Translated Markdown (Sidebar)
+                    // 2. Translated Layout Segments (Canvas Overlay)
+                    [markdown, segments] = await Promise.all([
+                        performSemanticOcr(pureBase64, targetLanguage),
+                        performTranslatedLayoutOcr(pureBase64, targetLanguage)
+                    ]);
+                } else {
+                    // STANDARD SEMANTIC BATCH
+                    [markdown, segments] = await Promise.all([
+                        performSemanticOcr(pureBase64),
+                        performLayoutOcr(pureBase64)
+                    ]);
+                }
 
                 // Callback to update context state
                 if (onSemanticResult) {
@@ -94,7 +108,11 @@ export async function runBackgroundOcr({
 
             } else {
                 // SIMPLE LAYOUT OCR (Just Canvas)
-                const segments = await performLayoutOcr(pureBase64);
+                // Se targetLanguage for passado no modo simples, usamos Translated Layout também
+                const segments = targetLanguage 
+                    ? await performTranslatedLayoutOcr(pureBase64, targetLanguage)
+                    : await performLayoutOcr(pureBase64);
+                    
                 const mappedWords = mapSegmentsToWords(segments, w, h, scale);
                 await saveOcrData(fileId, i, mappedWords);
             }

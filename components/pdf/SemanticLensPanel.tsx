@@ -9,19 +9,28 @@ interface Props {
 
 export const SemanticLensPanel: React.FC<Props> = ({ pageNumber }) => {
   const { 
-    lensData, isLensLoading, triggerSemanticLens, ocrMap, 
+    lensData, isLensLoading, ocrMap, 
     triggerTranslation, isTranslationMode, toggleTranslationMode,
     numPages
   } = usePdfContext();
   
   const [copied, setCopied] = useState(false);
+  
+  // Controle do Modal
   const [showRangeModal, setShowRangeModal] = useState(false);
+  const [modalMode, setModalMode] = useState<'single' | 'batch'>('single');
   
   const data = lensData[pageNumber];
   const hasInjectedOcr = ocrMap[pageNumber] && ocrMap[pageNumber].length > 0 && ocrMap[pageNumber][0].isRefined;
 
-  const handleAnalyze = () => {
-      triggerSemanticLens(pageNumber);
+  const openAnalyzeSingle = () => {
+      setModalMode('single');
+      setShowRangeModal(true);
+  };
+
+  const openAnalyzeBatch = () => {
+      setModalMode('batch');
+      setShowRangeModal(true);
   };
 
   const handleCopy = () => {
@@ -33,7 +42,12 @@ export const SemanticLensPanel: React.FC<Props> = ({ pageNumber }) => {
   };
 
   const handleTranslate = () => {
-      triggerTranslation(pageNumber);
+      // Atalho rápido se já temos dados, senão abre o modal para processar
+      if (!data) {
+          openAnalyzeSingle();
+      } else {
+          triggerTranslation(pageNumber);
+      }
   };
 
   if (isLensLoading) {
@@ -66,7 +80,7 @@ export const SemanticLensPanel: React.FC<Props> = ({ pageNumber }) => {
               
               <div className="space-y-3 w-full">
                   <button 
-                    onClick={handleAnalyze}
+                    onClick={openAnalyzeSingle}
                     className="w-full bg-brand text-[#0b141a] px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:brightness-110 shadow-lg shadow-brand/20 transition-all"
                   >
                       <Layers size={18} />
@@ -74,7 +88,7 @@ export const SemanticLensPanel: React.FC<Props> = ({ pageNumber }) => {
                   </button>
 
                   <button 
-                    onClick={() => setShowRangeModal(true)}
+                    onClick={openAnalyzeBatch}
                     className="w-full bg-[#2c2c2c] border border-[#333] text-gray-300 px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-[#333] transition-all text-xs"
                   >
                       <ListRestart size={16} />
@@ -87,6 +101,7 @@ export const SemanticLensPanel: React.FC<Props> = ({ pageNumber }) => {
                 onClose={() => setShowRangeModal(false)}
                 numPages={numPages}
                 currentPage={pageNumber}
+                mode={modalMode}
               />
           </div>
       );
@@ -137,7 +152,7 @@ export const SemanticLensPanel: React.FC<Props> = ({ pageNumber }) => {
           <div className="p-3 border-t border-white/5 bg-surface flex justify-between items-center">
               <span className="text-[10px] text-gray-500">Gemini 1.5 Flash Vision</span>
               <button 
-                onClick={() => setShowRangeModal(true)}
+                onClick={openAnalyzeBatch}
                 className="text-[10px] text-brand hover:underline flex items-center gap-1"
               >
                   <ListRestart size={10} /> Processar lote
@@ -149,6 +164,7 @@ export const SemanticLensPanel: React.FC<Props> = ({ pageNumber }) => {
             onClose={() => setShowRangeModal(false)}
             numPages={numPages}
             currentPage={pageNumber}
+            mode={modalMode}
           />
       </div>
   );

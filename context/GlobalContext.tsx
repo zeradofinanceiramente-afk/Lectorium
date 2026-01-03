@@ -11,7 +11,7 @@ interface OcrCompletionState {
 interface GlobalContextType {
   isOcrRunning: boolean;
   ocrProgress: { current: number; total: number; filename: string } | null;
-  startGlobalOcr: (fileId: string, filename: string, blob: Blob, start: number, end: number) => void;
+  startGlobalOcr: (fileId: string, filename: string, blob: Blob, start: number, end: number, targetLanguage?: string) => void;
   notifications: Array<{ id: string; message: string; type: 'info' | 'success' | 'error' }>;
   addNotification: (message: string, type?: 'info' | 'success' | 'error') => void;
   removeNotification: (id: string) => void;
@@ -73,7 +73,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     setOcrCompletion(null);
   }, []);
 
-  const startGlobalOcr = useCallback((fileId: string, filename: string, blob: Blob, start: number, end: number) => {
+  const startGlobalOcr = useCallback((fileId: string, filename: string, blob: Blob, start: number, end: number, targetLanguage?: string) => {
     if (isOcrRunning) {
         addNotification("Já existe um processo de OCR em andamento.", 'error');
         return;
@@ -81,11 +81,13 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
     // Detect if semantic mode based on filename hint (hack for context simplicity)
     const isSemantic = filename === "Semantic Batch";
-    const displayFilename = isSemantic ? "Análise Semântica" : filename;
+    const displayFilename = isSemantic 
+        ? (targetLanguage ? `Tradução (${targetLanguage})` : "Análise Semântica") 
+        : filename;
 
     setIsOcrRunning(true);
     setOcrProgress({ current: 0, total: end - start + 1, filename: displayFilename });
-    addNotification(`Iniciando ${isSemantic ? 'Análise Semântica' : 'OCR'} (Páginas ${start}-${end})...`, 'info');
+    addNotification(`Iniciando ${isSemantic ? (targetLanguage ? 'Tradução' : 'Análise Semântica') : 'OCR'} (Páginas ${start}-${end})...`, 'info');
 
     runBackgroundOcr({
         fileId,
@@ -93,8 +95,15 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         startPage: start,
         endPage: end,
         mode: isSemantic ? 'semantic' : 'simple',
+        targetLanguage,
         onProgress: (page) => {
             setOcrProgress(prev => prev ? { ...prev, current: prev.current + 1 } : null);
+        },
+        onSemanticResult: (page, markdown, segments) => {
+            // Dispara evento para que o PdfContext atualize a UI em tempo real
+            window.dispatchEvent(new CustomEvent('semantic-page-processed', { 
+                detail: { fileId, page, markdown, segments }
+            }));
         },
         onComplete: () => {
             setIsOcrRunning(false);
@@ -102,7 +111,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
             if (!isSemantic) {
                 setOcrCompletion({ fileId, filename, sourceBlob: blob });
             } else {
-                addNotification("Análise semântica concluída. Os dados foram salvos no cache.", "success");
+                addNotification("Processamento concluído. Os dados foram salvos.", "success");
             }
         },
         onQuotaExceeded: (lastPage) => {
