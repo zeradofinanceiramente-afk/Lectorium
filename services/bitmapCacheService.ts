@@ -21,6 +21,24 @@ export const bitmapCache = {
         return undefined;
     },
 
+    /**
+     * Busca o bitmap mais próximo disponível para uma página/arquivo.
+     * Útil para exibir um placeholder (mesmo que borrado) enquanto a renderização
+     * da escala correta (nítida) não termina.
+     */
+    findNearest: (fileId: string, pageNumber: number): ImageBitmap | undefined => {
+        // Formato da chave: `${fileId}-p${pageNumber}-s${scale.toFixed(2)}`
+        const prefix = `${fileId}-p${pageNumber}-s`;
+        
+        // Procura qualquer chave que comece com o prefixo da página
+        const matchKey = keys.slice().reverse().find(k => k.startsWith(prefix));
+        
+        if (matchKey) {
+            return cache.get(matchKey);
+        }
+        return undefined;
+    },
+
     set: (key: string, bitmap: ImageBitmap) => {
         if (cache.has(key)) {
             // Se já existe, fecha o antigo para liberar GPU e atualiza

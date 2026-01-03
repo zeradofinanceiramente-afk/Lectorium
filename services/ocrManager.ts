@@ -1,7 +1,7 @@
 
 import { PDFDocumentProxy } from "pdfjs-dist";
 import { getOcrWorker } from "./ocrService";
-import { processImageAndLayout } from "./imageProcessingService";
+import { processImageAndLayout, extractColumnSlice, extractImageTile } from "./imageProcessingService";
 
 export type OcrStatus = 'idle' | 'queued' | 'processing' | 'done' | 'error';
 
@@ -22,7 +22,14 @@ export class OcrManager {
     private onPageComplete: (page: number, words: any[]) => void;
     private onStatusChange: (statusMap: Record<number, OcrStatus>) => void;
     private onCheckpoint?: () => void;
-    private ocrScale: number = 2.5; // Escala levemente reduzida para agilizar deskew/processamento
+    
+    // --- HIGH FIDELITY SETTINGS ---
+    // Scale 3.0 (~300 DPI) é o padrão ouro para OCR.
+    private ocrScale: number = 3.0; 
+    
+    // Tiling Configuration
+    private tileSize: number = 1024; // Tamanho do bloco em pixels
+    private tileOverlap: number = 200; // Sobreposição segura
 
     constructor(
         pdfDoc: PDFDocumentProxy, 
@@ -73,7 +80,7 @@ export class OcrManager {
             this.processedPages.add(task.pageNumber);
             this.processing = false;
             this.emitStatus();
-            if (this.queue.length > 0) setTimeout(() => this.processNext(), 50);
+            if (this.queue.length > 0) setTimeout(() => this.processNext(), 200);
         } catch (e) {
             console.error(`[OcrManager] Falha p${task.pageNumber}:`, e);
             this.activePage = null;
@@ -83,30 +90,93 @@ export class OcrManager {
         }
     }
 
+    /**
+     * PROTOCOLO DE SANEAMENTO DE TEXTO (GARBAGE FILTER)
+     */
+    private validateWord(word: any, containerHeight: number): boolean {
+        const text = word.text.trim();
+        if (word.confidence < 40) return false;
+        if (!/[a-zA-Z0-9]/.test(text)) return false;
+        if (text.length > 45) return false;
+        if (/(.)\1{4,}/.test(text)) return false;
+        const h = word.bbox.y1 - word.bbox.y0;
+        const w = word.bbox.x1 - word.bbox.x0;
+        if (h > w * 6) return false;
+        if (h < 8 || w < 4) return false;
+        if (h > containerHeight * 0.6) return false;
+        return true;
+    }
+
+    /**
+     * DEDUPLICAÇÃO ESPACIAL
+     * Remove palavras duplicadas geradas pela sobreposição (Overlap) dos tiles.
+     */
+    private deduplicateWords(words: any[]): any[] {
+        // Ordena por posição Y (depois X) para facilitar comparação
+        words.sort((a, b) => {
+            if (Math.abs(a.bbox.y0 - b.bbox.y0) > 5) return a.bbox.y0 - b.bbox.y0;
+            return a.bbox.x0 - b.bbox.x0;
+        });
+
+        const result: any[] = [];
+        const threshold = 5; // Tolerância de pixel
+
+        for (const word of words) {
+            let duplicate = false;
+            
+            // Verifica os últimos candidatos adicionados (janela deslizante)
+            for (let i = result.length - 1; i >= 0; i--) {
+                const prev = result[i];
+                
+                // Se estiver muito longe verticalmente, para de checar
+                if (Math.abs(word.bbox.y0 - prev.bbox.y0) > 20) break;
+
+                // Checa colisão de caixa + Texto idêntico
+                const xMatch = Math.abs(word.bbox.x0 - prev.bbox.x0) < threshold;
+                const textMatch = word.text === prev.text;
+
+                if (xMatch && textMatch) {
+                    duplicate = true;
+                    // Mantém o que tem maior confiança
+                    if (word.confidence > prev.confidence) {
+                        result[i] = word;
+                    }
+                    break;
+                }
+            }
+
+            if (!duplicate) {
+                result.push(word);
+            }
+        }
+        return result;
+    }
+
     private async executeTask(task: OcrTask) {
         const page = await this.pdfDoc.getPage(task.pageNumber);
         const viewport = page.getViewport({ scale: this.ocrScale });
         
-        const canvas = document.createElement('canvas');
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        const ctx = canvas.getContext('2d', { alpha: false });
-        await page.render({ canvasContext: ctx as any, viewport }).promise;
-
-        // --- PIPELINE DE VISÃO COMPUTACIONAL ---
-        // 1. Deskew (Rotação)
-        // 2. Limpeza (Adaptive Threshold)
-        // 3. Detecção de Layout (Colunas)
-        const { buffer, width, height, columnSplits, processedCanvas } = await processImageAndLayout(canvas);
+        const isOffscreenSupported = typeof OffscreenCanvas !== 'undefined';
+        const canvas = isOffscreenSupported ? new OffscreenCanvas(viewport.width, viewport.height) : document.createElement('canvas');
         
-        // Limpa canvas original
-        canvas.width = 0; canvas.height = 0;
+        if (!isOffscreenSupported) {
+            (canvas as HTMLCanvasElement).width = viewport.width;
+            (canvas as HTMLCanvasElement).height = viewport.height;
+        }
+        
+        const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: true }) as any;
+        await page.render({ canvasContext: ctx, viewport }).promise;
+
+        // Processamento de Imagem (Deskew + Filtros)
+        const { width, height, columnSplits, processedCanvas } = await processImageAndLayout(canvas);
+        
+        if (canvas instanceof OffscreenCanvas) { canvas.width = 0; canvas.height = 0; }
+        else { (canvas as HTMLCanvasElement).width = 0; (canvas as HTMLCanvasElement).height = 0; }
 
         const worker = await getOcrWorker();
         let allWords: any[] = [];
 
-        // --- FATIAMENTO FÍSICO (SLICING) ---
-        // Cria regiões baseadas nas colunas detectadas
+        // ESTRATÉGIA HÍBRIDA: COLUNAS + TILES
         const regions = [];
         if (columnSplits.length === 0) {
             regions.push({ x: 0, w: width, colIndex: 0 });
@@ -119,57 +189,98 @@ export class OcrManager {
             regions.push({ x: currentX, w: width - currentX, colIndex: columnSplits.length });
         }
 
-        // Processa cada fatia separadamente
+        // Para cada coluna, verificamos se precisamos de Tiling
         for (const region of regions) {
-            // Cria um mini-canvas para a coluna
-            const sliceCanvas = document.createElement('canvas');
-            sliceCanvas.width = region.w;
-            sliceCanvas.height = height;
-            const sctx = sliceCanvas.getContext('2d', { alpha: false });
-            
-            if (sctx) {
-                // Desenha apenas a parte da coluna a partir do canvas processado (limpo e rotacionado)
-                sctx.drawImage(processedCanvas, region.x, 0, region.w, height, 0, 0, region.w, height);
+            // Se a região for muito alta (> 2000px), usamos Tiling para manter qualidade
+            // Se for pequena, processamos direto
+            if (height > 2000 || region.w > 2000) {
                 
-                // OCR na fatia
+                // --- TILED OCR LOOP ---
+                const colWords: any[] = [];
+                const stepY = this.tileSize - this.tileOverlap;
+                
+                for (let y = 0; y < height; y += stepY) {
+                    // Define altura do tile (cuidando com a borda inferior)
+                    const tileH = Math.min(this.tileSize, height - y);
+                    
+                    // Extrai tile
+                    const tileCanvas = await extractImageTile(processedCanvas, {
+                        x: region.x,
+                        y: y,
+                        w: region.w,
+                        h: tileH
+                    });
+
+                    await worker.setParameters({ tessedit_pageseg_mode: '6' as any }); // Block mode
+                    const { data } = await worker.recognize(tileCanvas);
+
+                    if (data && data.words) {
+                        const tileWords = data.words.map(w => {
+                            // Converte coordenadas locais do Tile para Globais da Página
+                            const globalBbox = {
+                                x0: ((w.bbox.x0 + region.x) / this.ocrScale),
+                                y0: ((w.bbox.y0 + y) / this.ocrScale),
+                                x1: ((w.bbox.x1 + region.x) / this.ocrScale),
+                                y1: ((w.bbox.y1 + y) / this.ocrScale)
+                            };
+
+                            const mapped = {
+                                text: w.text,
+                                confidence: w.confidence,
+                                column: region.colIndex,
+                                bbox: globalBbox
+                            };
+
+                            if (!this.validateWord(mapped, height / this.ocrScale)) return null;
+                            return mapped;
+                        }).filter(Boolean);
+
+                        colWords.push(...tileWords);
+                    }
+
+                    // Yield para UI
+                    await new Promise(r => setTimeout(r, 10));
+                }
+                
+                // Deduplica a coluna processada em tiles
+                const cleanColWords = this.deduplicateWords(colWords);
+                allWords.push(...cleanColWords);
+
+            } else {
+                // Processamento Direto (Fast Path para áreas pequenas)
+                const sliceCanvas = await extractColumnSlice(processedCanvas, region.x, 0, region.w, height, 1.0);
+                await worker.setParameters({ tessedit_pageseg_mode: '6' as any });
                 const { data } = await worker.recognize(sliceCanvas);
                 
                 if (data && data.words) {
+                    const PADDING = 40; // Sync with extractColumnSlice padding
                     const regionWords = data.words.map(w => {
-                        // Filtro de Ruído: Remove palavras gigantes (artefatos)
-                        const wWidth = w.bbox.x1 - w.bbox.x0;
-                        const wHeight = w.bbox.y1 - w.bbox.y0;
-                        if (wWidth > region.w * 0.9 || wHeight > height * 0.3) return null;
-
-                        return {
+                        const mapped = {
                             text: w.text,
                             confidence: w.confidence,
                             column: region.colIndex,
-                            // Remapeia coordenadas da fatia para a página inteira
-                            // E aplica escala inversa para voltar ao tamanho original do PDF
                             bbox: {
-                                x0: (w.bbox.x0 + region.x) / this.ocrScale,
-                                y0: w.bbox.y0 / this.ocrScale,
-                                x1: (w.bbox.x1 + region.x) / this.ocrScale,
-                                y1: w.bbox.y1 / this.ocrScale
+                                x0: ((w.bbox.x0 - PADDING) + region.x) / this.ocrScale,
+                                y0: (w.bbox.y0 - PADDING) / this.ocrScale,
+                                x1: ((w.bbox.x1 - PADDING) + region.x) / this.ocrScale,
+                                y1: (w.bbox.y1 - PADDING) / this.ocrScale
                             }
                         };
+                        if (!this.validateWord(mapped, height / this.ocrScale)) return null;
+                        return mapped;
                     }).filter(Boolean);
                     allWords.push(...regionWords);
                 }
-                
-                // Limpeza do slice
-                sliceCanvas.width = 0; sliceCanvas.height = 0;
             }
         }
 
         // Limpeza final
-        processedCanvas.width = 0; processedCanvas.height = 0;
+        if (processedCanvas instanceof OffscreenCanvas) { processedCanvas.width = 0; processedCanvas.height = 0; }
+        else { (processedCanvas as HTMLCanvasElement).width = 0; }
 
-        // Ordenação final (Coluna > Y > X) para garantir fluxo de leitura
+        // Ordenação Global
         allWords.sort((a, b) => {
             if (a.column !== b.column) return a.column - b.column;
-            // Tolerância de linha (5px no PDF original)
             const yDiff = a.bbox.y0 - b.bbox.y0;
             if (Math.abs(yDiff) < 5) return a.bbox.x0 - b.bbox.x0;
             return yDiff;

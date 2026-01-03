@@ -87,6 +87,42 @@ const ConfidenceWord: React.FC<ConfidenceWordProps> = ({ word, scale, wordIndex,
     );
 };
 
+// Helper: Desenha traços suaves usando curvas de Bézier quadráticas
+const drawSmoothStroke = (ctx: CanvasRenderingContext2D, points: number[][], scale: number) => {
+    if (points.length < 2) return;
+
+    ctx.beginPath();
+    // Move para o primeiro ponto
+    ctx.moveTo(points[0][0] * scale, points[0][1] * scale);
+
+    // Se tiver poucos pontos, desenha linha simples
+    if (points.length < 3) {
+        for (let i = 1; i < points.length; i++) {
+            ctx.lineTo(points[i][0] * scale, points[i][1] * scale);
+        }
+    } else {
+        // Interpolação suave usando pontos médios como controle
+        for (let i = 1; i < points.length - 1; i++) {
+            const p0 = points[i];
+            const p1 = points[i+1];
+            
+            // Ponto médio entre o atual e o próximo
+            const midX = (p0[0] + p1[0]) / 2;
+            const midY = (p0[1] + p1[1]) / 2;
+            
+            // Desenha curva do ponto anterior até o ponto médio
+            ctx.quadraticCurveTo(
+                p0[0] * scale, p0[1] * scale, 
+                midX * scale, midY * scale
+            );
+        }
+        // Conecta o último trecho
+        const last = points[points.length - 1];
+        ctx.lineTo(last[0] * scale, last[1] * scale);
+    }
+    ctx.stroke();
+};
+
 const PdfPageComponent: React.FC<PdfPageProps> = ({ 
   pageNumber, filterValues, pdfDoc 
 }) => {
@@ -176,7 +212,7 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
 
   const isSplitActive = settings.detectColumns && (pageDimensions ? pageDimensions.width > pageDimensions.height * 1.1 : false);
 
-  // --- PDF RENDERING LOOP (With Bitmap Caching) ---
+  // --- PDF RENDERING LOOP (With Bitmap Caching & Placeholder) ---
   useEffect(() => {
     if (!isVisible || !pageDimensions || !pageProxy || !canvasRef.current) return;
     let active = true;
@@ -206,15 +242,23 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
         canvas.style.width = `${viewport.width}px`;
         canvas.style.height = `${viewport.height}px`;
 
-        // 2. Optimistic UI: Draw Cached Bitmap (Instant Feedback)
+        // 2. OPTIMISTIC UI: Draw Cached Bitmap OR Nearest Neighbor (Placeholder)
         const cachedBitmap = bitmapCache.get(cacheKey);
+        
         if (cachedBitmap) {
-            // Draw cached bitmap immediately to fill the void
+            // Cache Hit: Desenha exato
             ctx.drawImage(cachedBitmap, 0, 0, targetWidth, targetHeight);
         } else {
-            // If no cache, we might want to clear or keep previous content?
-            // Usually PDF.js render will clear, but we can clear to avoid artifacts if size changed
-            // ctx.clearRect(0, 0, targetWidth, targetHeight);
+            // Cache Miss: Tenta encontrar um bitmap de outra escala (ex: zoom anterior)
+            const fallbackBitmap = bitmapCache.findNearest(fileId, pageNumber);
+            if (fallbackBitmap) {
+                // Desenha o fallback esticado (ficará borrado, mas evita tela branca)
+                ctx.drawImage(fallbackBitmap, 0, 0, targetWidth, targetHeight);
+            } else {
+                // Sem cache nenhum: Limpa
+                ctx.fillStyle = settings.pageColor || '#ffffff';
+                ctx.fillRect(0, 0, targetWidth, targetHeight);
+            }
         }
 
         // 3. Render High-Quality PDF (Async)
@@ -263,8 +307,7 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
     };
   }, [pageProxy, scale, isVisible, settings.detectColumns, cacheKey]);
 
-  // --- STATIC INK LAYER (Heavy, Cached) ---
-  // Renders only SAVED annotations. Triggered by 'annotations' change.
+  // --- STATIC INK LAYER (Heavy, Cached with Smoothing) ---
   useEffect(() => {
     if (!staticInkCanvasRef.current || !pageDimensions) return;
     
@@ -288,24 +331,16 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
     pageInks.forEach(ann => {
         if (!ann.points || ann.points.length < 2) return;
         
-        ctx.beginPath();
         ctx.lineWidth = (ann.strokeWidth || 3) * scale;
         ctx.strokeStyle = ann.color || '#ff0000';
         ctx.globalAlpha = ann.opacity || 1;
 
-        const first = ann.points[0];
-        ctx.moveTo(first[0] * scale, first[1] * scale);
-
-        for (let i = 1; i < ann.points.length; i++) {
-            const p = ann.points[i];
-            ctx.lineTo(p[0] * scale, p[1] * scale);
-        }
-        ctx.stroke();
+        // Use Smooth Drawing
+        drawSmoothStroke(ctx, ann.points, scale);
     });
-  }, [annotations, pageNumber, scale, pageDimensions]); // Dependency List: Does NOT include currentPoints
+  }, [annotations, pageNumber, scale, pageDimensions]); 
 
-  // --- ACTIVE INK LAYER (Light, Fast) ---
-  // Renders only the stroke CURRENTLY being drawn. Triggered by 'currentPoints'.
+  // --- ACTIVE INK LAYER (Light, Fast with Smoothing) ---
   useEffect(() => {
     if (!activeInkCanvasRef.current || !pageDimensions) return;
     
@@ -321,25 +356,19 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
         canvas.style.height = `${pageDimensions.height}px`;
     }
 
-    // Always clear active layer on every frame (it only holds one stroke)
+    // Always clear active layer on every frame
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     if (currentPoints.length > 1) {
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
-        ctx.beginPath();
+        
         ctx.lineWidth = (settings.inkStrokeWidth / 5) * scale;
         ctx.strokeStyle = settings.inkColor;
         ctx.globalAlpha = settings.inkOpacity;
 
-        const first = currentPoints[0];
-        ctx.moveTo(first[0] * scale, first[1] * scale);
-
-        for (let i = 1; i < currentPoints.length; i++) {
-            const p = currentPoints[i];
-            ctx.lineTo(p[0] * scale, p[1] * scale);
-        }
-        ctx.stroke();
+        // Use Smooth Drawing for active stroke too
+        drawSmoothStroke(ctx, currentPoints, scale);
     }
   }, [currentPoints, scale, pageDimensions, settings.inkColor, settings.inkStrokeWidth, settings.inkOpacity]);
 

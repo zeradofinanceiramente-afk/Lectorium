@@ -102,6 +102,14 @@ export interface SearchResult {
   page?: number;
 }
 
+// --- SEMANTIC LENS TYPES ---
+export interface SemanticLensData {
+  markdown: string;
+  summary?: string;
+  entities?: string[];
+  processedAt: number;
+}
+
 // ---------------------------
 
 export interface ChatMessage {

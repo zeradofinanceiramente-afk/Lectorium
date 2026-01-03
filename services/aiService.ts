@@ -117,6 +117,43 @@ export function extractPageRangeFromQuery(query: string): { start: number, end: 
 // --- AI FUNCTIONS ---
 
 /**
+ * Lente de Aumento Semântica
+ * Realiza OCR de alta fidelidade usando o modelo Gemini Flash Latest.
+ */
+export async function performSemanticOcr(base64Image: string): Promise<string> {
+  const ai = getAiClient();
+  const prompt = `Atue como um especialista em digitalização de documentos.
+Analise a imagem desta página e transcreva TODO o texto em formato Markdown estruturado.
+
+REGRAS CRÍTICAS DE LEITURA:
+1. **Colunas:** Se houver múltiplas colunas (ex: jornal, artigo científico), leia da esquerda para a direita, coluna por coluna (ordem de leitura humana). NÃO misture linhas de colunas adjacentes.
+2. **Formatação:** Use cabeçalhos (#, ##) para títulos. Use negrito para destaques.
+3. **Correção:** Corrija hifenização de quebra de linha (ex: "cons-titução" -> "constituição").
+4. **Tabelas:** Se houver tabelas, tente representá-las como Markdown tables.
+5. **Ruído:** Ignore números de página, cabeçalhos repetitivos ou sujeira de digitalização.
+
+Retorne APENAS o Markdown.`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-flash-latest', // Modelo atualizado para versão estável mais recente
+      contents: {
+        parts: [
+          { inlineData: { data: base64Image, mimeType: 'image/jpeg' } },
+          { text: prompt }
+        ]
+      }
+    });
+    
+    return response.text || "Não foi possível extrair o texto desta página.";
+  } catch (e: any) {
+    console.error("Semantic Lens error:", e);
+    if (e.message?.includes('429')) throw new Error("Muitas requisições. Aguarde um momento.");
+    throw new Error("Erro na análise da página: " + e.message);
+  }
+}
+
+/**
  * Gera embeddings vetoriais com BATCH PROCESSING e Rate Limiting.
  * Processa em blocos para evitar erro 429.
  */

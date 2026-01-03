@@ -1,10 +1,10 @@
 
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import { Annotation } from '../types';
+import { Annotation, SemanticLensData } from '../types';
 import { loadOcrData, saveOcrData, touchOfflineFile } from '../services/storageService';
 import { PDFDocumentProxy } from 'pdfjs-dist';
 import { OcrManager, OcrStatus } from '../services/ocrManager';
-import { refineOcrWords } from '../services/aiService';
+import { refineOcrWords, performSemanticOcr } from '../services/aiService';
 import { indexDocumentForSearch } from '../services/ragService';
 import { scheduleWork, cancelWork } from '../utils/scheduler';
 import { SelectionState } from '../components/pdf/SelectionMenu';
@@ -81,6 +81,11 @@ interface PdfContextState {
   selection: SelectionState | null;
   setSelection: (s: SelectionState | null) => void;
   onSmartTap: (t: HTMLElement) => void;
+  
+  // Semantic Lens
+  lensData: Record<number, SemanticLensData>;
+  isLensLoading: boolean;
+  triggerSemanticLens: (page: number) => Promise<void>;
 }
 
 const PdfContext = createContext<PdfContextState | null>(null);
@@ -154,6 +159,10 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
   const ocrManagerRef = useRef<OcrManager | null>(null);
   const [chatRequest, setChatRequest] = useState<string | null>(null);
   const [showOcrModal, setShowOcrModal] = useState(false);
+  
+  // Semantic Lens State
+  const [lensData, setLensData] = useState<Record<number, SemanticLensData>>({});
+  const [isLensLoading, setIsLensLoading] = useState(false);
   
   const currentBlobRef = useRef<Blob | null>(currentBlob);
   useEffect(() => {
@@ -339,6 +348,66 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
     }
   }, [ocrMap, showOcrNotification, setPageOcrData]);
 
+  const triggerSemanticLens = useCallback(async (pageNumber: number) => {
+    if (!pdfDoc) return;
+    // Verifica cache em memória
+    if (lensData[pageNumber]) return;
+
+    setIsLensLoading(true);
+    showOcrNotification("Lente Semântica: Digitalizando página...");
+
+    try {
+        const page = await pdfDoc.getPage(pageNumber);
+        const scale = 2.0; // Alta resolução para o Gemini
+        const viewport = page.getViewport({ scale });
+        
+        // Renderiza para imagem
+        const isOffscreenSupported = typeof OffscreenCanvas !== 'undefined';
+        const canvas = isOffscreenSupported 
+            ? new OffscreenCanvas(viewport.width, viewport.height) 
+            : document.createElement('canvas');
+        
+        if (!isOffscreenSupported) {
+            (canvas as HTMLCanvasElement).width = viewport.width;
+            (canvas as HTMLCanvasElement).height = viewport.height;
+        }
+
+        const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: true }) as any;
+        await page.render({ canvasContext: ctx, viewport }).promise;
+
+        const blob = await (canvas as any).convertToBlob({ type: 'image/jpeg', quality: 0.8 });
+        
+        // Conversão para Base64
+        const reader = new FileReader();
+        reader.onloadend = async () => {
+            const base64 = (reader.result as string).split(',')[1];
+            try {
+                showOcrNotification("Lente Semântica: Analisando layout...");
+                const markdown = await performSemanticOcr(base64);
+                
+                setLensData(prev => ({
+                    ...prev,
+                    [pageNumber]: {
+                        markdown,
+                        processedAt: Date.now()
+                    }
+                }));
+                showOcrNotification("Análise completa.");
+            } catch (err: any) {
+                showOcrNotification(`Erro na Lente: ${err.message}`);
+            } finally {
+                setIsLensLoading(false);
+            }
+        };
+        reader.readAsDataURL(blob);
+
+    } catch (e: any) {
+        console.error("Lens error", e);
+        showOcrNotification("Erro ao capturar página.");
+        setIsLensLoading(false);
+    }
+  }, [pdfDoc, lensData, showOcrNotification]);
+
   const generateSearchIndex = useCallback(async (fullText: string) => {
       const blob = currentBlobRef.current;
       if (fileId && blob && fullText.trim().length > 100) {
@@ -369,8 +438,11 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
     generateSearchIndex,
     docPageOffset: initialPageOffset, 
     setDocPageOffset: onSetPageOffset,
-    selection, setSelection, onSmartTap
-  }), [scale, currentPage, numPages, activeTool, isSpread, spreadSide, nextPage, prevPage, handleJumpToPage, settings, annotations, onAddAnnotation, onRemoveAnnotation, ocrMap, nativeTextMap, ocrStatusMap, setPageOcrData, updateOcrWord, triggerOcr, showOcrModal, refinePageOcr, hasUnsavedOcr, setHasUnsavedOcr, ocrNotification, accessToken, fileId, onUpdateSourceBlob, getUnburntOcrMap, markOcrAsSaved, chatRequest, generateSearchIndex, initialPageOffset, onSetPageOffset, selection, setSelection, onSmartTap]);
+    selection, setSelection, onSmartTap,
+    
+    // Semantic Lens
+    lensData, isLensLoading, triggerSemanticLens
+  }), [scale, currentPage, numPages, activeTool, isSpread, spreadSide, nextPage, prevPage, handleJumpToPage, settings, annotations, onAddAnnotation, onRemoveAnnotation, ocrMap, nativeTextMap, ocrStatusMap, setPageOcrData, updateOcrWord, triggerOcr, showOcrModal, refinePageOcr, hasUnsavedOcr, setHasUnsavedOcr, ocrNotification, accessToken, fileId, onUpdateSourceBlob, getUnburntOcrMap, markOcrAsSaved, chatRequest, generateSearchIndex, initialPageOffset, onSetPageOffset, selection, setSelection, onSmartTap, lensData, isLensLoading, triggerSemanticLens]);
 
   return <PdfContext.Provider value={value}>{children}</PdfContext.Provider>;
 };

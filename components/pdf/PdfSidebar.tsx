@@ -4,8 +4,9 @@ import { X, Lock, FileText, Copy, Download, Sparkles, Loader2, Hash, PaintBucket
 import { Annotation } from '../../types';
 import { usePdfContext } from '../../context/PdfContext';
 import { AiChatPanel } from '../shared/AiChatPanel';
+import { SemanticLensPanel } from './SemanticLensPanel';
 
-export type SidebarTab = 'annotations' | 'settings' | 'fichamento' | 'ai' | 'chat';
+export type SidebarTab = 'annotations' | 'settings' | 'fichamento' | 'ai' | 'chat' | 'lens';
 
 interface Props {
   isOpen: boolean;
@@ -154,17 +155,18 @@ export const PdfSidebar: React.FC<Props> = ({
                 </div>
 
                 {/* Tabs */}
-                <div className="flex border-b border-white/5 p-1 mx-2 mt-2 gap-1 bg-white/5 rounded-xl relative z-10">
+                <div className="flex border-b border-white/5 p-1 mx-2 mt-2 gap-1 bg-white/5 rounded-xl relative z-10 overflow-x-auto no-scrollbar">
                     {[
-                        { id: 'annotations', label: 'Anotações', icon: FileText },
-                        { id: 'fichamento', label: 'Fichamento', icon: ScrollText },
-                        { id: 'chat', label: 'IA Chat', icon: MessageSquare },
+                        { id: 'annotations', label: 'Notas', icon: FileText },
+                        { id: 'fichamento', label: 'Resumo', icon: ScrollText },
+                        { id: 'chat', label: 'Chat IA', icon: MessageSquare },
+                        { id: 'lens', label: 'Lente', icon: Sparkles },
                         { id: 'settings', label: 'Config', icon: PaintBucket }
                     ].map(tab => (
                         <button 
                             key={tab.id} 
                             onClick={() => onTabChange(tab.id as SidebarTab)} 
-                            className={`flex-1 py-2 text-[10px] font-bold uppercase transition-all rounded-lg flex flex-col items-center gap-1 ${activeTab === tab.id ? 'bg-white/10 text-brand border border-white/5' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`}
+                            className={`flex-1 min-w-[60px] py-2 text-[10px] font-bold uppercase transition-all rounded-lg flex flex-col items-center gap-1 ${activeTab === tab.id ? 'bg-white/10 text-brand border border-white/5' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`}
                         >
                             <tab.icon size={16} className={activeTab === tab.id ? "text-brand" : ""} />
                             {tab.label}
@@ -210,6 +212,8 @@ export const PdfSidebar: React.FC<Props> = ({
                             onIndexRequest={() => generateSearchIndex(contextForAi)}
                             numPages={numPages}
                         />
+                    ) : activeTab === 'lens' ? (
+                        <SemanticLensPanel pageNumber={currentPage} />
                     ) : activeTab === 'settings' ? (
                         <div className="flex-1 overflow-y-auto p-4 space-y-8 custom-scrollbar pb-10">
                             {/* Settings Content... */}
