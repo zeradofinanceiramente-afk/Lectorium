@@ -1,9 +1,10 @@
+
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Annotation, SemanticLensData } from '../types';
 import { loadOcrData, saveOcrData, touchOfflineFile } from '../services/storageService';
 import { PDFDocumentProxy } from 'pdfjs-dist';
 import { OcrManager, OcrStatus, OcrEngineType } from '../services/ocrManager';
-import { refineOcrWords, performSemanticOcr, alignOcrWithSemanticText } from '../services/aiService';
+import { performSemanticOcr, alignOcrWithSemanticText } from '../services/aiService';
 import { indexDocumentForSearch } from '../services/ragService';
 import { scheduleWork, cancelWork } from '../utils/scheduler';
 import { SelectionState } from '../components/pdf/SelectionMenu';
@@ -61,7 +62,7 @@ interface PdfContextState {
   ocrStatusMap: Record<number, OcrStatus>;
   setPageOcrData: (page: number, words: any[]) => void;
   updateOcrWord: (page: number, wordIndex: number, newText: string) => void;
-  triggerOcr: (page: number) => void;
+  triggerOcr: (page: number) => Promise<any[]>; // Updated signature to return promise
   showOcrModal: boolean;
   setShowOcrModal: (v: boolean) => void;
   refinePageOcr: (page: number) => Promise<void>;
@@ -259,7 +260,7 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
     });
   }, [fileId]);
 
-  // OCR Manager Lifecycle - Agora reage a mudanças no settings.ocrEngine
+  // OCR Manager Lifecycle
   useEffect(() => {
     if (pdfDoc) {
         const manager = new OcrManager(
@@ -274,7 +275,6 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
             () => {
                 if (fileId) touchOfflineFile(fileId).catch(() => {});
             },
-            // Passa o motor selecionado
             settings.ocrEngine
         );
         Object.keys(ocrMap).forEach(p => manager.markAsProcessed(parseInt(p)));
@@ -291,7 +291,6 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
     });
   }, []);
 
-  // Sync Jump: Quando a UI pede jump (via toolbar ou sidebar), atualiza o store e notifica o pai
   const handleJumpToPage = useCallback((page: number) => {
     storeJump(page);
     onJumpToPage(page);
@@ -321,30 +320,53 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
     });
   }, [fileId]);
 
-  const triggerOcr = useCallback((page: number) => {
-    if (ocrManagerRef.current) {
-        ocrManagerRef.current.schedule(page, 'high');
+  // Enhanced Trigger OCR: Returns promise for synchronization
+  const triggerOcr = useCallback((page: number): Promise<any[]> => {
+    return new Promise((resolve) => {
+        if (!ocrManagerRef.current) {
+            resolve([]);
+            return;
+        }
+
+        // Se já temos dados, retorna imediato
+        if (ocrMap[page] && ocrMap[page].length > 0) {
+            resolve(ocrMap[page]);
+            return;
+        }
+
         const engineName = settings.ocrEngine === 'florence' ? 'Neural (Florence)' : 'Padrão (Tesseract)';
         showOcrNotification(`Lendo Página ${page} (${engineName})...`);
-    }
-  }, [showOcrNotification, settings.ocrEngine]);
+        
+        // Listener único para capturar o resultado desta página específica
+        // Monitoramos o estado do mapa para saber quando o OCR terminou
+        const checkInterval = setInterval(() => {
+            const currentData = ocrMap[page];
+            // Verifica o estado diretamente se possível, ou apenas a presença de dados
+            if (currentData && currentData.length > 0) {
+                clearInterval(checkInterval);
+                resolve(currentData);
+            }
+        }, 500);
 
-  // ALGORITMO HÍBRIDO DE ALINHAMENTO (Geometria Local + Semântica Nuvem)
+        // Dispara o OCR
+        ocrManagerRef.current.schedule(page, 'high');
+        
+        // Timeout de segurança (30s)
+        setTimeout(() => {
+            clearInterval(checkInterval);
+            resolve(ocrMap[page] || []);
+        }, 30000);
+    });
+  }, [showOcrNotification, settings.ocrEngine, ocrMap]);
+
+  // --- ALGORITMO HÍBRIDO (Pipeline Lente Semântica -> OCR Geometry -> Injeção) ---
   const refinePageOcr = useCallback(async (page: number) => {
-    const rawWords = ocrMap[page];
-    if (!rawWords || rawWords.length === 0) {
-        // Se não houver palavras locais, tenta disparar o OCR local primeiro
-        triggerOcr(page);
-        return;
-    }
-    
     if (!pdfDoc) return;
 
-    showOcrNotification(`Lente Semântica: Analisando e alinhando Página ${page}...`);
     setOcrStatusMap(prev => ({ ...prev, [page]: 'processing' }));
     
     try {
-        // 1. Obter snapshot da página para o Gemini
+        // 1. Snapshot da página (Vision)
         const pdfPage = await pdfDoc.getPage(page);
         const viewport = pdfPage.getViewport({ scale: 2.0 });
         
@@ -362,7 +384,6 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
         await pdfPage.render({ canvasContext: ctx, viewport }).promise;
         const blob = await (canvas as any).convertToBlob({ type: 'image/jpeg', quality: 0.8 });
         
-        // Converter para Base64
         const reader = new FileReader();
         reader.readAsDataURL(blob);
         
@@ -371,17 +392,11 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
                 try {
                     const base64 = (reader.result as string).split(',')[1];
                     
-                    // 2. Chamar IA (Lente Semântica) para obter texto perfeito
+                    // 2. IA: Lente Semântica (Obter texto perfeito)
+                    showOcrNotification(`Lente Semântica: Extraindo texto com IA...`);
                     const semanticMarkdown = await performSemanticOcr(base64);
                     
-                    // 3. Executar Alinhamento Difuso (Fuzzy Alignment)
-                    const alignedWords = alignOcrWithSemanticText(rawWords, semanticMarkdown);
-                    
-                    setPageOcrData(page, alignedWords);
-                    setOcrStatusMap(prev => ({ ...prev, [page]: 'done' }));
-                    showOcrNotification(`Refinamento híbrido concluído.`);
-                    
-                    // Salvar também o texto semântico na Lente
+                    // Salvar o texto semântico na Lente para referência futura
                     setLensData(prev => ({
                         ...prev,
                         [page]: {
@@ -389,6 +404,27 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
                             processedAt: Date.now()
                         }
                     }));
+
+                    // 3. Geometria: Garantir que temos as caixas do OCR
+                    let rawWords = ocrMap[page];
+                    if (!rawWords || rawWords.length === 0) {
+                        showOcrNotification(`Mapeando geometria da página (OCR)...`);
+                        // Dispara OCR local e aguarda
+                        rawWords = await triggerOcr(page);
+                    }
+
+                    if (!rawWords || rawWords.length === 0) {
+                        throw new Error("Falha ao obter geometria do OCR para alinhamento.");
+                    }
+
+                    // 4. Injeção: Forçar texto da IA nas caixas do OCR
+                    showOcrNotification(`Alinhando texto IA com geometria...`);
+                    const alignedWords = alignOcrWithSemanticText(rawWords, semanticMarkdown);
+                    
+                    // 5. Commit
+                    setPageOcrData(page, alignedWords);
+                    setOcrStatusMap(prev => ({ ...prev, [page]: 'done' }));
+                    showOcrNotification(`Refinamento concluído: Texto da IA injetado.`);
                     
                     resolve();
                 } catch (e: any) {
@@ -400,8 +436,8 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
 
     } catch (e) {
         console.error("Refinement failed", e);
-        setOcrStatusMap(prev => ({ ...prev, [page]: 'done' }));
-        showOcrNotification("Erro ao refinar com IA.");
+        setOcrStatusMap(prev => ({ ...prev, [page]: 'done' })); // Reset status to allow retry
+        showOcrNotification("Erro no refinamento.");
     }
   }, [ocrMap, showOcrNotification, setPageOcrData, pdfDoc, triggerOcr]);
 
