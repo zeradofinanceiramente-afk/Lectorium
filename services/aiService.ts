@@ -18,144 +18,6 @@ const getAiClient = () => {
 // Utils
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-// --- MATH UTILS FOR ALIGNMENT ---
-
-/**
- * Calcula a distância de Levenshtein entre duas strings (similaridade).
- * Retorna um valor entre 0 (diferente) e 1 (idêntico).
- */
-function similarity(s1: string, s2: string): number {
-  if (!s1 || !s2) return 0;
-  let longer = s1;
-  let shorter = s2;
-  if (s1.length < s2.length) {
-    longer = s2;
-    shorter = s1;
-  }
-  const longerLength = longer.length;
-  if (longerLength === 0) {
-    return 1.0;
-  }
-  return (longerLength - editDistance(longer, shorter)) / parseFloat(longerLength.toString());
-}
-
-function editDistance(s1: string, s2: string): number {
-  s1 = s1.toLowerCase();
-  s2 = s2.toLowerCase();
-  const costs = new Array();
-  for (let i = 0; i <= s1.length; i++) {
-    let lastValue = i;
-    for (let j = 0; j <= s2.length; j++) {
-      if (i === 0) costs[j] = j;
-      else {
-        if (j > 0) {
-          let newValue = costs[j - 1];
-          if (s1.charAt(i - 1) !== s2.charAt(j - 1)) newValue = Math.min(Math.min(newValue, lastValue), costs[j]) + 1;
-          costs[j - 1] = lastValue;
-          lastValue = newValue;
-        }
-      }
-    }
-    if (i > 0) costs[s2.length] = lastValue;
-  }
-  return costs[s2.length];
-}
-
-/**
- * ALINHAMENTO SEMÂNTICO-GEOMÉTRICO (The Injector)
- * Esta função pega o texto perfeito da IA e o força dentro das caixas do OCR.
- * Usa um algoritmo de "Janela Deslizante com Âncoras" para garantir que,
- * mesmo se o OCR perdeu palavras ou adicionou lixo, o texto da IA flua corretamente.
- */
-export function alignOcrWithSemanticText(localWords: any[], semanticText: string): any[] {
-    // 1. Limpeza e Tokenização do Texto Semântico
-    // Removemos formatação Markdown para alinhamento, mas mantemos pontuação básica
-    const cleanSemantic = semanticText
-        .replace(/[#*`_]/g, '') // Remove sintaxe Markdown
-        .replace(/\s+/g, ' ')
-        .trim();
-        
-    const semanticWords = cleanSemantic.split(' ');
-    const alignedResult: any[] = [];
-    
-    let ocrIndex = 0;
-    const OCR_LOOKAHEAD = 15; // Quantas palavras do OCR olhar à frente para tentar achar uma âncora
-
-    // Iteramos sobre as palavras da IA (Prioridade de Conteúdo)
-    for (let i = 0; i < semanticWords.length; i++) {
-        const semWord = semanticWords[i];
-        
-        // Estratégia: Encontrar a melhor caixa do OCR disponível para esta palavra da IA
-        let bestMatchIndex = -1;
-        let bestScore = 0;
-
-        // Procura uma "Âncora" visual na janela próxima do OCR
-        // Isso ajuda a ressincronizar se a IA tiver mais ou menos palavras que o OCR
-        const searchLimit = Math.min(ocrIndex + OCR_LOOKAHEAD, localWords.length);
-        
-        for (let j = ocrIndex; j < searchLimit; j++) {
-            const ocrWord = localWords[j];
-            const sim = similarity(semWord, ocrWord.text);
-            
-            // Boost se começar com a mesma letra (ajuda em palavras curtas)
-            const startBoost = (semWord[0]?.toLowerCase() === ocrWord.text[0]?.toLowerCase()) ? 0.1 : 0;
-            const finalScore = sim + startBoost;
-
-            if (finalScore > 0.65 && finalScore > bestScore) { // Âncora forte encontrada
-                bestScore = finalScore;
-                bestMatchIndex = j;
-                
-                // Se achou um match quase perfeito, para de procurar para economizar CPU
-                if (finalScore > 0.9) break; 
-            }
-        }
-
-        let targetBox;
-
-        if (bestMatchIndex !== -1) {
-            // Sincronização encontrada!
-            // Usamos a caixa do OCR encontrada (bestMatchIndex)
-            targetBox = localWords[bestMatchIndex];
-            
-            // Avançamos o ponteiro do OCR para logo após esta caixa usada
-            // Isso "pula" caixas de lixo do OCR que estavam no meio
-            ocrIndex = bestMatchIndex + 1;
-        } else {
-            // Nenhuma âncora encontrada.
-            // Estratégia de Preenchimento: Usa a próxima caixa disponível sequencialmente.
-            // "Se não parece visualmente, assumimos que é a próxima posição lógica."
-            if (ocrIndex < localWords.length) {
-                targetBox = localWords[ocrIndex];
-                ocrIndex++;
-            } else {
-                // Acabaram as caixas do OCR.
-                // Edge Case: A IA extraiu mais texto do que o OCR viu (ex: texto em imagem escura).
-                // Reutilizamos a última caixa válida para não perder o texto, 
-                // talvez deslocando levemente para indicar continuidade.
-                const lastBox = alignedResult.length > 0 ? alignedResult[alignedResult.length - 1] : null;
-                if (lastBox) {
-                    targetBox = { 
-                        ...lastBox, 
-                        // Cria uma caixa virtual levemente deslocada à direita
-                        bbox: { ...lastBox.bbox, x0: lastBox.bbox.x1 + 5, x1: lastBox.bbox.x1 + 20 }
-                    };
-                }
-            }
-        }
-
-        if (targetBox) {
-            alignedResult.push({
-                ...targetBox, // Herda geometria (x, y, w, h)
-                text: semWord, // INJETA o texto da IA
-                confidence: 100, // Força confiança máxima
-                isRefined: true
-            });
-        }
-    }
-
-    return alignedResult;
-}
-
 // --- RAG UTILS (Local Search) ---
 
 const STOP_WORDS = new Set([
@@ -258,7 +120,7 @@ Retorne APENAS o Markdown.`;
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-image', 
+      model: 'gemini-flash-latest', 
       contents: {
         parts: [
           { inlineData: { data: base64Image, mimeType: 'image/jpeg' } },
@@ -410,9 +272,76 @@ export async function extractNewspaperContent(base64Image: string, mimeType: str
   }
 }
 
+/**
+ * REFINAMENTO DE OCR 2.0 (Context-Aware)
+ * Usa prompts avançados para corrigir erros de OCR com base no contexto da frase, não apenas da palavra isolada.
+ */
 export async function refineOcrWords(words: string[]): Promise<string[]> {
-  // Legacy method kept for compatibility, but `alignOcrWithSemanticText` is preferred
-  return words; 
+  const ai = getAiClient();
+  
+  if (words.length > 500) {
+      const chunks = [];
+      for (let i = 0; i < words.length; i += 500) {
+          chunks.push(words.slice(i, i + 500));
+      }
+      
+      const results = [];
+      for (const chunk of chunks) {
+          const refinedChunk = await refineOcrWords(chunk);
+          results.push(...refinedChunk);
+          await sleep(1000); 
+      }
+      return results;
+  }
+
+  // Novo Prompt: Foca em reconstrução de fluxo para evitar alucinação de layout
+  const prompt = `Aja como um revisor editorial especializado em recuperação de documentos históricos.
+Abaixo está uma sequência de palavras extraídas via OCR (Optical Character Recognition).
+A sequência pode conter erros de caracteres (ex: '1' vs 'l', 'rn' vs 'm') ou quebras de palavras.
+
+SUA TAREFA:
+Corrigir os erros ortográficos e de pontuação APENAS onde houver certeza baseada no contexto linguístico.
+NÃO altere a ordem das palavras.
+NÃO remova palavras (a menos que seja lixo puro como '_^~').
+NÃO invente conteúdo novo.
+
+Retorne um JSON contendo o array 'correctedWords' com o mesmo tamanho da entrada.
+
+ENTRADA:
+${JSON.stringify(words)}`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            correctedWords: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING }
+            }
+          },
+          required: ["correctedWords"]
+        }
+      }
+    });
+    const result = JSON.parse(response.text || '{"correctedWords": []}');
+    const corrected = result.correctedWords || [];
+    
+    // Fallback de segurança: Se o tamanho diferir muito, desconfie da IA e use o original
+    if (Math.abs(corrected.length - words.length) > 5) {
+        console.warn("[AI Refine] Mismatch in word count. Returning original to avoid sync errors.");
+        return words;
+    }
+    
+    return corrected;
+  } catch (e) {
+    console.error("OCR Refinement failed", e);
+    return words;
+  }
 }
 
 export async function expandNodeWithAi(nodeText: string, context: string): Promise<string[]> {

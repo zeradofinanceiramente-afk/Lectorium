@@ -3,8 +3,8 @@ import React, { createContext, useContext, useState, useCallback, useMemo, useEf
 import { Annotation, SemanticLensData } from '../types';
 import { loadOcrData, saveOcrData, touchOfflineFile } from '../services/storageService';
 import { PDFDocumentProxy } from 'pdfjs-dist';
-import { OcrManager, OcrStatus } from '../services/ocrManager';
-import { performSemanticOcr, alignOcrWithSemanticText } from '../services/aiService';
+import { OcrManager, OcrStatus, OcrEngineType } from '../services/ocrManager';
+import { refineOcrWords, performSemanticOcr } from '../services/aiService';
 import { indexDocumentForSearch } from '../services/ragService';
 import { scheduleWork, cancelWork } from '../utils/scheduler';
 import { SelectionState } from '../components/pdf/SelectionMenu';
@@ -29,9 +29,11 @@ interface PdfSettings {
   // Interface Customization
   toolbarScale: number;
   toolbarYOffset: number;
+  // OCR Config
+  ocrEngine: OcrEngineType;
 }
 
-// Simplified Context State
+// Simplified Context State (Removidos estados de UI como scale/currentPage que agora estão no Zustand)
 interface PdfContextState {
   // Legacy accessors proxied to Zustand for compatibility during migration
   scale: number;
@@ -60,7 +62,7 @@ interface PdfContextState {
   ocrStatusMap: Record<number, OcrStatus>;
   setPageOcrData: (page: number, words: any[]) => void;
   updateOcrWord: (page: number, wordIndex: number, newText: string) => void;
-  triggerOcr: (page: number) => Promise<any[]>; 
+  triggerOcr: (page: number) => void;
   showOcrModal: boolean;
   setShowOcrModal: (v: boolean) => void;
   refinePageOcr: (page: number) => Promise<void>;
@@ -127,7 +129,8 @@ const DEFAULT_SETTINGS: PdfSettings = {
   inkStrokeWidth: 42, 
   inkOpacity: 0.35,
   toolbarScale: 1, 
-  toolbarYOffset: 0
+  toolbarYOffset: 0,
+  ocrEngine: 'tesseract'
 };
 
 export const PdfProvider: React.FC<PdfProviderProps> = ({ 
@@ -141,6 +144,7 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
   }, [numPages, initialScale]);
 
   // Read State from Store for Legacy Context Consumers
+  // Note: This causes re-renders in Context consumers, but we will migrate heavy components to useStore directly
   const scale = usePdfStore(s => s.scale);
   const currentPage = usePdfStore(s => s.currentPage);
   const activeTool = usePdfStore(s => s.activeTool);
@@ -257,27 +261,29 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
     });
   }, [fileId]);
 
-  // OCR Manager Lifecycle
+  // OCR Manager Lifecycle - Agora reage a mudanças no settings.ocrEngine
   useEffect(() => {
     if (pdfDoc) {
         const manager = new OcrManager(
             pdfDoc, 
             (page, words) => {
                 setPageOcrData(page, words);
-                showOcrNotification(`Mapeamento da Página ${page} concluído.`);
+                showOcrNotification(`OCR da Página ${page} concluído.`);
             },
             (statusMap) => {
                 setOcrStatusMap(prev => ({ ...prev, ...statusMap }));
             },
             () => {
                 if (fileId) touchOfflineFile(fileId).catch(() => {});
-            }
+            },
+            // Passa o motor selecionado
+            settings.ocrEngine
         );
         Object.keys(ocrMap).forEach(p => manager.markAsProcessed(parseInt(p)));
         ocrManagerRef.current = manager;
     }
     return () => { ocrManagerRef.current = null; };
-  }, [pdfDoc, fileId, showOcrNotification]);
+  }, [pdfDoc, fileId, showOcrNotification, settings.ocrEngine]);
 
   const updateSettings = useCallback((newSettings: Partial<PdfSettings>) => {
     setSettings(prev => {
@@ -287,6 +293,7 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
     });
   }, []);
 
+  // Sync Jump: Quando a UI pede jump (via toolbar ou sidebar), atualiza o store e notifica o pai
   const handleJumpToPage = useCallback((page: number) => {
     storeJump(page);
     onJumpToPage(page);
@@ -316,128 +323,41 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
     });
   }, [fileId]);
 
-  // Modificado para retornar a Promise direta, sem efeitos colaterais imediatos
-  // para permitir uso no Promise.all do refinePageOcr
-  const triggerOcr = useCallback((page: number): Promise<any[]> => {
-    return new Promise((resolve) => {
-        if (!ocrManagerRef.current) {
-            resolve([]);
-            return;
-        }
-
-        // Se já existe, retorna cache
-        if (ocrMap[page] && ocrMap[page].length > 0) {
-            resolve(ocrMap[page]);
-            return;
-        }
-
-        showOcrNotification(`Mapeando geometria da Página ${page}...`);
-        
-        // Listener temporário para resolver a promise quando os dados chegarem
-        // Usamos um polling interval simples, pois o OCR Manager é event-based e desacoplado
-        const checkInterval = setInterval(() => {
-            const currentData = ocrMap[page];
-            if (currentData && currentData.length > 0) {
-                clearInterval(checkInterval);
-                resolve(currentData);
-            }
-        }, 500);
-
+  const triggerOcr = useCallback((page: number) => {
+    if (ocrManagerRef.current) {
         ocrManagerRef.current.schedule(page, 'high');
-        
-        setTimeout(() => {
-            clearInterval(checkInterval);
-            // Fallback: Retorna o que tiver ou vazio se timeout
-            resolve(ocrMap[page] || []);
-        }, 30000);
-    });
-  }, [showOcrNotification, ocrMap]);
+        const engineName = settings.ocrEngine === 'florence' ? 'Neural (Florence)' : 'Padrão (Tesseract)';
+        showOcrNotification(`Lendo Página ${page} (${engineName})...`);
+    }
+  }, [showOcrNotification, settings.ocrEngine]);
 
-  // --- ALGORITMO HÍBRIDO (Pipeline Paralelo Blindado) ---
   const refinePageOcr = useCallback(async (page: number) => {
-    if (!pdfDoc) return;
-
+    const rawWords = ocrMap[page];
+    if (!rawWords || rawWords.length === 0) return;
+    showOcrNotification(`IA: Refinando texto da Página ${page}...`);
     setOcrStatusMap(prev => ({ ...prev, [page]: 'processing' }));
     
     try {
-        // 1. Snapshot da página (Vision)
-        const pdfPage = await pdfDoc.getPage(page);
-        const viewport = pdfPage.getViewport({ scale: 2.0 });
-        
-        const isOffscreenSupported = typeof OffscreenCanvas !== 'undefined';
-        const canvas = isOffscreenSupported 
-            ? new OffscreenCanvas(viewport.width, viewport.height) 
-            : document.createElement('canvas');
-        
-        if (!isOffscreenSupported) {
-            (canvas as HTMLCanvasElement).width = viewport.width;
-            (canvas as HTMLCanvasElement).height = viewport.height;
-        }
-
-        const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: true }) as any;
-        await pdfPage.render({ canvasContext: ctx, viewport }).promise;
-        const blob = await (canvas as any).convertToBlob({ type: 'image/jpeg', quality: 0.8 });
-        
-        const reader = new FileReader();
-        reader.readAsDataURL(blob);
-        
-        // Usamos uma Promise para envolver a leitura do FileReader e o processamento paralelo subsequente
-        await new Promise<void>((resolve, reject) => {
-            reader.onloadend = async () => {
-                try {
-                    const base64 = (reader.result as string).split(',')[1];
-                    
-                    showOcrNotification(`Analisando geometria e texto simultaneamente...`);
-
-                    // 2. PARALELISMO REAL: Dispara ambas as threads
-                    // Thread A: Geometria (Tesseract)
-                    const geometryTask = triggerOcr(page);
-                    
-                    // Thread B: Semântica (Gemini)
-                    const semanticTask = performSemanticOcr(base64);
-
-                    // 3. SINCRONIZAÇÃO (Barrier)
-                    const [rawWords, semanticMarkdown] = await Promise.all([geometryTask, semanticTask]);
-
-                    // Salva dados da lente (Markdown puro) para uso lateral
-                    setLensData(prev => ({
-                        ...prev,
-                        [page]: {
-                            markdown: semanticMarkdown,
-                            processedAt: Date.now()
-                        }
-                    }));
-
-                    if (!rawWords || rawWords.length === 0) {
-                        throw new Error("Falha crítica: Geometria do OCR não disponível.");
-                    }
-
-                    // 4. FUSÃO (Merge)
-                    showOcrNotification(`Fundindo camadas de inteligência...`);
-                    const alignedWords = alignOcrWithSemanticText(rawWords, semanticMarkdown);
-                    
-                    // 5. COMMIT (Atomic Update)
-                    setPageOcrData(page, alignedWords);
-                    setOcrStatusMap(prev => ({ ...prev, [page]: 'done' }));
-                    showOcrNotification(`Refinamento concluído: Texto da IA injetado.`);
-                    
-                    resolve();
-                } catch (e: any) {
-                    reject(e);
-                }
-            };
-            reader.onerror = reject;
-        });
-
-    } catch (e: any) {
+        const textArray = rawWords.map(w => w.text);
+        const refinedTexts = await refineOcrWords(textArray);
+        const refinedWords = rawWords.map((word, i) => ({
+            ...word,
+            text: refinedTexts[i] || word.text,
+            isRefined: true
+        }));
+        setPageOcrData(page, refinedWords);
+        setOcrStatusMap(prev => ({ ...prev, [page]: 'done' }));
+        showOcrNotification(`Refinamento concluído.`);
+    } catch (e) {
         console.error("Refinement failed", e);
-        setOcrStatusMap(prev => ({ ...prev, [page]: 'done' })); // Reseta status para permitir retry
-        showOcrNotification(`Erro no refinamento: ${e.message}`);
+        setOcrStatusMap(prev => ({ ...prev, [page]: 'done' }));
+        showOcrNotification("Erro ao refinar com IA.");
     }
-  }, [ocrMap, showOcrNotification, setPageOcrData, pdfDoc, triggerOcr]);
+  }, [ocrMap, showOcrNotification, setPageOcrData]);
 
   const triggerSemanticLens = useCallback(async (pageNumber: number) => {
     if (!pdfDoc) return;
+    // Verifica cache em memória
     if (lensData[pageNumber]) return;
 
     setIsLensLoading(true);
@@ -445,9 +365,10 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
 
     try {
         const page = await pdfDoc.getPage(pageNumber);
-        const scale = 2.0; 
+        const scale = 2.0; // Alta resolução para o Gemini
         const viewport = page.getViewport({ scale });
         
+        // Renderiza para imagem
         const isOffscreenSupported = typeof OffscreenCanvas !== 'undefined';
         const canvas = isOffscreenSupported 
             ? new OffscreenCanvas(viewport.width, viewport.height) 
@@ -463,6 +384,7 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
 
         const blob = await (canvas as any).convertToBlob({ type: 'image/jpeg', quality: 0.8 });
         
+        // Conversão para Base64
         const reader = new FileReader();
         reader.onloadend = async () => {
             const base64 = (reader.result as string).split(',')[1];

@@ -6,11 +6,6 @@ export interface FlorenceResult {
   generated_text: string;
 }
 
-export interface DetectedObject {
-  label: string;
-  bbox: [number, number, number, number]; // x1, y1, x2, y2
-}
-
 export class FlorenceService {
   private worker: Worker | null = null;
   private isReady = false;
@@ -44,23 +39,26 @@ export class FlorenceService {
     this.worker.postMessage({ type: 'init' });
   }
 
-  private executeTask(imageBlob: Blob, task: string): Promise<any> {
+  public async runOcr(imageBlob: Blob): Promise<any[]> {
+    if (!this.worker || !this.isReady) await this.init();
+
     return new Promise((resolve, reject) => {
       if (!this.worker) return reject("Worker failed to start");
 
       const url = URL.createObjectURL(imageBlob);
 
       const handler = (e: MessageEvent) => {
-        const { status, result, error, task: returnedTask } = e.data;
+        const { status, result, error } = e.data;
         
-        // Ensure we handle the correct task response
-        if (status === 'done' && returnedTask === task) {
+        if (status === 'done') {
           this.worker?.removeEventListener('message', handler);
           URL.revokeObjectURL(url);
-          resolve(result[0]?.generated_text || "");
+          
+          const rawText = result[0]?.generated_text || "";
+          const parsed = this.parseFlorenceOutput(rawText);
+          resolve(parsed);
         } else if (status === 'error') {
           this.worker?.removeEventListener('message', handler);
-          URL.revokeObjectURL(url);
           reject(error);
         }
       };
@@ -69,79 +67,64 @@ export class FlorenceService {
       
       this.worker.postMessage({ 
         type: 'process', 
-        data: { imageUrl: url, task } 
+        data: { imageUrl: url, task: '<OCR_WITH_REGION>' } 
       });
     });
-  }
-
-  public async runOcr(imageBlob: Blob): Promise<any[]> {
-    if (!this.worker || !this.isReady) await this.init();
-    const rawText = await this.executeTask(imageBlob, '<OCR_WITH_REGION>');
-    return this.parseFlorenceOcr(rawText);
-  }
-
-  public async runObjectDetection(imageBlob: Blob): Promise<DetectedObject[]> {
-    if (!this.worker || !this.isReady) await this.init();
-    const rawText = await this.executeTask(imageBlob, '<OD>');
-    return this.parseFlorenceOD(rawText);
   }
 
   /**
    * Parser otimizado para o formato do Florence-2 com Filtros de Ruído
    * Formato: "word<loc_1><loc_2><loc_3><loc_4>"
    */
-  private parseFlorenceOcr(text: string): any[] {
+  private parseFlorenceOutput(text: string): any[] {
     const words: any[] = [];
-    // Regex robusta: aceita espaços, pontuação, acentos
+    
+    // Regex robusta: aceita espaços, pontuação, acentos e evita quebras de linha no meio da palavra
     const regex = /([^<]+)((?:<loc_\d+>){4})/g;
+    
     let match;
 
     while ((match = regex.exec(text)) !== null) {
+      // Limpeza: remove quebras de linha e trim
       let wordText = match[1].replace(/[\r\n]+/g, ' ').trim();
+      
       if (!wordText) continue;
 
       // FILTRO DE RUÍDO (NOISE GATE)
+      // 1. Rejeita palavras de 1 ou 2 letras que não sejam comuns ou numéricas
+      // Ex: "ue", "aa", "Tr" (ruído comum de OCR)
+      // Aceita: "a", "e", "o", "da", "de", "do", "em", "um", "1", "10"
       if (wordText.length <= 2) {
           const validShorts = /^(?:[aàeéioóu0-9]|da|de|do|em|na|no|os|as|um|un|is|it|at|in|on|to|by|of|or)$/i;
           if (!validShorts.test(wordText)) continue;
       }
+
+      // 2. Rejeita repetições absurdas (ex: "iiiii", ".....")
       if (/(.)\1{3,}/.test(wordText)) continue;
 
       const locs = match[2].match(/\d+/g);
+
       if (locs && locs.length === 4) {
         const [x1, y1, x2, y2] = locs.map(Number);
-        // 3. Rejeita caixas muito pequenas ou esmagadas
+        
+        // 3. Rejeita caixas muito pequenas (pontos de sujeira) ou esmagadas
         if (Math.abs(x2 - x1) < 8 || Math.abs(y2 - y1) < 8) continue;
 
         words.push({
           text: wordText,
-          confidence: 95, 
-          bbox: { x0: x1, y0: y1, x1: x2, y1: y2 },
+          confidence: 95, // Florence não dá confiança por palavra, assumimos alta se passou nos filtros
+          bbox: {
+            x0: x1, 
+            y0: y1,
+            x1: x2,
+            y1: y2
+          },
           isRelative: true 
         });
       }
     }
+    
     return words;
-  }
-
-  /**
-   * Parser para Object Detection
-   * Formato: "label<loc_1><loc_2><loc_3><loc_4>"
-   */
-  private parseFlorenceOD(text: string): DetectedObject[] {
-    const objects: DetectedObject[] = [];
-    const regex = /([^<]+)((?:<loc_\d+>){4})/g;
-    let match;
-
-    while ((match = regex.exec(text)) !== null) {
-        const label = match[1].trim();
-        const locs = match[2].match(/\d+/g);
-        if (locs && locs.length === 4) {
-            const [x1, y1, x2, y2] = locs.map(Number);
-            objects.push({ label, bbox: [x1, y1, x2, y2] });
-        }
-    }
-    return objects;
   }
 
   public terminate() {
