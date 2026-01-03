@@ -1,10 +1,8 @@
-
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Annotation, SemanticLensData } from '../types';
-import { loadOcrData, saveOcrData, touchOfflineFile } from '../services/storageService';
+import { loadOcrData, saveOcrData } from '../services/storageService';
 import { PDFDocumentProxy } from 'pdfjs-dist';
-import { OcrManager, OcrStatus, OcrEngineType } from '../services/ocrManager';
-import { refineOcrWords, performSemanticOcr } from '../services/aiService';
+import { performSemanticOcr, performLayoutOcr, performTranslatedLayoutOcr } from '../services/aiService';
 import { indexDocumentForSearch } from '../services/ragService';
 import { scheduleWork, cancelWork } from '../utils/scheduler';
 import { SelectionState } from '../components/pdf/SelectionMenu';
@@ -17,7 +15,6 @@ interface PdfSettings {
   pageOffset: number;
   disableColorFilter: boolean;
   detectColumns: boolean;
-  showOcrDebug: boolean;
   showConfidenceOverlay: boolean;
   pageColor: string;
   textColor: string;
@@ -29,13 +26,11 @@ interface PdfSettings {
   // Interface Customization
   toolbarScale: number;
   toolbarYOffset: number;
-  // OCR Config
-  ocrEngine: OcrEngineType;
 }
 
-// Simplified Context State (Removidos estados de UI como scale/currentPage que agora estão no Zustand)
+// Simplified Context State
 interface PdfContextState {
-  // Legacy accessors proxied to Zustand for compatibility during migration
+  // Legacy accessors proxied to Zustand
   scale: number;
   setScale: (s: number | ((p:number)=>number)) => void;
   currentPage: number;
@@ -51,7 +46,7 @@ interface PdfContextState {
   goPrev: () => void;
   jumpToPage: (page: number) => void;
 
-  // Data State (Continues in Context)
+  // Data State
   settings: PdfSettings;
   updateSettings: (newSettings: Partial<PdfSettings>) => void;
   annotations: Annotation[];
@@ -59,13 +54,10 @@ interface PdfContextState {
   removeAnnotation: (ann: Annotation) => void;
   ocrMap: Record<number, any[]>;
   nativeTextMap: Record<number, string>; 
-  ocrStatusMap: Record<number, OcrStatus>;
   setPageOcrData: (page: number, words: any[]) => void;
   updateOcrWord: (page: number, wordIndex: number, newText: string) => void;
-  triggerOcr: (page: number) => void;
   showOcrModal: boolean;
   setShowOcrModal: (v: boolean) => void;
-  refinePageOcr: (page: number) => Promise<void>;
   hasUnsavedOcr: boolean;
   setHasUnsavedOcr: (val: boolean) => void;
   ocrNotification: string | null;
@@ -88,6 +80,13 @@ interface PdfContextState {
   lensData: Record<number, SemanticLensData>;
   isLensLoading: boolean;
   triggerSemanticLens: (page: number) => Promise<void>;
+  setPageLensData: (page: number, data: SemanticLensData) => void; // New helper for batch updates
+
+  // Translation
+  translationMap: Record<number, any[]>; // Similar to ocrMap but translated
+  triggerTranslation: (page: number) => Promise<void>;
+  isTranslationMode: boolean;
+  toggleTranslationMode: () => void;
 }
 
 const PdfContext = createContext<PdfContextState | null>(null);
@@ -96,6 +95,10 @@ export const usePdfContext = () => {
   const context = useContext(PdfContext);
   if (!context) throw new Error('usePdfContext must be used within a PdfProvider');
   return context;
+};
+
+export const useOptionalPdfContext = () => {
+  return useContext(PdfContext);
 };
 
 interface PdfProviderProps {
@@ -119,7 +122,6 @@ const DEFAULT_SETTINGS: PdfSettings = {
   pageOffset: 1, 
   disableColorFilter: false, 
   detectColumns: false, 
-  showOcrDebug: false,
   showConfidenceOverlay: false,
   pageColor: "#ffffff", 
   textColor: "#000000", 
@@ -129,22 +131,20 @@ const DEFAULT_SETTINGS: PdfSettings = {
   inkStrokeWidth: 42, 
   inkOpacity: 0.35,
   toolbarScale: 1, 
-  toolbarYOffset: 0,
-  ocrEngine: 'tesseract'
+  toolbarYOffset: 0
 };
 
 export const PdfProvider: React.FC<PdfProviderProps> = ({ 
   children, initialScale, numPages, annotations, onAddAnnotation, onRemoveAnnotation, onJumpToPage, accessToken, fileId, pdfDoc,
   onUpdateSourceBlob, currentBlob, initialPageOffset, onSetPageOffset
 }) => {
-  // Sync Data Props to Store on Mount/Change
+  // Sync Data Props to Store
   useEffect(() => {
     usePdfStore.getState().setNumPages(numPages);
     usePdfStore.getState().setScale(initialScale);
   }, [numPages, initialScale]);
 
-  // Read State from Store for Legacy Context Consumers
-  // Note: This causes re-renders in Context consumers, but we will migrate heavy components to useStore directly
+  // Read State from Store
   const scale = usePdfStore(s => s.scale);
   const currentPage = usePdfStore(s => s.currentPage);
   const activeTool = usePdfStore(s => s.activeTool);
@@ -155,17 +155,19 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
 
   const [ocrMap, setOcrMap] = useState<Record<number, any[]>>({});
   const [nativeTextMap, setNativeTextMap] = useState<Record<number, string>>({}); 
-  const [ocrStatusMap, setOcrStatusMap] = useState<Record<number, OcrStatus>>({});
   const [hasUnsavedOcr, setHasUnsavedOcr] = useState(false);
   const [ocrNotification, setOcrNotificationState] = useState<string | null>(null);
   const notificationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const ocrManagerRef = useRef<OcrManager | null>(null);
   const [chatRequest, setChatRequest] = useState<string | null>(null);
   const [showOcrModal, setShowOcrModal] = useState(false);
   
   // Semantic Lens State
   const [lensData, setLensData] = useState<Record<number, SemanticLensData>>({});
   const [isLensLoading, setIsLensLoading] = useState(false);
+
+  // Translation State
+  const [translationMap, setTranslationMap] = useState<Record<number, any[]>>({});
+  const [isTranslationMode, setIsTranslationMode] = useState(false);
   
   const currentBlobRef = useRef<Blob | null>(currentBlob);
   useEffect(() => {
@@ -253,40 +255,13 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
     loadOcrData(fileId).then(data => {
         if (data && Object.keys(data).length > 0) {
             setOcrMap(prev => ({ ...prev, ...data }));
-            const statusUpdate: Record<number, OcrStatus> = {};
             Object.keys(data).forEach(pStr => {
                 const p = parseInt(pStr);
-                statusUpdate[p] = 'done';
                 burnedPagesRef.current.add(p);
             });
-            setOcrStatusMap(prev => ({ ...prev, ...statusUpdate }));
         }
     });
   }, [fileId]);
-
-  // OCR Manager Lifecycle - Agora reage a mudanças no settings.ocrEngine
-  useEffect(() => {
-    if (pdfDoc) {
-        const manager = new OcrManager(
-            pdfDoc, 
-            (page, words) => {
-                setPageOcrData(page, words);
-                showOcrNotification(`OCR da Página ${page} concluído.`);
-            },
-            (statusMap) => {
-                setOcrStatusMap(prev => ({ ...prev, ...statusMap }));
-            },
-            () => {
-                if (fileId) touchOfflineFile(fileId).catch(() => {});
-            },
-            // Passa o motor selecionado
-            settings.ocrEngine
-        );
-        Object.keys(ocrMap).forEach(p => manager.markAsProcessed(parseInt(p)));
-        ocrManagerRef.current = manager;
-    }
-    return () => { ocrManagerRef.current = null; };
-  }, [pdfDoc, fileId, showOcrNotification, settings.ocrEngine]);
 
   const updateSettings = useCallback((newSettings: Partial<PdfSettings>) => {
     setSettings(prev => {
@@ -296,7 +271,6 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
     });
   }, []);
 
-  // Sync Jump: Quando a UI pede jump (via toolbar ou sidebar), atualiza o store e notifica o pai
   const handleJumpToPage = useCallback((page: number) => {
     storeJump(page);
     onJumpToPage(page);
@@ -309,6 +283,10 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
         setHasUnsavedOcr(true);
     }
   }, [fileId]);
+
+  const setPageLensData = useCallback((page: number, data: SemanticLensData) => {
+      setLensData(prev => ({ ...prev, [page]: data }));
+  }, []);
 
   const updateOcrWord = useCallback((page: number, wordIndex: number, newText: string) => {
     setOcrMap(prev => {
@@ -326,57 +304,11 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
     });
   }, [fileId]);
 
-  const triggerOcr = useCallback((page: number) => {
-    if (ocrManagerRef.current) {
-        // NUCLEAR OPTION: Eliminar camada nativa defeituosa
-        // Removemos o texto nativo do mapa para garantir que a UI não tente renderizá-lo
-        // enquanto o OCR processa ou após a conclusão.
-        setNativeTextMap(prev => {
-            const copy = { ...prev };
-            delete copy[page];
-            return copy;
-        });
-        
-        // Limpar OCR anterior se houver (reset visual para 'processing')
-        setOcrMap(prev => {
-            const copy = { ...prev };
-            delete copy[page];
-            return copy;
-        });
-
-        ocrManagerRef.current.schedule(page, 'high');
-        const engineName = settings.ocrEngine === 'florence' ? 'Neural (Florence)' : 'Padrão (Tesseract)';
-        showOcrNotification(`Lendo Página ${page} (${engineName})...`);
-    }
-  }, [showOcrNotification, settings.ocrEngine]);
-
-  const refinePageOcr = useCallback(async (page: number) => {
-    const rawWords = ocrMap[page];
-    if (!rawWords || rawWords.length === 0) return;
-    showOcrNotification(`IA: Refinando texto da Página ${page}...`);
-    setOcrStatusMap(prev => ({ ...prev, [page]: 'processing' }));
-    
-    try {
-        const textArray = rawWords.map(w => w.text);
-        const refinedTexts = await refineOcrWords(textArray);
-        const refinedWords = rawWords.map((word, i) => ({
-            ...word,
-            text: refinedTexts[i] || word.text,
-            isRefined: true
-        }));
-        setPageOcrData(page, refinedWords);
-        setOcrStatusMap(prev => ({ ...prev, [page]: 'done' }));
-        showOcrNotification(`Refinamento concluído.`);
-    } catch (e) {
-        console.error("Refinement failed", e);
-        setOcrStatusMap(prev => ({ ...prev, [page]: 'done' }));
-        showOcrNotification("Erro ao refinar com IA.");
-    }
-  }, [ocrMap, showOcrNotification, setPageOcrData]);
-
+  // --- SEMANTIC LENS ENGINE (GEMINI 1.5) ---
   const triggerSemanticLens = useCallback(async (pageNumber: number) => {
     if (!pdfDoc) return;
-    // Verifica cache em memória
+    
+    // Check if we already processed this page (Markdown cache)
     if (lensData[pageNumber]) return;
 
     setIsLensLoading(true);
@@ -384,18 +316,22 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
 
     try {
         const page = await pdfDoc.getPage(pageNumber);
-        const scale = 2.0; // Alta resolução para o Gemini
+        const scale = 2.0; // High res for Vision
         const viewport = page.getViewport({ scale });
         
-        // Renderiza para imagem
+        // Prepare dimensions for coordinate mapping
+        const w = viewport.width;
+        const h = viewport.height;
+
+        // Render to image
         const isOffscreenSupported = typeof OffscreenCanvas !== 'undefined';
         const canvas = isOffscreenSupported 
-            ? new OffscreenCanvas(viewport.width, viewport.height) 
+            ? new OffscreenCanvas(w, h) 
             : document.createElement('canvas');
         
         if (!isOffscreenSupported) {
-            (canvas as HTMLCanvasElement).width = viewport.width;
-            (canvas as HTMLCanvasElement).height = viewport.height;
+            (canvas as HTMLCanvasElement).width = w;
+            (canvas as HTMLCanvasElement).height = h;
         }
 
         const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: true }) as any;
@@ -403,14 +339,22 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
 
         const blob = await (canvas as any).convertToBlob({ type: 'image/jpeg', quality: 0.8 });
         
-        // Conversão para Base64
         const reader = new FileReader();
         reader.onloadend = async () => {
             const base64 = (reader.result as string).split(',')[1];
             try {
-                showOcrNotification("Lente Semântica: Analisando layout...");
-                const markdown = await performSemanticOcr(base64);
+                showOcrNotification("Lente Semântica: Analisando layout e extraindo texto...");
                 
+                // 1. Parallel Request: Standard Markdown (for sidebar) AND Structured Segments (for canvas)
+                const [markdown, segments] = await Promise.all([
+                    performSemanticOcr(base64),
+                    performLayoutOcr(base64)
+                ]);
+                
+                // 2. Map Gemini Segments (0-1000) to Canvas Pixels WITH WORD INTERPOLATION
+                const mappedWords = mapSegmentsToWords(segments, w, h, scale);
+
+                // 3. Update Markdown Panel
                 setLensData(prev => ({
                     ...prev,
                     [pageNumber]: {
@@ -418,7 +362,18 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
                         processedAt: Date.now()
                     }
                 }));
-                showOcrNotification("Análise completa.");
+
+                // 4. Update Canvas Layer (Inject OCR)
+                if (mappedWords.length > 0) {
+                    setPageOcrData(pageNumber, mappedWords);
+                    showOcrNotification("Camada de texto injetada com sucesso!");
+                } else {
+                    showOcrNotification("Análise completa (apenas texto sidebar).");
+                }
+
+                // 5. Update native text map with the clean semantic text (for RAG later)
+                setNativeTextMap(prev => ({ ...prev, [pageNumber]: markdown }));
+
             } catch (err: any) {
                 showOcrNotification(`Erro na Lente: ${err.message}`);
             } finally {
@@ -432,7 +387,86 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
         showOcrNotification("Erro ao capturar página.");
         setIsLensLoading(false);
     }
-  }, [pdfDoc, lensData, showOcrNotification]);
+  }, [pdfDoc, lensData, showOcrNotification, setPageOcrData]);
+
+  // --- TRANSLATION ENGINE ---
+  const triggerTranslation = useCallback(async (pageNumber: number) => {
+    if (!pdfDoc) return;
+    if (translationMap[pageNumber]) {
+        setIsTranslationMode(true);
+        return;
+    }
+
+    setIsLensLoading(true);
+    showOcrNotification("Traduzindo página (Gemini IA)...");
+
+    try {
+        const page = await pdfDoc.getPage(pageNumber);
+        const scale = 2.0; 
+        const viewport = page.getViewport({ scale });
+        const w = viewport.width;
+        const h = viewport.height;
+
+        const isOffscreenSupported = typeof OffscreenCanvas !== 'undefined';
+        const canvas = isOffscreenSupported 
+            ? new OffscreenCanvas(w, h) 
+            : document.createElement('canvas');
+        
+        if (!isOffscreenSupported) {
+            (canvas as HTMLCanvasElement).width = w;
+            (canvas as HTMLCanvasElement).height = h;
+        }
+
+        const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: true }) as any;
+        await page.render({ canvasContext: ctx, viewport }).promise;
+
+        const blob = await (canvas as any).convertToBlob({ type: 'image/jpeg', quality: 0.8 });
+        
+        const reader = new FileReader();
+        reader.onloadend = async () => {
+            const base64 = (reader.result as string).split(',')[1];
+            try {
+                // Call Translation API
+                const segments = await performTranslatedLayoutOcr(base64);
+                
+                // Map results (similar logic to OCR but these are sentences/paragraphs, not words)
+                // We keep them as blocks for better readability overlay
+                const mappedBlocks: any[] = [];
+                const originalW = w / scale;
+                const originalH = h / scale;
+
+                segments.forEach((seg: any) => {
+                    const [ymin, xmin, ymax, xmax] = seg.box_2d;
+                    const text = seg.text;
+                    
+                    const x = (xmin / 1000) * originalW;
+                    const y = (ymin / 1000) * originalH;
+                    const width = ((xmax - xmin) / 1000) * originalW;
+                    const height = ((ymax - ymin) / 1000) * originalH;
+
+                    mappedBlocks.push({
+                        text,
+                        bbox: { x0: x, y0: y, x1: x + width, y1: y + height }
+                    });
+                });
+
+                setTranslationMap(prev => ({ ...prev, [pageNumber]: mappedBlocks }));
+                setIsTranslationMode(true);
+                showOcrNotification("Tradução aplicada!");
+
+            } catch (err: any) {
+                showOcrNotification(`Erro na Tradução: ${err.message}`);
+            } finally {
+                setIsLensLoading(false);
+            }
+        };
+        reader.readAsDataURL(blob);
+
+    } catch (e: any) {
+        showOcrNotification("Erro ao processar tradução.");
+        setIsLensLoading(false);
+    }
+  }, [pdfDoc, translationMap, showOcrNotification]);
 
   const generateSearchIndex = useCallback(async (fullText: string) => {
       const blob = currentBlobRef.current;
@@ -448,6 +482,55 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
       }
   }, [fileId, showOcrNotification]);
 
+  // Helper duplicated from backgroundOcrService to avoid circular dependency
+  // Ideally should be in a shared util
+  function mapSegmentsToWords(segments: any[], w: number, h: number, scale: number) {
+        const mappedWords: any[] = [];
+        const originalW = w / scale;
+        const originalH = h / scale;
+
+        segments.forEach((seg: any) => {
+            const [ymin, xmin, ymax, xmax] = seg.box_2d;
+            const textContent = seg.text;
+            
+            if (!textContent) return;
+
+            const lineX0 = (xmin / 1000) * originalW;
+            const lineY0 = (ymin / 1000) * originalH;
+            const lineX1 = (xmax / 1000) * originalW;
+            const lineY1 = (ymax / 1000) * originalH;
+            const lineWidth = lineX1 - lineX0;
+            
+            const words = textContent.split(/(\s+)/);
+            const totalChars = textContent.length;
+            const avgCharWidth = totalChars > 0 ? lineWidth / totalChars : 0;
+            
+            let currentX = lineX0;
+
+            words.forEach((word: string) => {
+                if (word.length === 0) return;
+                const wordWidth = word.length * avgCharWidth;
+                
+                if (word.trim().length > 0) {
+                    mappedWords.push({
+                        text: word,
+                        confidence: 99, 
+                        bbox: { 
+                            x0: currentX, 
+                            y0: lineY0, 
+                            x1: currentX + wordWidth, 
+                            y1: lineY1 
+                        },
+                        isRefined: true,
+                        centerScore: (currentX + (wordWidth/2))
+                    });
+                }
+                currentX += wordWidth;
+            });
+        });
+        return mappedWords;
+    }
+
   const value = useMemo(() => ({
     // Proxied to Zustand
     scale, setScale, currentPage, setCurrentPage, numPages, activeTool, setActiveTool,
@@ -455,9 +538,10 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
     
     // Data Context
     settings, updateSettings, annotations, addAnnotation: onAddAnnotation, removeAnnotation: onRemoveAnnotation,
-    ocrMap, nativeTextMap, ocrStatusMap, setPageOcrData, updateOcrWord, 
-    triggerOcr, showOcrModal, setShowOcrModal,
-    refinePageOcr, hasUnsavedOcr, setHasUnsavedOcr, ocrNotification,
+    ocrMap, nativeTextMap, ocrStatusMap: {}, setPageOcrData, updateOcrWord, 
+    triggerOcr: triggerSemanticLens, showOcrModal, setShowOcrModal,
+    refinePageOcr: async () => {}, // No-op
+    hasUnsavedOcr, setHasUnsavedOcr, ocrNotification,
     accessToken, fileId, updateSourceBlob: onUpdateSourceBlob, currentBlobRef, 
     getUnburntOcrMap, markOcrAsSaved,
     chatRequest, setChatRequest,
@@ -467,8 +551,11 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
     selection, setSelection, onSmartTap,
     
     // Semantic Lens
-    lensData, isLensLoading, triggerSemanticLens
-  }), [scale, currentPage, numPages, activeTool, isSpread, spreadSide, nextPage, prevPage, handleJumpToPage, settings, annotations, onAddAnnotation, onRemoveAnnotation, ocrMap, nativeTextMap, ocrStatusMap, setPageOcrData, updateOcrWord, triggerOcr, showOcrModal, refinePageOcr, hasUnsavedOcr, setHasUnsavedOcr, ocrNotification, accessToken, fileId, onUpdateSourceBlob, getUnburntOcrMap, markOcrAsSaved, chatRequest, generateSearchIndex, initialPageOffset, onSetPageOffset, selection, setSelection, onSmartTap, lensData, isLensLoading, triggerSemanticLens]);
+    lensData, isLensLoading, triggerSemanticLens, setPageLensData,
+
+    // Translation
+    translationMap, triggerTranslation, isTranslationMode, toggleTranslationMode: () => setIsTranslationMode(prev => !prev)
+  }), [scale, currentPage, numPages, activeTool, isSpread, spreadSide, nextPage, prevPage, handleJumpToPage, settings, annotations, onAddAnnotation, onRemoveAnnotation, ocrMap, nativeTextMap, setPageOcrData, updateOcrWord, triggerSemanticLens, showOcrModal, hasUnsavedOcr, setHasUnsavedOcr, ocrNotification, accessToken, fileId, onUpdateSourceBlob, getUnburntOcrMap, markOcrAsSaved, chatRequest, generateSearchIndex, initialPageOffset, onSetPageOffset, selection, setSelection, onSmartTap, lensData, isLensLoading, setPageLensData, translationMap, isTranslationMode]);
 
   return <PdfContext.Provider value={value}>{children}</PdfContext.Provider>;
 };

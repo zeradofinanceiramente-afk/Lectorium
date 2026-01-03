@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { X, Download, Database, Check, Server, ScanLine, Calculator, FileText, Trash2, HardDrive } from 'lucide-react';
+import { X, Download, Database, Check, Server, Calculator, FileText, Trash2, HardDrive } from 'lucide-react';
 import { AVAILABLE_RESOURCES, ResourceCategory } from '../services/offlineService';
 
 interface Props {
@@ -16,14 +16,13 @@ interface Props {
 const ICONS: Record<string, React.ElementType> = {
   'core': Server,
   'pdf_office': FileText,
-  'ocr': ScanLine,
   'tools': Calculator
 };
 
 export const OfflineDownloadModal: React.FC<Props> = ({ 
   isOpen, onClose, onConfirm, onClear, currentSize, isDownloading = false, progress = 0 
 }) => {
-  const [selected, setSelected] = useState<Set<ResourceCategory>>(new Set(['core', 'pdf_office', 'tools', 'ocr']));
+  const [selected, setSelected] = useState<Set<ResourceCategory>>(new Set(['core', 'pdf_office', 'tools']));
 
   if (!isOpen) return null;
 
@@ -62,7 +61,7 @@ export const OfflineDownloadModal: React.FC<Props> = ({
         </div>
 
         <p className="text-text-sec text-sm mb-6 leading-relaxed">
-          Otimize o armazenamento escolhendo o que baixar. Baixar o <strong>OCR</strong> agora evita que o App trave ao tentar ler sua primeira página de PDF.
+          Otimize o armazenamento escolhendo o que baixar. 
         </p>
 
         {isDownloading ? (
@@ -136,7 +135,7 @@ export const OfflineDownloadModal: React.FC<Props> = ({
             </div>
             
             <p className="text-[10px] text-center text-text-sec mt-3 opacity-60">
-              Download total estimado: ~35MB. Recomendado usar Wi-Fi.
+              Download total estimado: ~5MB. Recomendado usar Wi-Fi.
             </p>
           </>
         )}

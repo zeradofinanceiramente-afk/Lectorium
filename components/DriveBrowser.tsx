@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   Folder, FileText, MoreVertical, Trash2, Edit2, Download, 
@@ -17,6 +18,7 @@ import { listLocalFiles } from '../services/localFileService';
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
 import JSZip from 'jszip';
 import { MoveFileModal } from './MoveFileModal';
+import { MindMapGeneratorModal } from './modals/MindMapGeneratorModal';
 
 // Configuração do Worker do PDF.js para o Browser
 if (!GlobalWorkerOptions.workerSrc) {
@@ -251,7 +253,7 @@ interface Props {
   onCreateMindMap?: (parentId?: string) => void; 
   onGenerateMindMapWithAi?: (topic: string) => void;
   localDirectoryHandle?: any;
-  onLogin?: () => void; // Nova prop para ação direta de login
+  onLogin?: () => void;
 }
 
 export const DriveBrowser: React.FC<Props> = ({ 
@@ -271,6 +273,9 @@ export const DriveBrowser: React.FC<Props> = ({
   const [moveFileModalOpen, setMoveFileModalOpen] = useState(false);
   const [fileToMove, setFileToMove] = useState<DriveFile | null>(null);
   const [authError, setAuthError] = useState(false);
+  
+  // AI Generation Modal State
+  const [showGeneratorModal, setShowGeneratorModal] = useState(false);
 
   const updateCacheStatus = useCallback(async () => {
     try {
@@ -425,9 +430,16 @@ export const DriveBrowser: React.FC<Props> = ({
 
   const handleCreateNew = () => { if (onCreateMindMap) { const parentId = currentFolder === 'root' ? undefined : currentFolder; onCreateMindMap(parentId); } };
 
-  const handleAiGenerate = () => {
-    const topic = window.prompt("Sobre qual assunto você deseja gerar um mapa mental?");
-    if (topic && onGenerateMindMapWithAi) onGenerateMindMapWithAi(topic);
+  // --- AI LOGIC ---
+  const handleAiGenerateClick = () => {
+    setShowGeneratorModal(true);
+  };
+
+  const handleAiGenerateConfirm = (text: string) => {
+    if (text && onGenerateMindMapWithAi) {
+        onGenerateMindMapWithAi(text);
+        setShowGeneratorModal(false);
+    }
   };
 
   const headerTitle = useMemo(() => {
@@ -449,7 +461,7 @@ export const DriveBrowser: React.FC<Props> = ({
          </div>
          <div className="flex items-center gap-2">
              {mode === 'mindmaps' && onGenerateMindMapWithAi && (
-                 <button onClick={handleAiGenerate} className="flex items-center gap-2 bg-purple-600 text-white px-3 py-2 rounded-lg font-bold text-xs hover:brightness-110 shadow-lg transition-all animate-in fade-in">
+                 <button onClick={handleAiGenerateClick} className="flex items-center gap-2 bg-purple-600 text-white px-3 py-2 rounded-lg font-bold text-xs hover:brightness-110 shadow-lg transition-all animate-in fade-in">
                      <Sparkles size={16} /><span className="hidden sm:inline">Gerar com IA</span>
                  </button>
              )}
@@ -498,7 +510,9 @@ export const DriveBrowser: React.FC<Props> = ({
       
       {actionLoading && !openingFileId && <div className="absolute inset-0 z-50 bg-bg/50 flex items-center justify-center"><Loader2 size={40} className="animate-spin text-brand" /></div>}
       {openingFileId && <div className="absolute inset-0 z-[60] bg-bg/90 flex flex-col items-center justify-center animate-in fade-in duration-300"><div className="relative mb-6"><div className="absolute inset-0 bg-brand/20 rounded-full blur-xl animate-pulse"></div><div className="relative bg-surface p-4 rounded-full border border-brand/30"><Cloud size={40} className="text-brand animate-pulse" /></div><div className="absolute -bottom-2 -right-2 bg-bg rounded-full p-1 border border-border"><Loader2 size={20} className="animate-spin text-white" /></div></div><h3 className="text-xl font-bold text-white mb-2">Abrindo Arquivo</h3><p className="text-sm text-text-sec max-w-xs text-center truncate px-4">{openingFileName || "Carregando..."}</p><div className="mt-8 flex gap-2"><div className="w-2 h-2 rounded-full bg-brand animate-bounce [animation-delay:-0.3s]"></div><div className="w-2 h-2 rounded-full bg-brand animate-bounce [animation-delay:-0.15s]"></div><div className="w-2 h-2 rounded-full bg-brand animate-bounce"></div></div></div>}
+      
       <MoveFileModal isOpen={moveFileModalOpen} onClose={() => setMoveFileModalOpen(false)} fileToMove={fileToMove} accessToken={accessToken} onMoveSuccess={() => { loadFiles(); setFileToMove(null); }} />
+      <MindMapGeneratorModal isOpen={showGeneratorModal} onClose={() => setShowGeneratorModal(false)} onGenerate={handleAiGenerateConfirm} />
     </div>
   );
 };

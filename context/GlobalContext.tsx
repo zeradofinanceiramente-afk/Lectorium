@@ -1,6 +1,12 @@
-
 import React, { createContext, useContext, useState, useCallback, ReactNode, useEffect } from 'react';
 import { runBackgroundOcr } from '../services/backgroundOcrService';
+
+interface OcrCompletionState {
+    fileId: string;
+    filename: string;
+    sourceBlob: Blob;
+    stoppedAtPage?: number; // Indica se parou no meio
+}
 
 interface GlobalContextType {
   isOcrRunning: boolean;
@@ -10,7 +16,7 @@ interface GlobalContextType {
   addNotification: (message: string, type?: 'info' | 'success' | 'error') => void;
   removeNotification: (id: string) => void;
   // OCR Completion Modal State
-  ocrCompletion: { fileId: string; filename: string; sourceBlob: Blob } | null;
+  ocrCompletion: OcrCompletionState | null;
   clearOcrCompletion: () => void;
   // Dashboard Layout Config
   dashboardScale: number;
@@ -29,7 +35,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [isOcrRunning, setIsOcrRunning] = useState(false);
   const [ocrProgress, setOcrProgress] = useState<{ current: number; total: number; filename: string } | null>(null);
   const [notifications, setNotifications] = useState<Array<{ id: string; message: string; type: 'info' | 'success' | 'error' }>>([]);
-  const [ocrCompletion, setOcrCompletion] = useState<{ fileId: string; filename: string; sourceBlob: Blob } | null>(null);
+  const [ocrCompletion, setOcrCompletion] = useState<OcrCompletionState | null>(null);
   
   // Dashboard Scale State (1-5, Default 3)
   const [dashboardScale, setDashboardScaleState] = useState(3);
@@ -73,29 +79,50 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         return;
     }
 
+    // Detect if semantic mode based on filename hint (hack for context simplicity)
+    const isSemantic = filename === "Semantic Batch";
+    const displayFilename = isSemantic ? "Análise Semântica" : filename;
+
     setIsOcrRunning(true);
-    setOcrProgress({ current: 0, total: end - start + 1, filename });
-    addNotification(`Iniciando OCR de "${filename}" (Páginas ${start}-${end})...`, 'info');
+    setOcrProgress({ current: 0, total: end - start + 1, filename: displayFilename });
+    addNotification(`Iniciando ${isSemantic ? 'Análise Semântica' : 'OCR'} (Páginas ${start}-${end})...`, 'info');
 
     runBackgroundOcr({
         fileId,
         blob,
         startPage: start,
         endPage: end,
+        mode: isSemantic ? 'semantic' : 'simple',
         onProgress: (page) => {
             setOcrProgress(prev => prev ? { ...prev, current: prev.current + 1 } : null);
-            // Opcional: Não notificar cada página para não poluir, apenas progresso visual
         },
         onComplete: () => {
             setIsOcrRunning(false);
             setOcrProgress(null);
-            // Trigger Modal instead of just a toast
-            setOcrCompletion({ fileId, filename, sourceBlob: blob });
+            if (!isSemantic) {
+                setOcrCompletion({ fileId, filename, sourceBlob: blob });
+            } else {
+                addNotification("Análise semântica concluída. Os dados foram salvos no cache.", "success");
+            }
+        },
+        onQuotaExceeded: (lastPage) => {
+            setIsOcrRunning(false);
+            setOcrProgress(null);
+            
+            // Abre o modal de conclusão, mas com flag de parada
+            setOcrCompletion({ 
+                fileId, 
+                filename, 
+                sourceBlob: blob,
+                stoppedAtPage: lastPage
+            });
+            
+            addNotification(`Limite da API atingido. Processo pausado na página ${lastPage}.`, 'error');
         },
         onError: (err) => {
             setIsOcrRunning(false);
             setOcrProgress(null);
-            addNotification(`Erro no OCR: ${err}`, 'error');
+            addNotification(`Erro no processamento: ${err}`, 'error');
         }
     });
   }, [isOcrRunning, addNotification]);

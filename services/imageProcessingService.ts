@@ -79,7 +79,7 @@ function normalizePolarity(data: Uint8ClampedArray, width: number, height: numbe
 
     // Se a média for escura (< 100 de 255), provavelmente é um slide escuro ou negativo
     if (avgLuminance < 100) {
-        console.log("[OCR Image] Documento escuro detectado. Invertendo polaridade para otimização.");
+        // console.log("[OCR Image] Documento escuro detectado. Invertendo polaridade para otimização.");
         for (let i = 0; i < data.length; i += 4) {
             data[i] = 255 - data[i];     // R
             data[i+1] = 255 - data[i+1]; // G
@@ -188,17 +188,6 @@ function shouldApplySauvola(data: Uint8ClampedArray, width: number, height: numb
  * Excelente para remover manchas de fundo e manter texto fino.
  */
 function applySauvolaBinarization(data: Uint8ClampedArray, width: number, height: number) {
-    // Para OCR em jornais antigos, Sauvola é quase sempre necessário.
-    // Mas se a imagem for muito limpa, usamos um limiar simples para velocidade.
-    if (!shouldApplySauvola(data, width, height)) {
-        for (let i = 0; i < data.length; i += 4) {
-            const gray = (data[i] * 0.299 + data[i+1] * 0.587 + data[i+2] * 0.114);
-            const val = gray < 160 ? 0 : 255;
-            data[i] = data[i+1] = data[i+2] = val;
-        }
-        return;
-    }
-
     const { integral, integralSq } = computeIntegralImage(data, width, height);
     
     // Janela adaptativa: ~1/40 da largura da imagem (ex: 25px em 1000px)
@@ -206,7 +195,7 @@ function applySauvolaBinarization(data: Uint8ClampedArray, width: number, height
     const halfWindow = Math.floor(windowSize / 2);
     
     // Parâmetros agressivos para texto fino
-    const k = 0.2; // Reduzido de 0.34 para capturar traços mais finos
+    const k = 0.2; 
     const R = 128;
 
     for (let y = 0; y < height; y++) {
@@ -507,8 +496,6 @@ export async function extractImageTile(
 }
 
 // Helper para redimensionamento de alta qualidade (Upscaling para OCR)
-// Se a imagem for pequena (< 2000px de altura), o Tesseract falha.
-// Upscaling linear é ruim, mas bicúbico em canvas ajuda.
 export function resizeForDPI(canvas: HTMLCanvasElement | OffscreenCanvas, minHeight = 2500): HTMLCanvasElement | OffscreenCanvas {
     if (canvas.height >= minHeight) return canvas;
 
@@ -593,13 +580,28 @@ export async function processImageAndLayout(inputCanvas: HTMLCanvasElement | Off
 
     const rawData = ctx.getImageData(0, 0, width, height);
     
-    // 3. Pipeline de Limpeza "Nuclear"
+    // 3. Pipeline de Limpeza ADAPTATIVO ("Nuclear" apenas se necessário)
+    // Se a imagem já tiver bom contraste, pulamos o processamento pesado (Sauvola) para ganhar tempo.
     normalizePolarity(rawData.data, width, height);
     applyContrastStretching(rawData.data);
-    applyGammaCorrection(rawData.data, 0.5); // Escurecer texto (Gamma 0.5)
-    applyUnsharpMask(rawData.data, width, height);
-    applySauvolaBinarization(rawData.data, width, height);
-    applyMorphologicalClosing(rawData.data, width, height); // Conectar caracteres fragmentados
+    applyGammaCorrection(rawData.data, 0.5); 
+    
+    const needsHeavyProcessing = shouldApplySauvola(rawData.data, width, height);
+    
+    if (needsHeavyProcessing) {
+        // Modo Nuclear para scans sujos
+        applyUnsharpMask(rawData.data, width, height);
+        applySauvolaBinarization(rawData.data, width, height);
+        applyMorphologicalClosing(rawData.data, width, height); 
+    } else {
+        // Modo Leve para scans limpos ou PDFs digitais (Limiar simples)
+        for (let i = 0; i < rawData.data.length; i += 4) {
+            // Conversão simples para P/B para ajudar o Tesseract, mas sem o custo do Sauvola
+            const gray = (rawData.data[i] * 0.299 + rawData.data[i+1] * 0.587 + rawData.data[i+2] * 0.114);
+            const val = gray < 160 ? 0 : 255;
+            rawData.data[i] = rawData.data[i+1] = rawData.data[i+2] = val;
+        }
+    }
     
     ctx.putImageData(rawData, 0, 0);
 

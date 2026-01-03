@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useMemo, Suspense, lazy } from 'react';
 import { auth } from './firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
@@ -7,7 +8,6 @@ import {
   getOfflineFile, getLocalDirectoryHandle, saveLocalDirectoryHandle 
 } from './services/storageService';
 import { downloadDriveFile } from './services/driveService';
-import { getOcrWorker } from './services/ocrService';
 import { openDirectoryPicker, verifyPermission } from './services/localFileService';
 import { useSync } from './hooks/useSync';
 import { Sidebar } from './components/Sidebar';
@@ -110,8 +110,6 @@ const AppContent = () => {
   const { isOcrRunning, addNotification } = useGlobalContext();
 
   const handleAuthError = useCallback(() => {
-      // Quando o token expira, limpamos o token local MAS exibimos o Toast para permitir reconexão
-      // Não mudamos a aba ativa para não perder o contexto do usuário se ele estiver no meio de algo
       setAccessToken(null);
       setShowReauthToast(true);
   }, []);
@@ -163,15 +161,12 @@ const AppContent = () => {
   // Init & Auth Listeners
   useEffect(() => {
     const init = async () => {
-        // --- GOD MODE TRIGGER ---
         const params = new URLSearchParams(window.location.search);
         if (params.get('protocol') === 'genesis') {
             setShowSecretThemeModal(true);
-            // Stealth Mode: Limpa a URL imediatamente
             window.history.replaceState({}, document.title, "/");
         }
 
-        // --- THEME LOADING ---
         const godModeTheme = localStorage.getItem('god_mode_theme');
         if (godModeTheme) {
             try {
@@ -181,11 +176,10 @@ const AppContent = () => {
                     Object.entries(parsed.vars).forEach(([key, value]) => {
                         root.style.setProperty(key, value as string);
                     });
-                    root.classList.add('custom'); // Garante que classes CSS saibam que é custom
+                    root.classList.add('custom');
                 }
             } catch (e) { console.warn("Erro ao carregar tema secreto"); }
         } else {
-            // Normal behavior
             const savedTheme = localStorage.getItem('app-theme') || 'forest';
             if (savedTheme !== 'forest') document.documentElement.classList.add(savedTheme);
         }
@@ -194,18 +188,15 @@ const AppContent = () => {
         await runJanitor(); 
         const storedHandle = await getLocalDirectoryHandle();
         if (storedHandle) setSavedLocalDirHandle(storedHandle);
-        setTimeout(() => getOcrWorker().catch(() => {}), 2000);
     };
     init();
     
-    // Firebase Auth Listener
     const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       if (!currentUser) { setAccessToken(null); setOpenFiles([]); setActiveTab('dashboard'); } 
       else { const storedToken = getValidDriveToken(); if (storedToken) setAccessToken(storedToken); }
     });
 
-    // Token Update Listener (for Auto-Retry updates)
     const handleTokenUpdate = (e: Event) => {
         const customEvent = e as CustomEvent;
         if (customEvent.detail && customEvent.detail.token) {
@@ -230,12 +221,10 @@ const AppContent = () => {
       try { const granted = await verifyPermission(savedLocalDirHandle, true); if (granted) { setLocalDirHandle(savedLocalDirHandle); setActiveTab('local-fs'); } else { alert("Acesso negado."); setSavedLocalDirHandle(null); } } catch (e) { handleOpenLocalFolder(); }
   }, [savedLocalDirHandle, handleOpenLocalFolder]);
 
-  // CONSTRAINT: Check if OCR is running before opening new heavy files
   const handleOpenFile = useCallback(async (file: DriveFile, background: boolean = false) => {
-    // RESTRIÇÃO RÍGIDA: Se OCR está rodando e já existe pelo menos 1 arquivo aberto, BLOQUEAR.
     if (isOcrRunning && openFiles.length >= 1) {
         addNotification("Limite de performance: Apenas 1 documento para leitura é permitido enquanto o OCR processa em segundo plano.", "error");
-        return; // Impede a abertura
+        return;
     }
 
     if (!file.blob && !file.id.startsWith('local-') && !file.id.startsWith('native-')) {
@@ -320,8 +309,6 @@ const AppContent = () => {
     <>
       <GlobalToastContainer />
       <OcrCompletionModal />
-      
-      {/* GOD MODE MODAL */}
       <SecretThemeModal isOpen={showSecretThemeModal} onClose={() => setShowSecretThemeModal(false)} />
 
       <div className="flex h-screen w-full bg-bg overflow-hidden relative selection:bg-brand/30">
@@ -346,7 +333,6 @@ const AppContent = () => {
               {activeContent}
           </Suspense>
         </main>
-        {/* Mostra ReauthToast se o token expirou (disparado por handleAuthError) */}
         {showReauthToast && <ReauthToast onReauth={handleReauth} onClose={() => setShowReauthToast(false)} />}
         <LegalModal isOpen={showLegalModal} onClose={() => setShowLegalModal(false)} initialTab={legalModalTab} />
         {aiLoadingMessage && (

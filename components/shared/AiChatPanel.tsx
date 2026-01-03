@@ -1,10 +1,9 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Sparkles, Loader2, User, Bot, Trash2, MessageSquare, FileSearch, Copy, Check, BrainCircuit, Database, BookOpen, Podcast } from 'lucide-react';
 import { ChatMessage } from '../../types';
 import { chatWithDocumentStream, findRelevantChunks, extractPageRangeFromQuery, generateDocumentBriefing } from '../../services/aiService';
 import { semanticSearch } from '../../services/ragService';
-import { usePdfContext } from '../../context/PdfContext';
+import { useOptionalPdfContext } from '../../context/PdfContext';
 
 interface Props {
   contextText: string;
@@ -59,7 +58,12 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
   const [isGeneratingBriefing, setIsGeneratingBriefing] = useState(false);
   
   const scrollRef = useRef<HTMLDivElement>(null);
-  const { chatRequest, setChatRequest, ocrMap } = usePdfContext();
+  
+  // Safe Context Consumption
+  const pdfContext = useOptionalPdfContext();
+  const chatRequest = pdfContext?.chatRequest;
+  const setChatRequest = pdfContext?.setChatRequest;
+  const ocrMap = pdfContext?.ocrMap;
 
   // Limite rígido para modo direto
   const isDirectReadingAllowed = numPages < 17;
@@ -123,7 +127,7 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
         let retrievalContext = "";
         let mode = "TEXT-MATCH";
 
-        // 0. INTENT CHECK: Page Specific Request
+        // 0. INTENT CHECK: Page Specific Request (ONLY WORKS IN PDF CONTEXT)
         const pageIntent = extractPageRangeFromQuery(userMessage);
         
         if (pageIntent && ocrMap && Object.keys(ocrMap).length > 0) {
@@ -198,11 +202,11 @@ export const AiChatPanel: React.FC<Props> = ({ contextText, documentName, classN
   };
 
   useEffect(() => {
-    if (chatRequest) {
+    if (chatRequest && setChatRequest) {
         handleSend(chatRequest);
         setChatRequest(null);
     }
-  }, [chatRequest]);
+  }, [chatRequest, setChatRequest]);
 
   const clearChat = () => {
     if (confirm("Limpar histórico do chat?")) setMessages([]);

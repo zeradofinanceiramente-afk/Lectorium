@@ -2,7 +2,7 @@
 import JSZip from 'jszip';
 import { StyleMap } from './stylesParser';
 import { CM_TO_TWIPS, emuToPx, getVal, halfPtToPt, hexColor, parseXml, twipsToPt, twipsToPx } from './utils';
-import { PageSettings } from '../../components/doc/modals/PageSetupModal';
+import { PageSettings, PageNumberConfig } from '../../components/doc/modals/PageSetupModal';
 import { CommentData } from '../../components/doc/CommentsSidebar';
 
 // Contexto passado durante a travessia
@@ -79,6 +79,19 @@ async function loadHeaderFooterText(zip: JSZip, path: string): Promise<string> {
         const paragraphs = doc.getElementsByTagName("w:p");
         for (let i = 0; i < paragraphs.length; i++) {
             const p = paragraphs[i];
+            
+            // Check for PAGE field to strip it from pure text content
+            // We handle page numbers separately via config
+            const instrTexts = p.getElementsByTagName("w:instrText");
+            let isPageNum = false;
+            for(let k=0; k<instrTexts.length; k++) {
+                if (instrTexts[k].textContent?.includes("PAGE")) {
+                    isPageNum = true;
+                    break;
+                }
+            }
+            if (isPageNum) continue; // Skip raw page number text in header text
+
             const tNodes = p.getElementsByTagName("w:t");
             let line = "";
             for (let j = 0; j < tNodes.length; j++) {
@@ -91,6 +104,85 @@ async function loadHeaderFooterText(zip: JSZip, path: string): Promise<string> {
         console.warn("Falha ao ler header/footer:", path);
         return "";
     }
+}
+
+/**
+ * Analisa o XML do Header/Footer para detectar se existe um campo de numeração de página.
+ * Retorna a configuração detectada (alinhamento).
+ */
+async function detectPageNumberInXml(zip: JSZip, path: string): Promise<Partial<PageNumberConfig> | null> {
+    let fullPath = path;
+    if (!path.startsWith("word/") && !path.startsWith("/")) {
+        fullPath = "word/" + path;
+    }
+    if (fullPath.startsWith("/")) fullPath = fullPath.substring(1);
+
+    try {
+        const file = zip.file(fullPath);
+        if (!file) return null;
+
+        const xmlStr = await file.async("string");
+        const doc = parseXml(xmlStr);
+        
+        // Procurar por instrução PAGE
+        // Formato 1: <w:instrText>PAGE</w:instrText>
+        // Formato 2: <w:fldSimple w:instr="PAGE">
+        const instrTexts = Array.from(doc.getElementsByTagName("w:instrText"));
+        const simpleFields = Array.from(doc.getElementsByTagName("w:fldSimple"));
+        
+        let foundNode: Element | null = null;
+
+        // Check instrText
+        for (const node of instrTexts) {
+            if (node.textContent?.includes("PAGE")) {
+                foundNode = node;
+                break;
+            }
+        }
+
+        // Check fldSimple if not found
+        if (!foundNode) {
+            for (const node of simpleFields) {
+                if (node.getAttribute("w:instr")?.includes("PAGE")) {
+                    foundNode = node;
+                    break;
+                }
+            }
+        }
+
+        if (foundNode) {
+            // Encontrar o parágrafo pai para determinar o alinhamento
+            let parent = foundNode.parentElement;
+            while (parent && parent.nodeName !== "w:p") {
+                parent = parent.parentElement;
+            }
+
+            let alignment: 'left' | 'center' | 'right' = 'left'; // Default Word
+
+            if (parent) {
+                const pPr = parent.getElementsByTagName("w:pPr")[0];
+                if (pPr) {
+                    const jc = pPr.getElementsByTagName("w:jc")[0];
+                    if (jc) {
+                        const val = getVal(jc);
+                        if (val === 'center') alignment = 'center';
+                        else if (val === 'right') alignment = 'right';
+                    }
+                }
+            }
+
+            return {
+                enabled: true,
+                alignment: alignment,
+                displayFromPage: 1, // Default assume 1
+                startAt: 1
+            };
+        }
+
+    } catch (e) {
+        console.warn("Falha ao detectar numeração de página:", e);
+    }
+    return null;
 }
 
 async function parseSectionProperties(sectPr: Element, ctx: ParseContext): Promise<PageSettings> {
@@ -129,6 +221,7 @@ async function parseSectionProperties(sectPr: Element, ctx: ParseContext): Promi
   // --- HEADER & FOOTER EXTRACTION ---
   let headerText = "";
   let footerText = "";
+  let pageNumberConfig: PageNumberConfig | undefined = undefined;
 
   const headers = sectPr.getElementsByTagName("w:headerReference");
   const footers = sectPr.getElementsByTagName("w:footerReference");
@@ -146,12 +239,49 @@ async function parseSectionProperties(sectPr: Element, ctx: ParseContext): Promi
 
   const headerId = getRefId(headers);
   if (headerId && ctx.relsMap[headerId]) {
-      headerText = await loadHeaderFooterText(ctx.zip, ctx.relsMap[headerId]);
+      const path = ctx.relsMap[headerId];
+      headerText = await loadHeaderFooterText(ctx.zip, path);
+      
+      // Check for page numbers in Header
+      const detectedPn = await detectPageNumberInXml(ctx.zip, path);
+      if (detectedPn) {
+          pageNumberConfig = {
+              enabled: true,
+              position: 'header',
+              alignment: detectedPn.alignment || 'right',
+              displayFromPage: 1,
+              startAt: 1
+          };
+      }
   }
 
   const footerId = getRefId(footers);
   if (footerId && ctx.relsMap[footerId]) {
-      footerText = await loadHeaderFooterText(ctx.zip, ctx.relsMap[footerId]);
+      const path = ctx.relsMap[footerId];
+      footerText = await loadHeaderFooterText(ctx.zip, path);
+
+      // Check for page numbers in Footer (only if not found in header)
+      if (!pageNumberConfig) {
+          const detectedPn = await detectPageNumberInXml(ctx.zip, path);
+          if (detectedPn) {
+              pageNumberConfig = {
+                  enabled: true,
+                  position: 'footer',
+                  alignment: detectedPn.alignment || 'center',
+                  displayFromPage: 1,
+                  startAt: 1
+              };
+          }
+      }
+  }
+
+  // Extract Page Start (pgNumType)
+  const pgNumType = sectPr.getElementsByTagName("w:pgNumType")[0];
+  if (pgNumType && pageNumberConfig) {
+      const start = getVal(pgNumType, "w:start");
+      if (start) {
+          pageNumberConfig.startAt = parseInt(start);
+      }
   }
 
   return {
@@ -163,7 +293,8 @@ async function parseSectionProperties(sectPr: Element, ctx: ParseContext): Promi
     marginLeft: ml,
     marginRight: mr,
     headerText: headerText || undefined,
-    footerText: footerText || undefined
+    footerText: footerText || undefined,
+    pageNumber: pageNumberConfig
   };
 }
 

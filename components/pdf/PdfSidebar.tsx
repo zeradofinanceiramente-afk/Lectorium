@@ -27,8 +27,7 @@ const PRESET_COLORS = [
 export const PdfSidebar: React.FC<Props> = ({
   isOpen, onClose, activeTab, onTabChange, sidebarAnnotations, fichamentoText, onCopyFichamento, onDownloadFichamento,
 }) => {
-  const { settings, updateSettings, jumpToPage, removeAnnotation, triggerOcr, currentPage, ocrMap, nativeTextMap, numPages, hasUnsavedOcr, fileId, generateSearchIndex, docPageOffset, setDocPageOffset } = usePdfContext();
-  const [isHoveringHandler, setIsHoveringHandler] = useState(false);
+  const { settings, updateSettings, jumpToPage, removeAnnotation, currentPage, ocrMap, nativeTextMap, numPages, hasUnsavedOcr, fileId, generateSearchIndex, docPageOffset, setDocPageOffset } = usePdfContext();
 
   // --- JARVIS PROTOCOL: SEMANTIC DEDUPLICATION (V2.1) ---
   const uniqueAnnotations = useMemo(() => {
@@ -58,14 +57,9 @@ export const PdfSidebar: React.FC<Props> = ({
   }, [sidebarAnnotations]);
 
   const contextForAi = useMemo(() => {
-    // REGRA DE NEGÓCIO: Limitação de Contexto
-    // Se < 17 páginas: Envia texto completo + anotações (Leitura Direta permitida)
-    // Se >= 17 páginas: Envia APENAS destaques/notas (Foco Semântico do Usuário)
-    
     const isShortDocument = numPages < 17;
     let text = "";
 
-    // 1. Constrói a base de texto (apenas se for documento curto)
     if (isShortDocument) {
         for (let i = 1; i <= numPages; i++) {
             let pageContent = "";
@@ -86,7 +80,6 @@ export const PdfSidebar: React.FC<Props> = ({
         text += "[SISTEMA]: Documento extenso. O contexto abaixo contém APENAS os trechos explicitamente destacados pelo usuário.\n";
     }
 
-    // 2. Adiciona anotações do usuário (Prioridade Máxima)
     const annotationsContent = uniqueAnnotations
         .filter(a => a.text && a.text.trim().length > 0)
         .map(a => `[DESTAQUE/NOTA DE USUÁRIO NA PÁGINA ${a.page}]: "${a.text}"`)
@@ -95,12 +88,11 @@ export const PdfSidebar: React.FC<Props> = ({
     if (annotationsContent) {
         text += `\n--- CONTEXTO DE INTERESSE (DESTAQUES DO USUÁRIO) ---\n${annotationsContent}\n`;
     } else if (!isShortDocument) {
-        // Se for documento longo e não tiver destaques
         text += "\n[AVISO]: O usuário ainda não destacou nenhum trecho. Utilize sua base de conhecimento interna para responder perguntas sobre o tema geral, mas avise que não está lendo o arquivo completo.";
     }
 
     if (!text.trim() && isShortDocument) {
-        return "O documento parece ser uma imagem digitalizada sem camada de texto. Use a ferramenta 'Extrair Texto' (OCR) na barra superior.";
+        return "O documento parece ser uma imagem digitalizada sem camada de texto. Use a ferramenta 'Lente Semântica' na barra lateral.";
     }
 
     return text;
@@ -216,40 +208,7 @@ export const PdfSidebar: React.FC<Props> = ({
                         <SemanticLensPanel pageNumber={currentPage} />
                     ) : activeTab === 'settings' ? (
                         <div className="flex-1 overflow-y-auto p-4 space-y-8 custom-scrollbar pb-10">
-                            {/* Settings Content... */}
-                            <div className="space-y-4">
-                                <h4 className="text-[10px] text-brand font-bold uppercase tracking-[0.2em] flex items-center gap-2 mb-4 border-b border-white/10 pb-2">
-                                    <Binary size={14} /> Motor de Leitura (OCR)
-                                </h4>
-                                
-                                <div className="grid grid-cols-2 gap-3">
-                                    <button 
-                                        onClick={() => updateSettings({ ocrEngine: 'tesseract' })}
-                                        className={`p-3 rounded-xl border flex flex-col items-center gap-2 transition-all ${settings.ocrEngine === 'tesseract' ? 'bg-brand/10 border-brand text-brand' : 'bg-[#1a1a1a] border-white/10 text-gray-500 hover:bg-[#222]'}`}
-                                    >
-                                        <ScanLine size={20} />
-                                        <div className="text-center">
-                                            <span className="block text-xs font-bold">Tesseract</span>
-                                            <span className="block text-[9px] opacity-70">Rápido / CPU</span>
-                                        </div>
-                                    </button>
-                                    
-                                    <button 
-                                        onClick={() => updateSettings({ ocrEngine: 'florence' })}
-                                        className={`p-3 rounded-xl border flex flex-col items-center gap-2 transition-all ${settings.ocrEngine === 'florence' ? 'bg-purple-500/10 border-purple-500 text-purple-400' : 'bg-[#1a1a1a] border-white/10 text-gray-500 hover:bg-[#222]'}`}
-                                    >
-                                        <Cpu size={20} />
-                                        <div className="text-center">
-                                            <span className="block text-xs font-bold">Florence-2</span>
-                                            <span className="block text-[9px] opacity-70">Neural / GPU</span>
-                                        </div>
-                                    </button>
-                                </div>
-                                <p className="text-[9px] text-gray-600 bg-[#1a1a1a] p-2 rounded-lg leading-tight">
-                                    Use <strong>Florence-2</strong> para documentos complexos ou manuscritos. Requer download (~300MB) na primeira vez.
-                                </p>
-                            </div>
-
+                            {/* Render Settings */}
                             <div className="space-y-4">
                                 <h4 className="text-[10px] text-brand font-bold uppercase tracking-[0.2em] flex items-center gap-2 mb-4 border-b border-white/10 pb-2">
                                     <Palette size={14} /> Renderização
@@ -301,7 +260,7 @@ export const PdfSidebar: React.FC<Props> = ({
                                 </div>
                             </div>
 
-                            {/* Seção 2: Visão de Máquina (OCR Confidence) */}
+                            {/* Debug Layer (Optional) */}
                             <div className="space-y-4">
                                 <h4 className="text-[10px] text-brand font-bold uppercase tracking-[0.2em] flex items-center gap-2 mb-4 border-b border-white/10 pb-2">
                                     <Binary size={14} /> Debug
@@ -311,7 +270,7 @@ export const PdfSidebar: React.FC<Props> = ({
                                         <span className="text-xs text-white font-bold flex items-center gap-2">
                                             <ScanLine size={16} className={settings.showConfidenceOverlay ? "text-brand" : "text-gray-600"}/> Debug Layer
                                         </span>
-                                        <span className="text-[9px] text-gray-500 mt-1">Mapa de calor de confiança do OCR</span>
+                                        <span className="text-[9px] text-gray-500 mt-1">Ver camadas de texto injetadas</span>
                                     </div>
                                     <button 
                                         onClick={() => updateSettings({ showConfidenceOverlay: !settings.showConfidenceOverlay })} 
@@ -322,7 +281,7 @@ export const PdfSidebar: React.FC<Props> = ({
                                 </div>
                             </div>
 
-                            {/* Seção 3: Ferramenta de Escrita (Ink) */}
+                            {/* Ink Tool */}
                             <div className="space-y-4">
                                 <h4 className="text-[10px] text-brand font-bold uppercase tracking-[0.2em] flex items-center gap-2 mb-4 border-b border-white/10 pb-2">
                                     <Pen size={14} /> Caneta
@@ -368,7 +327,7 @@ export const PdfSidebar: React.FC<Props> = ({
                                 </div>
                             </div>
 
-                            {/* Seção 4: Ferramenta de Destaque (Highlight) */}
+                            {/* Highlight Tool */}
                             <div className="space-y-4">
                                 <h4 className="text-[10px] text-brand font-bold uppercase tracking-[0.2em] flex items-center gap-2 mb-4 border-b border-white/10 pb-2">
                                     <Highlighter size={14} /> Marcador
@@ -400,7 +359,7 @@ export const PdfSidebar: React.FC<Props> = ({
                                 </div>
                             </div>
 
-                            {/* Seção 5: Layout e Interface */}
+                            {/* Layout */}
                             <div className="space-y-6 pt-2">
                                 <h4 className="text-[10px] text-brand font-bold uppercase tracking-[0.2em] flex items-center gap-2 mb-4 border-b border-white/10 pb-2">
                                     <Eye size={14} /> Interface e Layout
@@ -436,9 +395,6 @@ export const PdfSidebar: React.FC<Props> = ({
                                             />
                                             <span className="text-[9px] text-gray-500">(Offset: {docPageOffset > 0 ? '+' : ''}{docPageOffset})</span>
                                         </div>
-                                        <p className="text-[9px] text-gray-500 leading-tight pt-1">
-                                            Use isso para sincronizar a contagem com o livro físico (ex: pular capas e sumário).
-                                        </p>
                                     </div>
                                 </div>
 
@@ -475,7 +431,7 @@ export const PdfSidebar: React.FC<Props> = ({
                         <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
                             <div className="p-3 bg-brand/5 border border-brand/20 rounded-lg">
                                 <p className="text-[10px] text-brand font-bold uppercase mb-1">Status da IA</p>
-                                <p className="text-[10px] text-gray-400 leading-tight">O Gemini agora lê automaticamente o texto nativo do documento. Para textos em imagem (scans antigos), use a ferramenta "Extrair Texto" com Florence-2 para máxima precisão.</p>
+                                <p className="text-[10px] text-gray-400 leading-tight">O Gemini agora lê automaticamente o texto nativo do documento. Para textos em imagem (scans antigos), use a Lente Semântica.</p>
                             </div>
                         </div>
                     )}

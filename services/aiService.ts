@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { ChatMessage, MindMapData } from "../types";
 import { getStoredApiKey } from "../utils/apiKeyUtils";
@@ -104,6 +103,30 @@ export function extractPageRangeFromQuery(query: string): { start: number, end: 
 
 // --- AI FUNCTIONS ---
 
+export async function extractTextFromTile(base64Image: string): Promise<string> {
+  const ai = getAiClient();
+  const prompt = `Transcreva EXATAMENTE o texto desta imagem. 
+  - Se for um gráfico ou imagem sem texto, retorne string vazia.
+  - Não adicione comentários.
+  - Mantenha a pontuação.`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview', 
+      contents: {
+        parts: [
+          { inlineData: { data: base64Image, mimeType: 'image/jpeg' } },
+          { text: prompt }
+        ]
+      }
+    });
+    return response.text?.trim() || "";
+  } catch (e) {
+    console.warn("Tile OCR fallback failed", e);
+    return "";
+  }
+}
+
 export async function performSemanticOcr(base64Image: string): Promise<string> {
   const ai = getAiClient();
   const prompt = `Atue como um especialista em digitalização de documentos.
@@ -120,7 +143,7 @@ Retorne APENAS o Markdown.`;
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-flash-latest', 
+      model: 'gemini-3-flash-preview', 
       contents: {
         parts: [
           { inlineData: { data: base64Image, mimeType: 'image/jpeg' } },
@@ -134,6 +157,119 @@ Retorne APENAS o Markdown.`;
     console.error("Semantic Lens error:", e);
     if (e.message?.includes('429')) throw new Error("Muitas requisições. Aguarde um momento.");
     throw new Error("Erro na análise da página: " + e.message);
+  }
+}
+
+/**
+ * Super OCR: Solicita texto E coordenadas espaciais.
+ * Retorna JSON com linhas e caixas delimitadoras (0-1000).
+ */
+export async function performLayoutOcr(base64Image: string): Promise<{ text: string, box_2d: number[] }[]> {
+  const ai = getAiClient();
+  const prompt = `Perform OCR on this document page.
+  Identify individual text lines.
+  CRITICAL: Do NOT group lines into paragraphs. Return each visual line as a separate item.
+  For each line, return the text content and its bounding box [ymin, xmin, ymax, xmax] using a 0-1000 scale.
+  Follow the reading order strictly (columns first, then top-down).
+  Return JSON only.`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: {
+        parts: [
+          { inlineData: { data: base64Image, mimeType: 'image/jpeg' } },
+          { text: prompt }
+        ]
+      },
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            segments: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  text: { type: Type.STRING },
+                  box_2d: { 
+                    type: Type.ARRAY, 
+                    items: { type: Type.INTEGER },
+                    description: "Bounding box [ymin, xmin, ymax, xmax] in 0-1000 scale"
+                  }
+                },
+                required: ["text", "box_2d"]
+              }
+            }
+          },
+          required: ["segments"]
+        }
+      }
+    });
+
+    const data = JSON.parse(response.text || '{ "segments": [] }');
+    return data.segments || [];
+  } catch (e: any) {
+    console.error("Layout OCR error:", e);
+    if (e.message?.includes('429')) throw new Error("Tráfego intenso. Tente novamente.");
+    return [];
+  }
+}
+
+/**
+ * Translation OCR: Identifies text blocks, translates them to PT-BR, and returns positions for overlay.
+ */
+export async function performTranslatedLayoutOcr(base64Image: string): Promise<{ text: string, box_2d: number[] }[]> {
+  const ai = getAiClient();
+  const prompt = `Analyze this document page image.
+  Identify text blocks/paragraphs.
+  Translate the content of each block to Portuguese (PT-BR).
+  Return the TRANSLATED text and the ORIGINAL bounding box [ymin, xmin, ymax, xmax] (0-1000 scale) of the text block.
+  Goal: Overlay the translation on top of the original text.
+  Return JSON only.`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: {
+        parts: [
+          { inlineData: { data: base64Image, mimeType: 'image/jpeg' } },
+          { text: prompt }
+        ]
+      },
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            segments: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  text: { type: Type.STRING, description: "Translated text in Portuguese" },
+                  box_2d: { 
+                    type: Type.ARRAY, 
+                    items: { type: Type.INTEGER },
+                    description: "Original bounding box [ymin, xmin, ymax, xmax]"
+                  }
+                },
+                required: ["text", "box_2d"]
+              }
+            }
+          },
+          required: ["segments"]
+        }
+      }
+    });
+
+    const data = JSON.parse(response.text || '{ "segments": [] }');
+    return data.segments || [];
+  } catch (e: any) {
+    console.error("Translation OCR error:", e);
+    if (e.message?.includes('429')) throw new Error("Tráfego intenso. Tente novamente.");
+    return [];
   }
 }
 
@@ -272,10 +408,6 @@ export async function extractNewspaperContent(base64Image: string, mimeType: str
   }
 }
 
-/**
- * REFINAMENTO DE OCR 2.0 (Context-Aware)
- * Usa prompts avançados para corrigir erros de OCR com base no contexto da frase, não apenas da palavra isolada.
- */
 export async function refineOcrWords(words: string[]): Promise<string[]> {
   const ai = getAiClient();
   
@@ -294,18 +426,10 @@ export async function refineOcrWords(words: string[]): Promise<string[]> {
       return results;
   }
 
-  // Novo Prompt: Foca em reconstrução de fluxo para evitar alucinação de layout
-  const prompt = `Aja como um revisor editorial especializado em recuperação de documentos históricos.
-Abaixo está uma sequência de palavras extraídas via OCR (Optical Character Recognition).
-A sequência pode conter erros de caracteres (ex: '1' vs 'l', 'rn' vs 'm') ou quebras de palavras.
-
-SUA TAREFA:
-Corrigir os erros ortográficos e de pontuação APENAS onde houver certeza baseada no contexto linguístico.
-NÃO altere a ordem das palavras.
-NÃO remova palavras (a menos que seja lixo puro como '_^~').
-NÃO invente conteúdo novo.
-
-Retorne um JSON contendo o array 'correctedWords' com o mesmo tamanho da entrada.
+  const prompt = `Aja como um revisor editorial.
+Corrija erros de OCR na sequência de palavras abaixo (ex: '1' vs 'l', 'rn' vs 'm').
+NÃO altere a ordem. NÃO remova palavras. NÃO invente conteúdo.
+Retorne JSON com 'correctedWords'.
 
 ENTRADA:
 ${JSON.stringify(words)}`;
@@ -331,15 +455,12 @@ ${JSON.stringify(words)}`;
     const result = JSON.parse(response.text || '{"correctedWords": []}');
     const corrected = result.correctedWords || [];
     
-    // Fallback de segurança: Se o tamanho diferir muito, desconfie da IA e use o original
     if (Math.abs(corrected.length - words.length) > 5) {
-        console.warn("[AI Refine] Mismatch in word count. Returning original to avoid sync errors.");
         return words;
     }
     
     return corrected;
   } catch (e) {
-    console.error("OCR Refinement failed", e);
     return words;
   }
 }

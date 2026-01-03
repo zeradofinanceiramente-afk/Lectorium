@@ -1,8 +1,6 @@
-
 import React, { useRef, useState, useEffect, useMemo, useCallback } from 'react';
-import { Loader2, Sparkles, ScanLine, X, Save, RefreshCw, Columns, ArrowLeft, ArrowRight, CheckCircle2, FileSearch, AlertCircle, Wand2, Check } from 'lucide-react';
+import { CheckCircle2, FileSearch, AlertCircle, ScanLine, X, Check } from 'lucide-react';
 import { renderCustomTextLayer } from '../../utils/pdfRenderUtils';
-import { usePageOcr } from '../../hooks/usePageOcr';
 import { NoteMarker } from './NoteMarker';
 import { usePdfContext } from '../../context/PdfContext';
 import { usePdfStore } from '../../stores/usePdfStore'; 
@@ -126,7 +124,7 @@ const drawSmoothStroke = (ctx: CanvasRenderingContext2D, points: number[][], sca
 const PdfPageComponent: React.FC<PdfPageProps> = ({ 
   pageNumber, filterValues, pdfDoc 
 }) => {
-  // ZUSTAND: Consuming scale/tool from store directly to avoid Context Re-Renders
+  // ZUSTAND
   const scale = usePdfStore(state => state.scale);
   const activeTool = usePdfStore(state => state.activeTool);
   const setActiveTool = usePdfStore(state => state.setActiveTool);
@@ -136,9 +134,10 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
   const { 
     settings, 
     annotations, addAnnotation, removeAnnotation,
-    ocrMap, updateOcrWord, refinePageOcr,
-    setShowOcrModal, onSmartTap, selection,
-    fileId // Need fileId for caching keys
+    ocrMap, updateOcrWord,
+    onSmartTap, selection,
+    fileId,
+    translationMap, isTranslationMode
   } = usePdfContext();
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -158,7 +157,6 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
   const [isVisible, setIsVisible] = useState(false);
   const [pageProxy, setPageProxy] = useState<any>(null);
   const [showOcrDebug, setShowOcrDebug] = useState(false);
-  const [isRefining, setIsRefining] = useState(false);
   
   // Ink Tool State
   const isDrawing = useRef(false);
@@ -171,8 +169,9 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
 
   const [draftNote, setDraftNote] = useState<{x: number, y: number, text: string} | null>(null);
 
-  // Hook OCR do componente para saber status local
-  const { status: ocrStatus, ocrData, requestOcr } = usePageOcr({ pageNumber });
+  // Directly access map for current page data
+  const ocrData = ocrMap[pageNumber] || [];
+  const translationData = translationMap[pageNumber] || [];
 
   const isDarkPage = useMemo(() => {
     if (settings.disableColorFilter) return false;
@@ -215,7 +214,7 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
 
   const isSplitActive = settings.detectColumns && (pageDimensions ? pageDimensions.width > pageDimensions.height * 1.1 : false);
 
-  // --- PDF RENDERING LOOP (With Bitmap Caching & Placeholder) ---
+  // --- PDF RENDERING LOOP ---
   useEffect(() => {
     if (!isVisible || !pageDimensions || !pageProxy || !canvasRef.current) return;
     let active = true;
@@ -236,7 +235,6 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
         const targetWidth = Math.floor(viewport.width * cappedDpr);
         const targetHeight = Math.floor(viewport.height * cappedDpr);
         
-        // Only resize if necessary (Avoids clearing if size matches)
         if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
             canvas.width = targetWidth;
             canvas.height = targetHeight;
@@ -245,26 +243,22 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
         canvas.style.width = `${viewport.width}px`;
         canvas.style.height = `${viewport.height}px`;
 
-        // 2. OPTIMISTIC UI: Draw Cached Bitmap OR Nearest Neighbor (Placeholder)
+        // 2. Cache Logic
         const cachedBitmap = bitmapCache.get(cacheKey);
         
         if (cachedBitmap) {
-            // Cache Hit: Desenha exato
             ctx.drawImage(cachedBitmap, 0, 0, targetWidth, targetHeight);
         } else {
-            // Cache Miss: Tenta encontrar um bitmap de outra escala (ex: zoom anterior)
             const fallbackBitmap = bitmapCache.findNearest(fileId, pageNumber);
             if (fallbackBitmap) {
-                // Desenha o fallback esticado (ficará borrado, mas evita tela branca)
                 ctx.drawImage(fallbackBitmap, 0, 0, targetWidth, targetHeight);
             } else {
-                // Sem cache nenhum: Limpa
                 ctx.fillStyle = settings.pageColor || '#ffffff';
                 ctx.fillRect(0, 0, targetWidth, targetHeight);
             }
         }
 
-        // 3. Render High-Quality PDF (Async)
+        // 3. Render High-Quality PDF
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.scale(cappedDpr, cappedDpr);
 
@@ -274,17 +268,13 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
         
         if (renderTaskRef.current !== task || !active) return;
 
-        // 4. Cache Result (Background)
-        // Store the freshly rendered high-quality canvas as a bitmap
-        // We use createImageBitmap which is off-main-thread friendly
         createImageBitmap(canvas).then(bitmap => {
             if (active) bitmapCache.set(cacheKey, bitmap);
-            else bitmap.close(); // Cleanup if unmounted
+            else bitmap.close();
         });
 
-        // 5. Process Text Layer (MUTUAL EXCLUSION: Only if no OCR data)
-        // Se já temos OCR (ocrData) ou estamos processando (ocrStatus !== idle), ignoramos a camada nativa defeituosa.
-        if ((!ocrData || ocrData.length === 0) && ocrStatus === 'idle') {
+        // 5. Process Text Layer
+        if (!ocrData || ocrData.length === 0) {
             const textContent = await pageProxy.getTextContent();
             if (!active) return;
             
@@ -301,11 +291,9 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
                }
             }
         } else {
-            // Se temos OCR ou estamos processando, limpamos o layer nativo para evitar fantasmas
             if (textLayerRef.current) {
                 textLayerRef.current.innerHTML = '';
             }
-            // Assume que não tem texto nativo útil (para mostrar UI de OCR se necessário)
             setHasText(false); 
         }
         setRendered(true);
@@ -318,9 +306,9 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
         active = false; 
         if (renderTaskRef.current) try { renderTaskRef.current.cancel(); } catch {}
     };
-  }, [pageProxy, scale, isVisible, settings.detectColumns, cacheKey, ocrData, ocrStatus]);
+  }, [pageProxy, scale, isVisible, settings.detectColumns, cacheKey, ocrData]);
 
-  // --- STATIC INK LAYER (Heavy, Cached with Smoothing) ---
+  // --- STATIC INK LAYER ---
   useEffect(() => {
     if (!staticInkCanvasRef.current || !pageDimensions) return;
     
@@ -328,7 +316,6 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Sync dimensions
     canvas.width = pageDimensions.width;
     canvas.height = pageDimensions.height;
     canvas.style.width = `${pageDimensions.width}px`;
@@ -348,12 +335,11 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
         ctx.strokeStyle = ann.color || '#ff0000';
         ctx.globalAlpha = ann.opacity || 1;
 
-        // Use Smooth Drawing
         drawSmoothStroke(ctx, ann.points, scale);
     });
   }, [annotations, pageNumber, scale, pageDimensions]); 
 
-  // --- ACTIVE INK LAYER (Light, Fast with Smoothing) ---
+  // --- ACTIVE INK LAYER ---
   useEffect(() => {
     if (!activeInkCanvasRef.current || !pageDimensions) return;
     
@@ -361,7 +347,6 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Ensure dimension sync (cheap check usually)
     if (canvas.width !== pageDimensions.width || canvas.height !== pageDimensions.height) {
         canvas.width = pageDimensions.width;
         canvas.height = pageDimensions.height;
@@ -369,7 +354,6 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
         canvas.style.height = `${pageDimensions.height}px`;
     }
 
-    // Always clear active layer on every frame
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     if (currentPoints.length > 1) {
@@ -380,7 +364,6 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
         ctx.strokeStyle = settings.inkColor;
         ctx.globalAlpha = settings.inkOpacity;
 
-        // Use Smooth Drawing for active stroke too
         drawSmoothStroke(ctx, currentPoints, scale);
     }
   }, [currentPoints, scale, pageDimensions, settings.inkColor, settings.inkStrokeWidth, settings.inkOpacity]);
@@ -391,14 +374,17 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
     return ocrData.map(w => w.text).join(' ');
   }, [ocrData]);
 
-  const isPageRefined = useMemo(() => {
-    return ocrData.some(w => w.isRefined);
-  }, [ocrData]);
-
+  // Use scheduler to inject semantic OCR words without jank
   useEffect(() => {
+    // If translation mode is active, we don't render OCR words layer, we use the translation layer.
+    if (isTranslationMode) {
+        if (textLayerRef.current) textLayerRef.current.innerHTML = '';
+        return;
+    }
+
     if (ocrData && ocrData.length > 0 && textLayerRef.current && rendered && pageDimensions) {
         const sideKey = isSplitActive ? spreadSide : 'full';
-        const dataHash = `ocr-v10-perf-${pageNumber}-${ocrData.length}-${scale}-${sideKey}-${isPageRefined ? 'r' : 'u'}`;
+        const dataHash = `ocr-v10-perf-${pageNumber}-${ocrData.length}-${scale}-${sideKey}`;
         
         if (lastInjectedOcrRef.current === dataHash) return;
 
@@ -455,7 +441,7 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
         workId = scheduleWork(injectWork);
         return () => cancelWork(workId);
     }
-  }, [ocrData, rendered, scale, pageNumber, spreadSide, isSplitActive, isPageRefined, pageDimensions]);
+  }, [ocrData, rendered, scale, pageNumber, spreadSide, isSplitActive, pageDimensions, isTranslationMode]);
 
   const getRelativeCoords = (e: React.PointerEvent) => {
       const rect = pageContainerRef.current?.getBoundingClientRect();
@@ -463,13 +449,6 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
       let x = (e.clientX - rect.left) / scale;
       let y = (e.clientY - rect.top) / scale;
       return { x, y };
-  };
-
-  const handleRefine = async () => {
-    if (isRefining) return;
-    setIsRefining(true);
-    await refinePageOcr(pageNumber);
-    setIsRefining(false);
   };
 
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -558,18 +537,14 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
                 const selectedWords: { text: string, x: number, y: number }[] = [];
                 
                 spans.forEach((span) => {
-                    // Normalize Coordinates: Dataset values are SCALED (CSS pixels)
-                    // We need them unscaled to compare with our unscaled selection box
                     const sx = parseFloat(span.dataset.pdfX || '0') / scale;
                     const sy = parseFloat(span.dataset.pdfTop || '0') / scale;
                     const sw = parseFloat(span.dataset.pdfWidth || '0') / scale;
                     const sh = parseFloat(span.dataset.pdfHeight || '0') / scale;
 
-                    // Calculate Intersection Area
                     const overlapW = Math.max(0, Math.min(x + w, sx + sw) - Math.max(x, sx));
                     const overlapH = Math.max(0, Math.min(y + h, sy + sh) - Math.max(y, sy));
                     
-                    // Significant Overlap Threshold (50% of height)
                     if (overlapH > sh * 0.5 && overlapW > 0) {
                         selectedWords.push({
                             text: span.textContent || '',
@@ -579,23 +554,21 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
                     }
                 });
 
-                // Reconstruct Reading Order (Top->Bottom, Left->Right)
                 selectedWords.sort((a, b) => {
                     const lineDiff = Math.abs(a.y - b.y);
-                    if (lineDiff < 5) return a.x - b.x; // Same line tolerance
+                    if (lineDiff < 5) return a.x - b.x; 
                     return a.y - b.y;
                 });
 
                 capturedText = selectedWords.map(w => w.text).join('');
             }
-            // ---------------------------
 
             addAnnotation({
                 id: `hl-${Date.now()}`,
                 page: pageNumber,
                 bbox: [x, y, w, h],
                 type: 'highlight',
-                text: capturedText, // Captured text now correctly passed
+                text: capturedText, 
                 color: settings.highlightColor,
                 opacity: settings.highlightOpacity,
                 createdAt: new Date().toISOString()
@@ -607,7 +580,7 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
         return;
     }
 
-    // 3. Ink Logic (Final Commit)
+    // 3. Ink Logic
     if (!isDrawing.current) return;
     isDrawing.current = false;
     e.currentTarget.releasePointerCapture(e.pointerId);
@@ -616,7 +589,7 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
         addAnnotation({
             id: `ink-${Date.now()}`,
             page: pageNumber,
-            bbox: [0, 0, 0, 0], // Ink uses points, not bbox
+            bbox: [0, 0, 0, 0], 
             type: 'ink',
             points: currentPoints,
             color: settings.inkColor,
@@ -657,26 +630,21 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
         >
-            {!hasText && rendered && isVisible && (
+            {!hasText && rendered && isVisible && !isTranslationMode && (
                 <div className="absolute top-4 left-4 flex items-center gap-2 text-xs bg-black/80 text-white px-4 py-2 rounded-full z-[100] border border-white/10 group animate-in fade-in duration-300 pointer-events-auto">
-                    {ocrStatus === 'processing' ? (
-                      <div className="flex items-center gap-3">
-                        <Loader2 size={16} className="animate-spin text-brand" />
-                        <span className="font-bold">Analisando imagem...</span>
-                      </div>
-                    ) : ocrStatus === 'done' ? (
+                    {ocrData && ocrData.length > 0 ? (
                       <button onClick={() => setShowOcrDebug(true)} className="flex items-center gap-2 text-brand hover:text-white transition-colors font-bold">
-                        {isPageRefined ? <Sparkles size={16} className="text-purple-400" /> : <CheckCircle2 size={16} className="text-brand" />}
-                        <span className={isPageRefined ? "text-purple-400" : "text-brand"}>{isPageRefined ? "Leitura Refinada" : "Leitura Concluída"}</span>
+                        <CheckCircle2 size={16} className="text-brand" />
+                        <span>Leitura Concluída</span>
                       </button>
                     ) : (
                       <div className="flex items-center gap-3">
-                          <span className="text-brand/80 font-medium hidden group-hover:inline">OCR Disponível</span>
+                          <span className="text-brand/80 font-medium hidden group-hover:inline">Texto Inacessível</span>
                           <div className="h-4 w-px bg-white/20 hidden group-hover:block"></div>
-                          <button onClick={(e) => { e.stopPropagation(); setShowOcrModal(true); }} className="flex items-center gap-2 hover:text-white transition-colors text-brand font-bold">
+                          <span className="flex items-center gap-2 text-brand font-bold">
                             <ScanLine size={18} />
-                            <span>Extrair Texto</span>
-                          </button>
+                            <span>Use a Lente Semântica na Sidebar</span>
+                          </span>
                       </div>
                     )}
                 </div>
@@ -691,7 +659,7 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
             {/* LAYER 2: ACTIVE Ink Canvas (Drawing Now) */}
             <canvas ref={activeInkCanvasRef} className="select-none absolute top-0 left-0 pointer-events-none" style={{ zIndex: 36, display: 'block' }} />
 
-            {/* LAYER 3: OCR Confidence Overlay */}
+            {/* LAYER 3: OCR Confidence Overlay (Optional Debug) */}
             {settings.showConfidenceOverlay && ocrData && ocrData.length > 0 && rendered && ocrData.length < 1500 && (
                 <div className="absolute inset-0 z-20 pointer-events-none overflow-hidden">
                     {ocrData
@@ -745,7 +713,7 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
                 />
             )}
 
-            {/* LAYER 5: DOM Annotations (Highlights & Notes only) */}
+            {/* LAYER 5: DOM Annotations */}
             <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 40 }}>
                 {pageAnnotations.filter(a => a.type === 'highlight' && !a.isBurned).map((ann, i) => (
                     <div 
@@ -768,7 +736,40 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
                 ))}
             </div>
 
-            {/* LAYER 6: Invisible Text Layer */}
+            {/* LAYER 6: TRANSLATION OVERLAY */}
+            {isTranslationMode && translationData.length > 0 && (
+                <div className="absolute inset-0 z-[45] pointer-events-none">
+                    {translationData.map((block, idx) => {
+                        const { bbox, text } = block;
+                        const x = Math.floor(bbox.x0 * scale);
+                        const y = Math.floor(bbox.y0 * scale);
+                        const w = Math.ceil((bbox.x1 - bbox.x0) * scale);
+                        const h = Math.ceil((bbox.y1 - bbox.y0) * scale);
+                        
+                        // Calculate optimized font size to fit box
+                        const estimatedFontSize = Math.max(10, h * 0.8);
+
+                        return (
+                            <div 
+                                key={idx}
+                                className="absolute bg-[#f5f5f5] text-black border border-gray-200 shadow-sm flex items-center p-1 overflow-hidden"
+                                style={{
+                                    left: x, top: y, width: w, height: h,
+                                    fontSize: `${estimatedFontSize}px`,
+                                    lineHeight: 1.1,
+                                    zIndex: 50,
+                                    pointerEvents: 'auto'
+                                }}
+                                title="Tradução Automática"
+                            >
+                                <span className="line-clamp-none">{text}</span>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+
+            {/* LAYER 7: Invisible Text Layer (Native or OCR) */}
             <div 
                 ref={textLayerRef} 
                 className="textLayer notranslate" 
@@ -812,7 +813,7 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
         <BaseModal
             isOpen={showOcrDebug}
             onClose={() => setShowOcrDebug(false)}
-            title={`Inspeção OCR - Página ${pageNumber}`}
+            title={`Inspeção de Texto - Página ${pageNumber}`}
             icon={<FileSearch size={20} />}
             maxWidth="max-w-2xl"
         >
@@ -820,7 +821,6 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
                 <div className="flex justify-between items-center border-b border-border pb-2">
                     <div className="flex items-center gap-2">
                         <p className="text-xs text-text-sec uppercase font-bold tracking-widest">Texto Extraído:</p>
-                        {isPageRefined && <span className="bg-purple-500/20 text-purple-400 text-[9px] font-bold px-1.5 py-0.5 rounded border border-purple-500/30 flex items-center gap-1"><Sparkles size={10}/> Refinado</span>}
                     </div>
                     <span className="bg-brand/10 text-brand text-[10px] font-bold px-2 py-0.5 rounded-full border border-brand/20">
                         {ocrData.length} palavras encontradas
@@ -837,15 +837,6 @@ const PdfPageComponent: React.FC<PdfPageProps> = ({
                 </div>
                 
                 <div className="flex flex-wrap justify-end gap-2 pt-2">
-                    <button 
-                        onClick={handleRefine} 
-                        disabled={isRefining || !rawExtractedText || isPageRefined}
-                        className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-purple-700 transition-all shadow-lg disabled:opacity-50"
-                    >
-                        {isRefining ? <Loader2 size={16} className="animate-spin"/> : <Wand2 size={16} />}
-                        {isPageRefined ? "Refinado com IA" : "Refinar com IA"}
-                    </button>
-                    <button onClick={() => { requestOcr(); setShowOcrDebug(false); }} className="px-4 py-2 bg-brand/10 border border-brand/20 text-brand rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-brand/20"><RefreshCw size={14} /> Redigitalizar</button>
                     <button onClick={() => { navigator.clipboard.writeText(rawExtractedText); alert("Copiado!"); }} disabled={!rawExtractedText} className="px-4 py-2 bg-brand text-bg rounded-lg text-sm font-bold disabled:opacity-30">Copiar Tudo</button>
                     <button onClick={() => setShowOcrDebug(false)} className="px-4 py-2 bg-surface border border-border text-text rounded-lg text-sm font-bold">Fechar</button>
                 </div>

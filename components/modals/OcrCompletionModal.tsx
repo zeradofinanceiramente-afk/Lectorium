@@ -1,6 +1,5 @@
-
 import React, { useState } from 'react';
-import { Save, Copy, X, Loader2, CheckCircle, FileText, AlertCircle } from 'lucide-react';
+import { Save, Copy, X, Loader2, CheckCircle, FileText, AlertCircle, AlertTriangle, Hourglass } from 'lucide-react';
 import { BaseModal } from '../shared/BaseModal';
 import { useGlobalContext } from '../../context/GlobalContext';
 import { loadOcrData, loadAnnotations, saveOfflineFile, addToSyncQueue } from '../../services/storageService';
@@ -15,7 +14,8 @@ export const OcrCompletionModal = () => {
 
   if (!ocrCompletion) return null;
 
-  const { fileId, filename, sourceBlob } = ocrCompletion;
+  const { fileId, filename, sourceBlob, stoppedAtPage } = ocrCompletion;
+  const isStopped = !!stoppedAtPage;
 
   const handleSave = async (mode: 'overwrite' | 'copy') => {
     setIsSaving(true);
@@ -43,10 +43,12 @@ export const OcrCompletionModal = () => {
                await addToSyncQueue({ fileId, action: 'update', blob: newBlob, name: filename, mimeType: 'application/pdf' });
             }
 
-            addNotification("Arquivo original atualizado com texto pesquisável!", "success");
+            addNotification(isStopped ? "Progresso salvo no arquivo original." : "Arquivo original atualizado com texto pesquisável!", "success");
         } else {
             // Alterado para (1) para seguir padrão de versão
-            const newName = filename.replace(/\.pdf$/i, '') + ' (1).pdf';
+            // Se foi interrompido, adiciona sufixo (Parcial)
+            const suffix = isStopped ? ' (Parcial)' : ' (1)';
+            const newName = filename.replace(/\.pdf$/i, '') + suffix + '.pdf';
             
             if (!isLocal && accessToken) {
                await uploadFileToDrive(accessToken, newBlob, newName);
@@ -61,7 +63,7 @@ export const OcrCompletionModal = () => {
                document.body.removeChild(a);
                URL.revokeObjectURL(url);
             }
-            addNotification("Cópia com OCR salva com sucesso!", "success");
+            addNotification(isStopped ? "Cópia parcial salva com sucesso!" : "Cópia com OCR salva com sucesso!", "success");
         }
         
         clearOcrCompletion();
@@ -77,25 +79,42 @@ export const OcrCompletionModal = () => {
     <BaseModal
       isOpen={!!ocrCompletion}
       onClose={clearOcrCompletion}
-      title="OCR Concluído"
-      icon={<CheckCircle size={20} className="text-green-500" />}
+      title={isStopped ? "Limite de Cota Atingido" : "OCR Concluído"}
+      icon={isStopped ? <AlertTriangle size={20} className="text-yellow-500" /> : <CheckCircle size={20} className="text-green-500" />}
       maxWidth="max-w-md"
     >
       <div className="space-y-6">
-        <div className="bg-green-500/10 border border-green-500/20 p-4 rounded-xl flex items-start gap-3">
-            <FileText size={20} className="text-green-500 shrink-0 mt-0.5" />
-            <div>
-                <h4 className="text-sm font-bold text-white mb-1">{filename}</h4>
-                <p className="text-xs text-text-sec">
-                    O reconhecimento de texto foi finalizado com sucesso. O documento agora é pesquisável e selecionável.
-                </p>
+        {isStopped ? (
+            <div className="bg-yellow-500/10 border border-yellow-500/20 p-4 rounded-xl">
+                <div className="flex items-start gap-3 mb-2">
+                    <Hourglass size={20} className="text-yellow-500 shrink-0 mt-0.5" />
+                    <div>
+                        <h4 className="text-sm font-bold text-white mb-1">Processo Pausado na Página {stoppedAtPage}</h4>
+                        <p className="text-xs text-text-sec leading-relaxed">
+                            A chave de API atingiu o limite de requisições por minuto (RPM) ou diário. O processamento foi interrompido para evitar bloqueio.
+                        </p>
+                    </div>
+                </div>
+                <div className="mt-3 p-2 bg-yellow-500/5 rounded border border-yellow-500/10 text-[11px] text-yellow-200/80">
+                    <strong>Recomendação:</strong> Salve o arquivo agora para não perder as páginas já processadas. Você pode continuar o processo amanhã ou mais tarde a partir da página {stoppedAtPage! + 1}.
+                </div>
             </div>
-        </div>
+        ) : (
+            <div className="bg-green-500/10 border border-green-500/20 p-4 rounded-xl flex items-start gap-3">
+                <FileText size={20} className="text-green-500 shrink-0 mt-0.5" />
+                <div>
+                    <h4 className="text-sm font-bold text-white mb-1">{filename}</h4>
+                    <p className="text-xs text-text-sec">
+                        O reconhecimento de texto foi finalizado com sucesso. O documento agora é pesquisável e selecionável.
+                    </p>
+                </div>
+            </div>
+        )}
 
         {isSaving ? (
             <div className="py-8 flex flex-col items-center justify-center text-center space-y-3">
                 <Loader2 size={32} className="animate-spin text-brand" />
-                <p className="text-sm text-text-sec animate-pulse">Gerando arquivo PDF final...</p>
+                <p className="text-sm text-text-sec animate-pulse">Gerando arquivo PDF...</p>
             </div>
         ) : (
             <div className="space-y-3">
@@ -106,8 +125,10 @@ export const OcrCompletionModal = () => {
                     <div className="flex items-center gap-3">
                         <Save size={20} />
                         <div className="text-left">
-                            <span className="block text-sm">Salvar no Original</span>
-                            <span className="block text-[10px] opacity-70 font-normal">Substitui o arquivo atual</span>
+                            <span className="block text-sm">Salvar Progresso no Original</span>
+                            <span className="block text-[10px] opacity-70 font-normal">
+                                {isStopped ? 'Mantém o que foi feito até agora' : 'Substitui o arquivo atual'}
+                            </span>
                         </div>
                     </div>
                 </button>
@@ -120,7 +141,9 @@ export const OcrCompletionModal = () => {
                         <Copy size={20} className="text-gray-400 group-hover:text-white" />
                         <div className="text-left">
                             <span className="block text-sm">Salvar como Cópia</span>
-                            <span className="block text-[10px] text-gray-500 font-normal">Cria um novo arquivo com sufixo (1)</span>
+                            <span className="block text-[10px] text-gray-500 font-normal">
+                                {isStopped ? 'Cria novo arquivo (Parcial)' : 'Cria novo arquivo (1)'}
+                            </span>
                         </div>
                     </div>
                 </button>
@@ -134,10 +157,12 @@ export const OcrCompletionModal = () => {
             </div>
         )}
         
-        <div className="flex items-center gap-2 text-[10px] text-yellow-500/80 bg-yellow-500/5 p-2 rounded-lg justify-center">
-            <AlertCircle size={12} />
-            <span>Recomendamos salvar para não perder o processamento.</span>
-        </div>
+        {!isStopped && (
+            <div className="flex items-center gap-2 text-[10px] text-yellow-500/80 bg-yellow-500/5 p-2 rounded-lg justify-center">
+                <AlertCircle size={12} />
+                <span>Recomendamos salvar para não perder o processamento.</span>
+            </div>
+        )}
       </div>
     </BaseModal>
   );

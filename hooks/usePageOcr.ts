@@ -1,7 +1,8 @@
 
 import { useEffect, useState } from 'react';
 import { usePdfContext } from '../context/PdfContext';
-import { OcrStatus } from '../services/ocrManager';
+
+export type OcrStatus = 'idle' | 'processing' | 'done' | 'error';
 
 interface UsePageOcrProps {
   pageNumber: number;
@@ -13,7 +14,8 @@ export const usePageOcr = ({ pageNumber }: UsePageOcrProps) => {
 
   useEffect(() => {
     const currentStatus = ocrStatusMap[pageNumber] || 'idle';
-    setStatus(currentStatus);
+    // Cast string from map to OcrStatus if necessary, assuming ocrStatusMap values align
+    setStatus(currentStatus as OcrStatus);
   }, [pageNumber, ocrStatusMap]);
 
   return { 

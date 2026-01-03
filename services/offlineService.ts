@@ -1,12 +1,10 @@
 
-import { OCR_RESOURCES } from './ocrService';
-
-const CACHE_NAME = 'pdf-annotator-offline-manual-v4'; 
+const CACHE_NAME = 'pdf-annotator-offline-manual-v5'; // Bump version
 
 // Definição das Categorias de Recursos
-export type ResourceCategory = 'core' | 'pdf_office' | 'tools' | 'ocr';
+export type ResourceCategory = 'core' | 'pdf_office' | 'tools';
 
-export const ALL_CATEGORIES: ResourceCategory[] = ['core', 'pdf_office', 'tools', 'ocr'];
+export const ALL_CATEGORIES: ResourceCategory[] = ['core', 'pdf_office', 'tools'];
 
 interface ResourceGroup {
   id: ResourceCategory;
@@ -57,27 +55,13 @@ export const AVAILABLE_RESOURCES: ResourceGroup[] = [
       'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css',
       'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css',
     ]
-  },
-  {
-    id: 'ocr',
-    label: 'OCR & Motor de Leitura',
-    description: 'Tesseract WASM e Dicionário de Português. Evita lentidão no primeiro uso. (~28MB)',
-    required: false,
-    keywords: ['tesseract', 'opencv', 'tesseract-core', 'wasm'],
-    urls: [
-      OCR_RESOURCES.workerPath,
-      OCR_RESOURCES.corePath,
-      // URL explicativa do binário WASM que o Tesseract baixa internamente
-      'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.0/tesseract-core.wasm',
-      `${OCR_RESOURCES.langPath}/por.traineddata.gz`,
-    ]
   }
 ];
 
 // Helper para identificar a categoria de uma URL baseada nas keywords
 function identifyCategory(url: string): ResourceCategory {
   const lowerUrl = url.toLowerCase();
-  const categoriesToCheck: ResourceCategory[] = ['ocr', 'tools', 'pdf_office'];
+  const categoriesToCheck: ResourceCategory[] = ['tools', 'pdf_office'];
   
   for (const catId of categoriesToCheck) {
     const group = AVAILABLE_RESOURCES.find(g => g.id === catId);
