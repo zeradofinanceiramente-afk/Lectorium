@@ -46,7 +46,10 @@ async function initializeModel(id?: string) {
   self.postMessage({ status: 'progress', message: 'Carregando Florence-2 (Isso pode demorar)...', progress: 0 });
 
   try {
+    // dtype: 'fp16' economiza 50% de VRAM, vital para mobile
     modelPipeline = await pipeline('image-to-text', modelId, {
+      dtype: 'fp16', 
+      device: 'webgpu', // Tenta WebGPU, fallback automático para wasm
       progress_callback: (data: any) => {
         if (data.status === 'progress') {
           self.postMessage({ 
@@ -61,7 +64,7 @@ async function initializeModel(id?: string) {
     self.postMessage({ status: 'ready', message: 'Modelo Florence-2 carregado com sucesso.' });
   } catch (e) {
     console.error(e);
-    throw new Error('Falha ao carregar modelo Florence-2.');
+    throw new Error('Falha ao carregar modelo Florence-2. Verifique WebGPU.');
   }
 }
 
@@ -71,12 +74,11 @@ async function processImage(data: ProcessData) {
   const { imageUrl, task } = data; 
 
   // Configurações de Geração Otimizadas
-  // repetition_penalty: Evita loops em texturas repetitivas
   const output = await modelPipeline(imageUrl, {
     text: task || '<OCR>',
     max_new_tokens: 1024,
     repetition_penalty: 1.05, 
   });
   
-  self.postMessage({ status: 'done', result: output });
+  self.postMessage({ status: 'done', result: output, task: task });
 }

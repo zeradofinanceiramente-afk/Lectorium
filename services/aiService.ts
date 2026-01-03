@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { ChatMessage, MindMapData } from "../types";
 import { getStoredApiKey } from "../utils/apiKeyUtils";
@@ -17,6 +16,118 @@ const getAiClient = () => {
 
 // Utils
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// --- MATH UTILS FOR ALIGNMENT ---
+
+/**
+ * Calcula a distância de Levenshtein entre duas strings (similaridade).
+ * Retorna um valor entre 0 (diferente) e 1 (idêntico).
+ */
+function similarity(s1: string, s2: string): number {
+  let longer = s1;
+  let shorter = s2;
+  if (s1.length < s2.length) {
+    longer = s2;
+    shorter = s1;
+  }
+  const longerLength = longer.length;
+  if (longerLength === 0) {
+    return 1.0;
+  }
+  return (longerLength - editDistance(longer, shorter)) / parseFloat(longerLength.toString());
+}
+
+function editDistance(s1: string, s2: string): number {
+  s1 = s1.toLowerCase();
+  s2 = s2.toLowerCase();
+  const costs = new Array();
+  for (let i = 0; i <= s1.length; i++) {
+    let lastValue = i;
+    for (let j = 0; j <= s2.length; j++) {
+      if (i === 0) costs[j] = j;
+      else {
+        if (j > 0) {
+          let newValue = costs[j - 1];
+          if (s1.charAt(i - 1) !== s2.charAt(j - 1)) newValue = Math.min(Math.min(newValue, lastValue), costs[j]) + 1;
+          costs[j - 1] = lastValue;
+          lastValue = newValue;
+        }
+      }
+    }
+    if (i > 0) costs[s2.length] = lastValue;
+  }
+  return costs[s2.length];
+}
+
+/**
+ * HYBRID ALIGNMENT ENGINE (GEOMETRY + SEMANTICS)
+ * Projeta o texto perfeito (Gemini) sobre as caixas delimitadoras imperfeitas (OCR Local).
+ */
+export function alignOcrWithSemanticText(localWords: any[], semanticText: string): any[] {
+    // 1. Limpeza e Tokenização do Texto Semântico
+    // Remove markdown e pontuação pesada para facilitar o match, mas mantém a estrutura para o resultado final
+    const cleanSemantic = semanticText
+        .replace(/[#*`_]/g, '') // Remove Markdown syntax
+        .replace(/\s+/g, ' ')
+        .trim();
+        
+    const semanticWords = cleanSemantic.split(' ');
+    
+    const alignedWords = [...localWords];
+    let semanticIndex = 0;
+    
+    // Janela de busca (Lookahead) para lidar com palavras que o OCR local pode ter perdido ou quebrado
+    const LOOKAHEAD = 5; 
+
+    for (let i = 0; i < alignedWords.length; i++) {
+        if (semanticIndex >= semanticWords.length) break;
+
+        const localWord = alignedWords[i];
+        const localText = localWord.text.trim();
+        
+        // Tenta encontrar o melhor match no texto semântico dentro da janela
+        let bestMatchIndex = -1;
+        let bestScore = 0;
+
+        for (let j = 0; j < LOOKAHEAD; j++) {
+            if (semanticIndex + j >= semanticWords.length) break;
+            
+            const candidate = semanticWords[semanticIndex + j];
+            const score = similarity(localText, candidate);
+            
+            // Boost no score se tiver comprimentos similares (evita casar 'a' com 'abacaxi')
+            const lenDiff = Math.abs(localText.length - candidate.length);
+            const lenPenalty = lenDiff > 2 ? 0.2 : 0;
+
+            const finalScore = score - lenPenalty;
+
+            if (finalScore > bestScore && finalScore > 0.4) { // Threshold mínimo de 40%
+                bestScore = finalScore;
+                bestMatchIndex = semanticIndex + j;
+            }
+        }
+
+        if (bestMatchIndex !== -1) {
+            // MATCH ENCONTRADO!
+            // Substituímos o texto "sujo" do OCR pelo texto "limpo" da IA
+            // Mantemos a BBox original (Geometria do OCR)
+            alignedWords[i] = {
+                ...localWord,
+                text: semanticWords[bestMatchIndex], // Injeta texto da IA
+                isRefined: true,
+                confidence: 100
+            };
+            
+            // Avança o índice semântico para depois da palavra usada
+            semanticIndex = bestMatchIndex + 1;
+        } else {
+            // Se não achou match, mantemos o texto original do OCR (pode ser um número de página ou ruído)
+            // Ou a IA alucinou/pulou essa parte.
+        }
+    }
+
+    return alignedWords;
+}
 
 // --- RAG UTILS (Local Search) ---
 
@@ -120,7 +231,7 @@ Retorne APENAS o Markdown.`;
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-flash-latest', 
+      model: 'gemini-2.5-flash-image', 
       contents: {
         parts: [
           { inlineData: { data: base64Image, mimeType: 'image/jpeg' } },
@@ -273,8 +384,7 @@ export async function extractNewspaperContent(base64Image: string, mimeType: str
 }
 
 /**
- * REFINAMENTO DE OCR 2.0 (Context-Aware)
- * Usa prompts avançados para corrigir erros de OCR com base no contexto da frase, não apenas da palavra isolada.
+ * REFINAMENTO DE OCR 2.0 (Context-Aware com Filtro Local)
  */
 export async function refineOcrWords(words: string[]): Promise<string[]> {
   const ai = getAiClient();
@@ -284,7 +394,6 @@ export async function refineOcrWords(words: string[]): Promise<string[]> {
       for (let i = 0; i < words.length; i += 500) {
           chunks.push(words.slice(i, i + 500));
       }
-      
       const results = [];
       for (const chunk of chunks) {
           const refinedChunk = await refineOcrWords(chunk);
@@ -294,16 +403,45 @@ export async function refineOcrWords(words: string[]): Promise<string[]> {
       return results;
   }
 
-  // Novo Prompt: Foca em reconstrução de fluxo para evitar alucinação de layout
+  // FAST PASS: Verifica se a lista já parece boa.
+  // Se >80% das palavras passarem na heurística, pular IA.
+  let validCount = 0;
+  function isWordValid(word: string): boolean {
+    const commonConnectives = new Set([
+        'que', 'para', 'com', 'não', 'uma', 'como', 'mais', 'mas', 'foi', 'por', 'ele', 'ela',
+        'nos', 'aos', 'das', 'sua', 'seu', 'ou', 'quando', 'muito', 'são', 'pela', 'pelo',
+        'entre', 'era', 'depois', 'sem', 'mesmo', 'aos', 'ter', 'seus', 'quem', 'nas'
+    ]);
+    const clean = word.toLowerCase().replace(/[^a-zà-ú]/g, '');
+    if (commonConnectives.has(clean)) return true;
+    const vowels = (clean.match(/[aeiouà-ú]/g) || []).length;
+    const len = clean.length;
+    if (len > 3) {
+        const ratio = vowels / len;
+        if (ratio > 0.2 && ratio < 0.7) return true;
+    }
+    return false;
+  }
+
+  for (const w of words) {
+      if (isWordValid(w)) validCount++;
+  }
+  const validityRatio = validCount / words.length;
+  
+  if (validityRatio > 0.85) {
+      console.log(`[OCR Smart Skip] Confiança textual alta (${Math.round(validityRatio*100)}%). Pulando refinamento IA.`);
+      return words;
+  }
+
   const prompt = `Aja como um revisor editorial especializado em recuperação de documentos históricos.
-Abaixo está uma sequência de palavras extraídas via OCR (Optical Character Recognition).
-A sequência pode conter erros de caracteres (ex: '1' vs 'l', 'rn' vs 'm') ou quebras de palavras.
+Abaixo está uma sequência de palavras extraídas via OCR.
+A sequência pode conter erros de caracteres (ex: '1' vs 'l', 'rn' vs 'm').
 
 SUA TAREFA:
 Corrigir os erros ortográficos e de pontuação APENAS onde houver certeza baseada no contexto linguístico.
 NÃO altere a ordem das palavras.
-NÃO remova palavras (a menos que seja lixo puro como '_^~').
-NÃO invente conteúdo novo.
+NÃO remova palavras.
+NÃO invente conteúdo.
 
 Retorne um JSON contendo o array 'correctedWords' com o mesmo tamanho da entrada.
 
@@ -331,12 +469,10 @@ ${JSON.stringify(words)}`;
     const result = JSON.parse(response.text || '{"correctedWords": []}');
     const corrected = result.correctedWords || [];
     
-    // Fallback de segurança: Se o tamanho diferir muito, desconfie da IA e use o original
     if (Math.abs(corrected.length - words.length) > 5) {
         console.warn("[AI Refine] Mismatch in word count. Returning original to avoid sync errors.");
         return words;
     }
-    
     return corrected;
   } catch (e) {
     console.error("OCR Refinement failed", e);

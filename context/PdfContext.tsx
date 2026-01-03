@@ -1,10 +1,9 @@
-
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Annotation, SemanticLensData } from '../types';
 import { loadOcrData, saveOcrData, touchOfflineFile } from '../services/storageService';
 import { PDFDocumentProxy } from 'pdfjs-dist';
 import { OcrManager, OcrStatus, OcrEngineType } from '../services/ocrManager';
-import { refineOcrWords, performSemanticOcr } from '../services/aiService';
+import { refineOcrWords, performSemanticOcr, alignOcrWithSemanticText } from '../services/aiService';
 import { indexDocumentForSearch } from '../services/ragService';
 import { scheduleWork, cancelWork } from '../utils/scheduler';
 import { SelectionState } from '../components/pdf/SelectionMenu';
@@ -33,7 +32,7 @@ interface PdfSettings {
   ocrEngine: OcrEngineType;
 }
 
-// Simplified Context State (Removidos estados de UI como scale/currentPage que agora estão no Zustand)
+// Simplified Context State
 interface PdfContextState {
   // Legacy accessors proxied to Zustand for compatibility during migration
   scale: number;
@@ -144,7 +143,6 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
   }, [numPages, initialScale]);
 
   // Read State from Store for Legacy Context Consumers
-  // Note: This causes re-renders in Context consumers, but we will migrate heavy components to useStore directly
   const scale = usePdfStore(s => s.scale);
   const currentPage = usePdfStore(s => s.currentPage);
   const activeTool = usePdfStore(s => s.activeTool);
@@ -331,33 +329,84 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
     }
   }, [showOcrNotification, settings.ocrEngine]);
 
+  // ALGORITMO HÍBRIDO DE ALINHAMENTO (Geometria Local + Semântica Nuvem)
   const refinePageOcr = useCallback(async (page: number) => {
     const rawWords = ocrMap[page];
-    if (!rawWords || rawWords.length === 0) return;
-    showOcrNotification(`IA: Refinando texto da Página ${page}...`);
+    if (!rawWords || rawWords.length === 0) {
+        // Se não houver palavras locais, tenta disparar o OCR local primeiro
+        triggerOcr(page);
+        return;
+    }
+    
+    if (!pdfDoc) return;
+
+    showOcrNotification(`Lente Semântica: Analisando e alinhando Página ${page}...`);
     setOcrStatusMap(prev => ({ ...prev, [page]: 'processing' }));
     
     try {
-        const textArray = rawWords.map(w => w.text);
-        const refinedTexts = await refineOcrWords(textArray);
-        const refinedWords = rawWords.map((word, i) => ({
-            ...word,
-            text: refinedTexts[i] || word.text,
-            isRefined: true
-        }));
-        setPageOcrData(page, refinedWords);
-        setOcrStatusMap(prev => ({ ...prev, [page]: 'done' }));
-        showOcrNotification(`Refinamento concluído.`);
+        // 1. Obter snapshot da página para o Gemini
+        const pdfPage = await pdfDoc.getPage(page);
+        const viewport = pdfPage.getViewport({ scale: 2.0 });
+        
+        const isOffscreenSupported = typeof OffscreenCanvas !== 'undefined';
+        const canvas = isOffscreenSupported 
+            ? new OffscreenCanvas(viewport.width, viewport.height) 
+            : document.createElement('canvas');
+        
+        if (!isOffscreenSupported) {
+            (canvas as HTMLCanvasElement).width = viewport.width;
+            (canvas as HTMLCanvasElement).height = viewport.height;
+        }
+
+        const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: true }) as any;
+        await pdfPage.render({ canvasContext: ctx, viewport }).promise;
+        const blob = await (canvas as any).convertToBlob({ type: 'image/jpeg', quality: 0.8 });
+        
+        // Converter para Base64
+        const reader = new FileReader();
+        reader.readAsDataURL(blob);
+        
+        await new Promise<void>((resolve, reject) => {
+            reader.onloadend = async () => {
+                try {
+                    const base64 = (reader.result as string).split(',')[1];
+                    
+                    // 2. Chamar IA (Lente Semântica) para obter texto perfeito
+                    const semanticMarkdown = await performSemanticOcr(base64);
+                    
+                    // 3. Executar Alinhamento Difuso (Fuzzy Alignment)
+                    const alignedWords = alignOcrWithSemanticText(rawWords, semanticMarkdown);
+                    
+                    setPageOcrData(page, alignedWords);
+                    setOcrStatusMap(prev => ({ ...prev, [page]: 'done' }));
+                    showOcrNotification(`Refinamento híbrido concluído.`);
+                    
+                    // Salvar também o texto semântico na Lente
+                    setLensData(prev => ({
+                        ...prev,
+                        [page]: {
+                            markdown: semanticMarkdown,
+                            processedAt: Date.now()
+                        }
+                    }));
+                    
+                    resolve();
+                } catch (e: any) {
+                    reject(e);
+                }
+            };
+            reader.onerror = reject;
+        });
+
     } catch (e) {
         console.error("Refinement failed", e);
         setOcrStatusMap(prev => ({ ...prev, [page]: 'done' }));
         showOcrNotification("Erro ao refinar com IA.");
     }
-  }, [ocrMap, showOcrNotification, setPageOcrData]);
+  }, [ocrMap, showOcrNotification, setPageOcrData, pdfDoc, triggerOcr]);
 
   const triggerSemanticLens = useCallback(async (pageNumber: number) => {
     if (!pdfDoc) return;
-    // Verifica cache em memória
     if (lensData[pageNumber]) return;
 
     setIsLensLoading(true);
@@ -365,10 +414,9 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
 
     try {
         const page = await pdfDoc.getPage(pageNumber);
-        const scale = 2.0; // Alta resolução para o Gemini
+        const scale = 2.0; 
         const viewport = page.getViewport({ scale });
         
-        // Renderiza para imagem
         const isOffscreenSupported = typeof OffscreenCanvas !== 'undefined';
         const canvas = isOffscreenSupported 
             ? new OffscreenCanvas(viewport.width, viewport.height) 
@@ -384,7 +432,6 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
 
         const blob = await (canvas as any).convertToBlob({ type: 'image/jpeg', quality: 0.8 });
         
-        // Conversão para Base64
         const reader = new FileReader();
         reader.onloadend = async () => {
             const base64 = (reader.result as string).split(',')[1];

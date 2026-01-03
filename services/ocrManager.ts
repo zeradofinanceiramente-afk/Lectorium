@@ -1,8 +1,8 @@
 
 import { PDFDocumentProxy } from "pdfjs-dist";
 import { getOcrWorker } from "./ocrService";
-import { processImageAndLayout, extractColumnSlice, extractImageTile, preprocessImageForNeural } from "./imageProcessingService";
-import { florenceService } from "./florenceService";
+import { processImageAndLayout, extractColumnSlice, extractImageTile, preprocessImageForNeural, maskRegions } from "./imageProcessingService";
+import { florenceService, DetectedObject } from "./florenceService";
 
 export type OcrStatus = 'idle' | 'queued' | 'processing' | 'done' | 'error';
 export type OcrEngineType = 'tesseract' | 'florence';
@@ -15,12 +15,11 @@ interface OcrTask {
     retries: number;
 }
 
-// Interface estendida para suportar score de centralidade e coluna
 interface WeightedWord {
     text: string;
     confidence: number;
     bbox: { x0: number; y0: number; x1: number; y1: number };
-    column: number; // Crítico para jornais
+    column: number;
     isRelative?: boolean;
     centerScore: number; 
 }
@@ -36,11 +35,10 @@ export class OcrManager {
     private onCheckpoint?: () => void;
     private engine: OcrEngineType;
     
-    // --- HIGH FIDELITY SETTINGS ---
-    private ocrScale: number = 3.0; // Tesseract Scale (Needs High Res)
-    private florenceScale: number = 2.0; // Florence Scale (Smart enough with 2x)
+    private ocrScale: number = 3.0; 
+    private florenceScale: number = 2.0; 
     
-    // Tiling Configuration
+    // Tiling Aggressive Config (Limita a VRAM)
     private tileSize: number = 1024; 
     private tileOverlap: number = 200; 
 
@@ -60,6 +58,18 @@ export class OcrManager {
 
     public setEngine(engine: OcrEngineType) {
         this.engine = engine;
+    }
+
+    private isHardwareCapable(): boolean {
+        // Fallback para Tesseract se hardware for fraco (Previne Crash em mobile low-end)
+        const concurrency = navigator.hardwareConcurrency || 4;
+        const memory = (navigator as any).deviceMemory || 4; // Chrome specific
+        
+        if (concurrency < 4 || memory < 4) {
+            console.warn("[OCR] Hardware fraco detectado. Forçando modo Tesseract CPU.");
+            return false;
+        }
+        return true;
     }
 
     public schedule(pageNumber: number, priority: Priority = 'low') {
@@ -95,7 +105,10 @@ export class OcrManager {
             this.activePage = task.pageNumber;
             this.emitStatus();
             
-            if (this.engine === 'florence') {
+            // Check Hardware Capabilities override
+            const canUseFlorence = this.engine === 'florence' && this.isHardwareCapable();
+
+            if (canUseFlorence) {
                 await this.executeFlorenceTask(task);
             } else {
                 await this.executeTesseractTask(task);
@@ -115,7 +128,6 @@ export class OcrManager {
         }
     }
 
-    // --- SHARED UTILS ---
     private validateWord(word: any, containerHeight: number): boolean {
         const text = word.text.trim();
         if (!text) return false;
@@ -163,11 +175,12 @@ export class OcrManager {
         return uniqueWords;
     }
 
-    // --- FLORENCE STRATEGY (HYBRID: Neural Processing + Heuristic Layout) ---
+    // --- FLORENCE STRATEGY (Pipeline Avançado) ---
     private async executeFlorenceTask(task: OcrTask) {
         const page = await this.pdfDoc.getPage(task.pageNumber);
         const viewport = page.getViewport({ scale: this.florenceScale });
         
+        // Renderização Inicial
         const isOffscreenSupported = typeof OffscreenCanvas !== 'undefined';
         const canvas = isOffscreenSupported 
             ? new OffscreenCanvas(viewport.width, viewport.height) 
@@ -181,16 +194,32 @@ export class OcrManager {
         const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: true }) as any;
         await page.render({ canvasContext: ctx, viewport }).promise;
 
-        // 1. NEURAL PRE-PROCESSING
-        // Usa o novo pipeline "suave" (sem Sauvola)
+        // 1. OBJECT DETECTION (<OD>) para mascarar figuras/tabelas
+        // Executa em uma versão reduzida para velocidade
+        const odBlob = await (canvas as any).convertToBlob({ type: 'image/jpeg', quality: 0.7 });
+        const detectedObjects = await florenceService.runObjectDetection(odBlob);
+        
+        // Filtra objetos que atrapalham o OCR de texto (imagens e tabelas complexas)
+        const maskTargets = detectedObjects
+            .filter(obj => ['image', 'figure', 'table', 'chart', 'plot'].includes(obj.label.toLowerCase()))
+            .map(obj => ({
+                // Florence retorna coords na escala da imagem enviada
+                bbox: obj.bbox // [x1, y1, x2, y2]
+            }));
+
+        // 2. MASCARAMENTO
+        if (maskTargets.length > 0) {
+            await maskRegions(canvas, maskTargets);
+        }
+
+        // 3. PRE-PROCESSING & LAYOUT ANALYSIS
         const { columnSplits, processedCanvas } = await preprocessImageForNeural(canvas);
         
         const width = viewport.width;
         const height = viewport.height;
         const allWords: WeightedWord[] = [];
 
-        // 2. DEFINE REGIONS (Columns)
-        // Isso garante que o Florence leia na ordem correta, vital para jornais
+        // 4. REGION DEFINITION
         const regions = [];
         if (columnSplits.length === 0) {
             regions.push({ x: 0, w: width, colIndex: 0 });
@@ -203,7 +232,6 @@ export class OcrManager {
             regions.push({ x: currentX, w: width - currentX, colIndex: columnSplits.length });
         }
 
-        // Helper para mapear X global para coluna
         const getColumnIndex = (xCenter: number): number => {
             for (let i = 0; i < columnSplits.length; i++) {
                 if (xCenter < columnSplits[i]) return i;
@@ -211,42 +239,42 @@ export class OcrManager {
             return columnSplits.length;
         };
 
-        // 3. PROCESS REGIONS
+        // 5. AGGRESSIVE TILING (Memória Otimizada)
+        // Divide colunas em blocos de 1024px
         for (const region of regions) {
-            // Se a região for muito alta (> 2000px), devemos dividi-la verticalmente (Tiling dentro da Coluna)
-            // O Florence tem um limite de tokens, uma coluna inteira de texto denso pode truncar.
-            const MAX_REGION_HEIGHT = 1500;
-            const regionRows = Math.ceil(height / (MAX_REGION_HEIGHT - this.tileOverlap));
+            const regionRows = Math.ceil(height / (this.tileSize - this.tileOverlap));
 
             for (let r = 0; r < regionRows; r++) {
-                const y = r * (MAX_REGION_HEIGHT - this.tileOverlap);
-                const h = Math.min(MAX_REGION_HEIGHT, height - y);
+                const y = r * (this.tileSize - this.tileOverlap);
+                const h = Math.min(this.tileSize, height - y);
                 
-                // Recorta a fatia da coluna
+                // Extrai Tile
                 const sliceCanvas = await extractImageTile(processedCanvas, { x: region.x, y, w: region.w, h });
                 const blob = await (sliceCanvas as any).convertToBlob({ type: 'image/jpeg', quality: 0.95 });
                 
-                // Envia para o Worker
+                // OCR no Tile
                 const words = await florenceService.runOcr(blob);
                 
-                // Mapeia coordenadas de volta para o global
                 const mapped = this.mapFlorenceCoords(words, region.x, y, region.w, h, width, height, undefined, getColumnIndex);
                 allWords.push(...mapped);
+                
+                // Libera memória do tile imediatamente
+                if (sliceCanvas instanceof OffscreenCanvas) {
+                    sliceCanvas.width = 0; sliceCanvas.height = 0;
+                }
             }
         }
 
+        // Cleanup
         if (processedCanvas instanceof OffscreenCanvas) { processedCanvas.width = 0; processedCanvas.height = 0; }
         if (canvas instanceof OffscreenCanvas) { canvas.width = 0; canvas.height = 0; }
 
         const cleanWords = this.deduplicateWords(allWords);
 
-        // ORDEM DE LEITURA CORRIGIDA: Coluna -> Linha -> X
+        // Sort: Column -> Line -> X
         cleanWords.sort((a, b) => {
-            // 1. Coluna
             if (a.column !== b.column) return a.column - b.column;
-            // 2. Linha (Threshold de 10px para considerar mesma linha)
             if (Math.abs(a.bbox.y0 - b.bbox.y0) > 10) return a.bbox.y0 - b.bbox.y0;
-            // 3. Horizontal
             return a.bbox.x0 - b.bbox.x0;
         });
 
@@ -267,30 +295,31 @@ export class OcrManager {
             const localYCenter = (w.bbox.y0 + w.bbox.y1) / 2;
 
             if (forceScore === undefined) {
-                const distX = 1 - (Math.abs(localXCenter - 500) / 500);
-                const distY = 1 - (Math.abs(localYCenter - 500) / 500);
+                // Score baseado na centralidade no tile (evita bordas)
+                const distX = 1 - (Math.abs(localXCenter - (tileW/2)) / (tileW/2));
+                const distY = 1 - (Math.abs(localYCenter - (tileH/2)) / (tileH/2));
                 centerScore = distX * distY;
             }
 
-            // Desnormalização e Translação
             let x0, y0, x1, y1;
             
             if (w.isRelative) {
+                // Se Florence retornou coord relativa (0-1000), mapeia para o Tile pixel
                 const lx0 = (w.bbox.x0 / 1000) * tileW;
                 const ly0 = (w.bbox.y0 / 1000) * tileH;
                 const lx1 = (w.bbox.x1 / 1000) * tileW;
                 const ly1 = (w.bbox.y1 / 1000) * tileH;
                 
+                // Mapeia do Tile para Página Global (dividido pela escala)
                 x0 = (lx0 + tileX) / this.florenceScale;
                 y0 = (ly0 + tileY) / this.florenceScale;
                 x1 = (lx1 + tileX) / this.florenceScale;
                 y1 = (ly1 + tileY) / this.florenceScale;
             } else {
-                // Caso raro onde Florence retorna coords absolutas (não padrão)
+                // Absolute Coords (fallback)
                 x0 = w.bbox.x0; y0 = w.bbox.y0; x1 = w.bbox.x1; y1 = w.bbox.y1;
             }
 
-            // Determina a coluna baseada no centro X global (escalado para render context)
             const globalXCenter = (x0 + x1) / 2 * this.florenceScale;
             const column = colResolver(globalXCenter);
 
@@ -304,7 +333,7 @@ export class OcrManager {
         });
     }
 
-    // --- TESSERACT STRATEGY (Legacy - Heuristic) ---
+    // --- TESSERACT STRATEGY (Legacy) ---
     private async executeTesseractTask(task: OcrTask) {
         const page = await this.pdfDoc.getPage(task.pageNumber);
         const viewport = page.getViewport({ scale: this.ocrScale });
