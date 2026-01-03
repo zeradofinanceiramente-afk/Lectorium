@@ -133,9 +133,10 @@ function applyContrastStretching(data: Uint8ClampedArray) {
 }
 
 /**
- * Gamma Correction (Correção Gama)
+ * Gamma Correction (Correção Gama) - POWERFUL
  * Técnica vital para OCR em 2025: Aumenta o peso dos tons médios sem saturar.
- * value < 1.0 (ex: 0.6) torna os cinzas escuros (texto fraco) em preto sólido.
+ * value < 1.0 (ex: 0.5) torna os cinzas escuros (texto fraco) em preto sólido.
+ * Isso recupera tinta falhada de impressões antigas.
  */
 function applyGammaCorrection(data: Uint8ClampedArray, gamma: number) {
     const invGamma = 1.0 / gamma;
@@ -187,10 +188,9 @@ function shouldApplySauvola(data: Uint8ClampedArray, width: number, height: numb
  * Excelente para remover manchas de fundo e manter texto fino.
  */
 function applySauvolaBinarization(data: Uint8ClampedArray, width: number, height: number) {
-    // Checagem de performance: Pular Sauvola se a imagem já for binária ou alto contraste
+    // Para OCR em jornais antigos, Sauvola é quase sempre necessário.
+    // Mas se a imagem for muito limpa, usamos um limiar simples para velocidade.
     if (!shouldApplySauvola(data, width, height)) {
-        // Fallback: Simple High-Pass Threshold (Mais rápido)
-        // Isso preserva a nitidez de scans modernos digitais
         for (let i = 0; i < data.length; i += 4) {
             const gray = (data[i] * 0.299 + data[i+1] * 0.587 + data[i+2] * 0.114);
             const val = gray < 160 ? 0 : 255;
@@ -202,10 +202,11 @@ function applySauvolaBinarization(data: Uint8ClampedArray, width: number, height
     const { integral, integralSq } = computeIntegralImage(data, width, height);
     
     // Janela adaptativa: ~1/40 da largura da imagem (ex: 25px em 1000px)
-    const windowSize = Math.max(10, Math.floor(width / 40));
+    const windowSize = Math.max(15, Math.floor(width / 35));
     const halfWindow = Math.floor(windowSize / 2);
     
-    const k = 0.34;
+    // Parâmetros agressivos para texto fino
+    const k = 0.2; // Reduzido de 0.34 para capturar traços mais finos
     const R = 128;
 
     for (let y = 0; y < height; y++) {
@@ -230,8 +231,6 @@ function applySauvolaBinarization(data: Uint8ClampedArray, width: number, height
 
             const threshold = mean * (1 + k * ((stdDev / R) - 1));
 
-            // Hard Binarization (0 ou 255)
-            // Removemos a transição suave para garantir contraste máximo para o OCR
             let newVal = 255;
             if (gray < threshold) {
                 newVal = 0; 
@@ -243,65 +242,79 @@ function applySauvolaBinarization(data: Uint8ClampedArray, width: number, height
 }
 
 /**
- * Erosão Morfológica (Morphological Erosion / "Boldifier")
- * Em um fundo branco, a erosão expande as áreas escuras (texto).
- * Isso reconecta letras quebradas ou muito finas.
+ * Operação Morfológica: DILATAÇÃO (Dilation)
+ * Expande os pixels pretos. Engrossa o texto.
  */
-function applyMorphologicalErosion(data: Uint8ClampedArray, width: number, height: number) {
+function applyDilation(data: Uint8ClampedArray, width: number, height: number) {
     const inputCopy = new Uint8ClampedArray(data);
-    const kernelSize = 1; // 3x3 kernel (radius 1)
-
+    
+    // 3x3 Cross Kernel para não conectar linhas adjacentes verticalmente demais
+    //  0 1 0
+    //  1 1 1
+    //  0 1 0
+    
     for (let y = 1; y < height - 1; y++) {
         for (let x = 1; x < width - 1; x++) {
-            let minVal = 255;
+            // Em imagem binarizada (0=preto, 255=branco), dilatação = tomar o MÍNIMO (mais escuro)
+            
+            let minVal = inputCopy[((y * width) + x) * 4]; // Center
 
-            // Procura o pixel mais escuro (mínimo) na vizinhança 3x3
-            for (let ky = -kernelSize; ky <= kernelSize; ky++) {
-                for (let kx = -kernelSize; kx <= kernelSize; kx++) {
-                    const idx = ((y + ky) * width + (x + kx)) * 4;
-                    // Usa apenas canal R (imagem já é P&B neste ponto)
-                    const val = inputCopy[idx];
-                    if (val < minVal) minVal = val;
-                }
+            const top = inputCopy[((y - 1) * width + x) * 4];
+            const bottom = inputCopy[((y + 1) * width + x) * 4];
+            const left = inputCopy[(y * width + (x - 1)) * 4];
+            const right = inputCopy[(y * width + (x + 1)) * 4];
+
+            if (top === 0 || bottom === 0 || left === 0 || right === 0) {
+                minVal = 0;
             }
 
-            const centerIdx = (y * width + x) * 4;
-            data[centerIdx] = minVal;
-            data[centerIdx + 1] = minVal;
-            data[centerIdx + 2] = minVal;
+            if (minVal === 0) {
+                const centerIdx = (y * width + x) * 4;
+                data[centerIdx] = 0;
+                data[centerIdx + 1] = 0;
+                data[centerIdx + 2] = 0;
+            }
         }
     }
 }
 
 /**
- * Despeckle (Removedor de Ruído "Pimenta")
- * Remove pixels pretos isolados que são menores que 2x2.
- * Evita que sujeira do papel vire pontos finais ou vírgulas.
+ * Operação Morfológica: EROSÃO (Erosion)
+ * Contrai os pixels pretos. Remove ruído fino.
  */
-function applyDespeckle(data: Uint8ClampedArray, width: number, height: number) {
+function applyErosion(data: Uint8ClampedArray, width: number, height: number) {
     const inputCopy = new Uint8ClampedArray(data);
-
+    
     for (let y = 1; y < height - 1; y++) {
         for (let x = 1; x < width - 1; x++) {
-            const idx = (y * width + x) * 4;
+            // Em imagem binarizada, erosão = tomar o MÁXIMO (mais branco)
             
-            // Se o pixel é preto
-            if (inputCopy[idx] === 0) {
-                // Checa vizinhos (cima, baixo, esq, dir)
-                const top = inputCopy[((y - 1) * width + x) * 4];
-                const bottom = inputCopy[((y + 1) * width + x) * 4];
-                const left = inputCopy[(y * width + (x - 1)) * 4];
-                const right = inputCopy[(y * width + (x + 1)) * 4];
+            // Se qualquer vizinho for branco, o centro vira branco
+            const top = inputCopy[((y - 1) * width + x) * 4];
+            const bottom = inputCopy[((y + 1) * width + x) * 4];
+            const left = inputCopy[(y * width + (x - 1)) * 4];
+            const right = inputCopy[(y * width + (x + 1)) * 4];
 
-                // Se todos os vizinhos ortogonais forem brancos, é ruído isolado
-                if (top === 255 && bottom === 255 && left === 255 && right === 255) {
-                    data[idx] = 255;
-                    data[idx+1] = 255;
-                    data[idx+2] = 255;
-                }
+            if (top === 255 || bottom === 255 || left === 255 || right === 255) {
+                const centerIdx = (y * width + x) * 4;
+                data[centerIdx] = 255;
+                data[centerIdx + 1] = 255;
+                data[centerIdx + 2] = 255;
             }
         }
     }
+}
+
+/**
+ * Fechamento Morfológico (Morphological Closing)
+ * Dilatação seguida de Erosão.
+ * Efeito: Conecta buracos dentro das letras e une traços quebrados, sem engrossar demais o resultado final.
+ */
+function applyMorphologicalClosing(data: Uint8ClampedArray, width: number, height: number) {
+    // 1. Dilatar (Engrossar) para fechar gaps
+    applyDilation(data, width, height);
+    // 2. Erodir (Afinar) para voltar ao tamanho original, mas com os buracos fechados
+    applyErosion(data, width, height);
 }
 
 /**
@@ -390,7 +403,6 @@ function detectSkewAngle(canvas: HTMLCanvasElement | OffscreenCanvas): number {
     
     const data = imageData.data;
     
-    // Normalização pré-detecção (lida com polaridade invertida para cálculo de skew)
     normalizePolarity(data, wSmall, hSmall);
 
     for (let i = 0; i < data.length; i += 4) {
@@ -415,32 +427,19 @@ function detectSkewAngle(canvas: HTMLCanvasElement | OffscreenCanvas): number {
 
 /**
  * Detecção de Colunas Híbrida v2.0 (Google Books Technique)
- * Usa "Morphological Smearing" (Dilatação Horizontal) para fundir texto em blocos sólidos.
- * Isso torna o histograma de projeção extremamente robusto contra ruído e falhas de kerning.
  */
 function detectColumnsViaProjection(grayData: Uint8Array, width: number, height: number): number[] {
     const vpp = new Float32Array(width);
-    
-    // Configuração de Amostragem
     const startY = Math.floor(height * 0.15);
     const endY = Math.floor(height * 0.90);
-    const strideY = 2; // Pula linhas para velocidade
-
-    // Morphological Smearing (Run-Length Simulation)
-    // Se encontrarmos um pixel preto, "manchamos" os próximos K pixels como se fossem pretos.
-    // Isso conecta letras e palavras, criando um "bloco de texto" sólido para a projeção.
-    const SMEAR_RADIUS = Math.floor(width * 0.02); // 2% da largura (ex: 20px em 1000px)
+    const strideY = 2; 
+    const SMEAR_RADIUS = Math.floor(width * 0.02);
 
     for (let y = startY; y < endY; y += strideY) {
         let smearTimer = 0;
-        
         for (let x = 0; x < width; x++) {
             const isBlack = grayData[y * width + x] < 128;
-            
-            if (isBlack) {
-                smearTimer = SMEAR_RADIUS;
-            }
-
+            if (isBlack) smearTimer = SMEAR_RADIUS;
             if (smearTimer > 0) {
                 vpp[x]++;
                 smearTimer--;
@@ -448,7 +447,6 @@ function detectColumnsViaProjection(grayData: Uint8Array, width: number, height:
         }
     }
 
-    // Normalização e Suavização do VPP
     const smoothed = new Float32Array(width);
     const window = 10; 
     
@@ -461,13 +459,11 @@ function detectColumnsViaProjection(grayData: Uint8Array, width: number, height:
         smoothed[i] = sum/c;
     }
 
-    // Gutter Detection (Vales no Histograma)
     const gutters: number[] = [];
-    const minContentHeight = (endY - startY) * 0.02 / strideY; // Threshold de 2% de densidade vertical
-    
+    const minContentHeight = (endY - startY) * 0.02 / strideY; 
     let inGutter = false;
     let gutterStart = 0;
-    const marginX = Math.floor(width * 0.08); // Ignorar margens laterais (8%)
+    const marginX = Math.floor(width * 0.08); 
     
     for (let x = marginX; x < width - marginX; x++) {
         const density = smoothed[x];
@@ -479,10 +475,6 @@ function detectColumnsViaProjection(grayData: Uint8Array, width: number, height:
         } else if (!isSpace && inGutter) {
             inGutter = false;
             const gutterWidth = x - gutterStart;
-            
-            // Filtros de Robustez para Gutters:
-            // 1. Largura mínima relevante (> 30px ou 3% da largura)
-            // 2. Largura máxima (não pode ser uma página em branco inteira, < 25%)
             if (gutterWidth > Math.max(30, width * 0.03) && gutterWidth < (width * 0.25)) {
                 gutters.push(Math.floor((gutterStart + x) / 2));
             }
@@ -490,6 +482,138 @@ function detectColumnsViaProjection(grayData: Uint8Array, width: number, height:
     }
     
     return gutters;
+}
+
+export async function extractImageTile(
+    sourceCanvas: HTMLCanvasElement | OffscreenCanvas,
+    rect: { x: number, y: number, w: number, h: number }
+): Promise<HTMLCanvasElement | OffscreenCanvas> {
+    const isOffscreenSupported = typeof OffscreenCanvas !== 'undefined';
+    const tileCanvas = isOffscreenSupported 
+        ? new OffscreenCanvas(rect.w, rect.h) 
+        : document.createElement('canvas');
+    
+    if (!isOffscreenSupported) {
+        (tileCanvas as HTMLCanvasElement).width = rect.w;
+        (tileCanvas as HTMLCanvasElement).height = rect.h;
+    }
+
+    const ctx = tileCanvas.getContext('2d', { alpha: false }) as any;
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, rect.w, rect.h);
+    ctx.drawImage(sourceCanvas, rect.x, rect.y, rect.w, rect.h, 0, 0, rect.w, rect.h);
+
+    return tileCanvas;
+}
+
+// Helper para redimensionamento de alta qualidade (Upscaling para OCR)
+// Se a imagem for pequena (< 2000px de altura), o Tesseract falha.
+// Upscaling linear é ruim, mas bicúbico em canvas ajuda.
+export function resizeForDPI(canvas: HTMLCanvasElement | OffscreenCanvas, minHeight = 2500): HTMLCanvasElement | OffscreenCanvas {
+    if (canvas.height >= minHeight) return canvas;
+
+    const scale = minHeight / canvas.height;
+    const width = Math.floor(canvas.width * scale);
+    const height = Math.floor(canvas.height * scale);
+
+    const isOffscreen = typeof OffscreenCanvas !== 'undefined';
+    const newCanvas = isOffscreen ? new OffscreenCanvas(width, height) : document.createElement('canvas');
+    if (!isOffscreen) {
+        (newCanvas as HTMLCanvasElement).width = width;
+        (newCanvas as HTMLCanvasElement).height = height;
+    }
+
+    const ctx = newCanvas.getContext('2d') as any;
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, width, height);
+    
+    // Bicubic simulation via built-in browser scaling
+    ctx.drawImage(canvas, 0, 0, width, height);
+    
+    return newCanvas;
+}
+
+export async function preprocessHistoricalNewspaper(source: Blob): Promise<ProcessedImageResult> {
+  const bitmap = await createImageBitmap(source);
+  const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+  const ctx = canvas.getContext('2d', { willReadFrequently: true, alpha: false })!;
+  
+  ctx.drawImage(bitmap, 0, 0);
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  
+  normalizePolarity(imageData.data, canvas.width, canvas.height); 
+  applyContrastStretching(imageData.data); 
+  applyGammaCorrection(imageData.data, 0.5); // Gamma agressivo (0.5) para jornais velhos
+  applySauvolaBinarization(imageData.data, canvas.width, canvas.height);
+  applyMorphologicalClosing(imageData.data, canvas.width, canvas.height); // Conectar letras
+  
+  ctx.putImageData(imageData, 0, 0);
+  bitmap.close();
+  
+  return { canvas, scaleFactor: 1.0, columnSplits: [] };
+}
+
+export async function processImageAndLayout(inputCanvas: HTMLCanvasElement | OffscreenCanvas): Promise<{ 
+    buffer: Uint8ClampedArray, 
+    width: number, 
+    height: number, 
+    columnSplits: number[],
+    processedCanvas: HTMLCanvasElement | OffscreenCanvas
+}> {
+    // 1. Force DPI / Scale UP (Crucial for Tesseract)
+    const workingCanvas = resizeForDPI(inputCanvas, 2500); 
+    
+    const skewAngle = detectSkewAngle(workingCanvas);
+    let deskewedCanvas = workingCanvas;
+    const isOffscreenSupported = typeof OffscreenCanvas !== 'undefined';
+
+    // 2. Deskew
+    if (Math.abs(skewAngle) > 0.2) {
+        const w = workingCanvas.width;
+        const h = workingCanvas.height;
+        deskewedCanvas = isOffscreenSupported ? new OffscreenCanvas(w, h) : document.createElement('canvas');
+        if (!isOffscreenSupported) {
+            (deskewedCanvas as HTMLCanvasElement).width = w;
+            (deskewedCanvas as HTMLCanvasElement).height = h;
+        }
+
+        const rctx = deskewedCanvas.getContext('2d', { willReadFrequently: true, alpha: false }) as any;
+        rctx.fillStyle = '#FFFFFF';
+        rctx.fillRect(0, 0, w, h);
+        rctx.translate(w/2, h/2);
+        rctx.rotate(skewAngle * Math.PI / 180);
+        rctx.drawImage(workingCanvas, -w/2, -h/2);
+        rctx.rotate(-skewAngle * Math.PI / 180);
+        rctx.translate(-w/2, -h/2);
+    }
+
+    const width = deskewedCanvas.width;
+    const height = deskewedCanvas.height;
+    const ctx = deskewedCanvas.getContext('2d', { willReadFrequently: true, alpha: false }) as CanvasRenderingContext2D;
+
+    const rawData = ctx.getImageData(0, 0, width, height);
+    
+    // 3. Pipeline de Limpeza "Nuclear"
+    normalizePolarity(rawData.data, width, height);
+    applyContrastStretching(rawData.data);
+    applyGammaCorrection(rawData.data, 0.5); // Escurecer texto (Gamma 0.5)
+    applyUnsharpMask(rawData.data, width, height);
+    applySauvolaBinarization(rawData.data, width, height);
+    applyMorphologicalClosing(rawData.data, width, height); // Conectar caracteres fragmentados
+    
+    ctx.putImageData(rawData, 0, 0);
+
+    const imageData = ctx.getImageData(0, 0, width, height);
+    const data = imageData.data;
+    const grayData = new Uint8Array(width * height);
+    
+    for (let i = 0; i < data.length; i += 4) {
+        grayData[i / 4] = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
+    }
+
+    const columnSplits = detectColumnsViaProjection(grayData, width, height);
+
+    return { buffer: data, width, height, columnSplits, processedCanvas: deskewedCanvas };
 }
 
 export async function extractColumnSlice(
@@ -527,143 +651,4 @@ export async function extractColumnSlice(
     );
 
     return sliceCanvas;
-}
-
-export async function extractImageTile(
-    sourceCanvas: HTMLCanvasElement | OffscreenCanvas,
-    rect: { x: number, y: number, w: number, h: number }
-): Promise<HTMLCanvasElement | OffscreenCanvas> {
-    const isOffscreenSupported = typeof OffscreenCanvas !== 'undefined';
-    const tileCanvas = isOffscreenSupported 
-        ? new OffscreenCanvas(rect.w, rect.h) 
-        : document.createElement('canvas');
-    
-    if (!isOffscreenSupported) {
-        (tileCanvas as HTMLCanvasElement).width = rect.w;
-        (tileCanvas as HTMLCanvasElement).height = rect.h;
-    }
-
-    const ctx = tileCanvas.getContext('2d', { alpha: false }) as any;
-    
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillRect(0, 0, rect.w, rect.h);
-
-    ctx.drawImage(
-        sourceCanvas,
-        rect.x, rect.y, rect.w, rect.h,
-        0, 0, rect.w, rect.h
-    );
-
-    return tileCanvas;
-}
-
-export async function preprocessHistoricalNewspaper(source: Blob): Promise<ProcessedImageResult> {
-  const bitmap = await createImageBitmap(source);
-  const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-  const ctx = canvas.getContext('2d', { willReadFrequently: true, alpha: false })!;
-  
-  ctx.drawImage(bitmap, 0, 0);
-  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  
-  normalizePolarity(imageData.data, canvas.width, canvas.height); 
-  applyContrastStretching(imageData.data); // Clean Yellow
-  applyGammaCorrection(imageData.data, 0.6); // Darken text
-  applySauvolaBinarization(imageData.data, canvas.width, canvas.height);
-  
-  ctx.putImageData(imageData, 0, 0);
-  bitmap.close();
-  
-  return { canvas, scaleFactor: 1.0, columnSplits: [] };
-}
-
-export async function processImageAndLayout(canvas: HTMLCanvasElement | OffscreenCanvas): Promise<{ 
-    buffer: Uint8ClampedArray, 
-    width: number, 
-    height: number, 
-    columnSplits: number[],
-    processedCanvas: HTMLCanvasElement | OffscreenCanvas
-}> {
-    const skewAngle = detectSkewAngle(canvas);
-    
-    let workingCanvas: HTMLCanvasElement | OffscreenCanvas;
-    const isOffscreenSupported = typeof OffscreenCanvas !== 'undefined';
-    
-    // Deskew
-    if (Math.abs(skewAngle) > 0.2) {
-        const w = canvas.width;
-        const h = canvas.height;
-        workingCanvas = isOffscreenSupported ? new OffscreenCanvas(w, h) : document.createElement('canvas');
-        if (!isOffscreenSupported) {
-            (workingCanvas as HTMLCanvasElement).width = w;
-            (workingCanvas as HTMLCanvasElement).height = h;
-        }
-
-        const rctx = workingCanvas.getContext('2d', { willReadFrequently: true, alpha: false }) as any;
-        
-        rctx.fillStyle = '#FFFFFF';
-        rctx.fillRect(0, 0, w, h);
-
-        rctx.translate(w/2, h/2);
-        rctx.rotate(skewAngle * Math.PI / 180);
-        rctx.drawImage(canvas, -w/2, -h/2);
-        rctx.rotate(-skewAngle * Math.PI / 180);
-        rctx.translate(-w/2, -h/2);
-    } else {
-        const w = canvas.width;
-        const h = canvas.height;
-        workingCanvas = isOffscreenSupported ? new OffscreenCanvas(w, h) : document.createElement('canvas');
-        if (!isOffscreenSupported) {
-            (workingCanvas as HTMLCanvasElement).width = w;
-            (workingCanvas as HTMLCanvasElement).height = h;
-        }
-        const ctx = workingCanvas.getContext('2d', { willReadFrequently: true, alpha: false }) as any;
-        ctx.drawImage(canvas, 0, 0);
-    }
-
-    const width = workingCanvas.width;
-    const height = workingCanvas.height;
-    const ctx = workingCanvas.getContext('2d', { willReadFrequently: true, alpha: false }) as CanvasRenderingContext2D;
-
-    const rawData = ctx.getImageData(0, 0, width, height);
-    
-    // 0. Auto-Invert Polarity (Dark Background -> White Background)
-    normalizePolarity(rawData.data, width, height);
-
-    // 1. Contrast Stretching (Limpeza Básica)
-    applyContrastStretching(rawData.data);
-
-    // 2. Gamma Correction (Escurece texto fraco, vital para scans de má qualidade)
-    applyGammaCorrection(rawData.data, 0.6); 
-
-    // 3. Sharpen (Realça bordas)
-    applyUnsharpMask(rawData.data, width, height);
-    
-    // 4. Sauvola (Binarização Adaptativa)
-    applySauvolaBinarization(rawData.data, width, height);
-
-    // 5. Morphological Erosion (Engrossa o texto P&B, conectando falhas)
-    applyMorphologicalErosion(rawData.data, width, height);
-
-    // 6. Despeckle (Remove sujeira isolada)
-    applyDespeckle(rawData.data, width, height);
-    
-    ctx.putImageData(rawData, 0, 0);
-
-    const imageData = ctx.getImageData(0, 0, width, height);
-    const data = imageData.data;
-    const grayData = new Uint8Array(width * height);
-    
-    for (let i = 0; i < data.length; i += 4) {
-        grayData[i / 4] = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
-    }
-
-    // 7. Layout Analysis (Smearing Method)
-    const columnSplits = detectColumnsViaProjection(grayData, width, height);
-
-    return { buffer: data, width, height, columnSplits, processedCanvas: workingCanvas };
-}
-
-export async function preprocessImageForOcr(sourceCanvas: HTMLCanvasElement | OffscreenCanvas): Promise<ProcessedImageResult> {
-  const { processedCanvas, columnSplits } = await processImageAndLayout(sourceCanvas);
-  return { canvas: processedCanvas, scaleFactor: 1.0, columnSplits };
 }
