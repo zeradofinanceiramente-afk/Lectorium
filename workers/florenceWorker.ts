@@ -1,5 +1,5 @@
 
-import { pipeline, env } from '@xenova/transformers';
+import { pipeline, env } from 'https://esm.sh/@xenova/transformers@2.17.2';
 
 // Configuração para evitar download de binários do Node
 env.allowLocalModels = false;
