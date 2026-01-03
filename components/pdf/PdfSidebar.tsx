@@ -1,6 +1,6 @@
 
 import React, { useMemo, useState, useEffect } from 'react';
-import { X, Lock, FileText, Copy, Download, Sparkles, Loader2, Hash, PaintBucket, Eye, ImageOff, Columns, Highlighter, Pen, ScanLine, MessageSquare, Pipette, MoveHorizontal, MousePointer2, ScrollText, ScanFace, Cloud, CloudOff, AlertCircle, CheckCircle, Palette, Droplets, Binary, ChevronLeft, ChevronRight, PanelRightOpen, PanelRightClose, Move, Maximize, BookOpen } from 'lucide-react';
+import { X, Lock, FileText, Copy, Download, Sparkles, Loader2, Hash, PaintBucket, Eye, ImageOff, Columns, Highlighter, Pen, ScanLine, MessageSquare, Pipette, MoveHorizontal, MousePointer2, ScrollText, ScanFace, Cloud, CloudOff, AlertCircle, CheckCircle, Palette, Droplets, Binary, ChevronLeft, ChevronRight, PanelRightOpen, PanelRightClose, Move, Maximize, BookOpen, Cpu } from 'lucide-react';
 import { Annotation } from '../../types';
 import { usePdfContext } from '../../context/PdfContext';
 import { AiChatPanel } from '../shared/AiChatPanel';
@@ -219,6 +219,39 @@ export const PdfSidebar: React.FC<Props> = ({
                             {/* Settings Content... */}
                             <div className="space-y-4">
                                 <h4 className="text-[10px] text-brand font-bold uppercase tracking-[0.2em] flex items-center gap-2 mb-4 border-b border-white/10 pb-2">
+                                    <Binary size={14} /> Motor de Leitura (OCR)
+                                </h4>
+                                
+                                <div className="grid grid-cols-2 gap-3">
+                                    <button 
+                                        onClick={() => updateSettings({ ocrEngine: 'tesseract' })}
+                                        className={`p-3 rounded-xl border flex flex-col items-center gap-2 transition-all ${settings.ocrEngine === 'tesseract' ? 'bg-brand/10 border-brand text-brand' : 'bg-[#1a1a1a] border-white/10 text-gray-500 hover:bg-[#222]'}`}
+                                    >
+                                        <ScanLine size={20} />
+                                        <div className="text-center">
+                                            <span className="block text-xs font-bold">Tesseract</span>
+                                            <span className="block text-[9px] opacity-70">Rápido / CPU</span>
+                                        </div>
+                                    </button>
+                                    
+                                    <button 
+                                        onClick={() => updateSettings({ ocrEngine: 'florence' })}
+                                        className={`p-3 rounded-xl border flex flex-col items-center gap-2 transition-all ${settings.ocrEngine === 'florence' ? 'bg-purple-500/10 border-purple-500 text-purple-400' : 'bg-[#1a1a1a] border-white/10 text-gray-500 hover:bg-[#222]'}`}
+                                    >
+                                        <Cpu size={20} />
+                                        <div className="text-center">
+                                            <span className="block text-xs font-bold">Florence-2</span>
+                                            <span className="block text-[9px] opacity-70">Neural / GPU</span>
+                                        </div>
+                                    </button>
+                                </div>
+                                <p className="text-[9px] text-gray-600 bg-[#1a1a1a] p-2 rounded-lg leading-tight">
+                                    Use <strong>Florence-2</strong> para documentos complexos ou manuscritos. Requer download (~300MB) na primeira vez.
+                                </p>
+                            </div>
+
+                            <div className="space-y-4">
+                                <h4 className="text-[10px] text-brand font-bold uppercase tracking-[0.2em] flex items-center gap-2 mb-4 border-b border-white/10 pb-2">
                                     <Palette size={14} /> Renderização
                                 </h4>
                                 
@@ -271,7 +304,7 @@ export const PdfSidebar: React.FC<Props> = ({
                             {/* Seção 2: Visão de Máquina (OCR Confidence) */}
                             <div className="space-y-4">
                                 <h4 className="text-[10px] text-brand font-bold uppercase tracking-[0.2em] flex items-center gap-2 mb-4 border-b border-white/10 pb-2">
-                                    <Binary size={14} /> Visão Computacional
+                                    <Binary size={14} /> Debug
                                 </h4>
                                 <div className="flex items-center justify-between bg-[#1a1a1a] p-3 rounded-xl border border-white/5 hover:border-white/10 transition-colors">
                                     <div className="flex flex-col">
@@ -442,7 +475,7 @@ export const PdfSidebar: React.FC<Props> = ({
                         <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
                             <div className="p-3 bg-brand/5 border border-brand/20 rounded-lg">
                                 <p className="text-[10px] text-brand font-bold uppercase mb-1">Status da IA</p>
-                                <p className="text-[10px] text-gray-400 leading-tight">O Gemini agora lê automaticamente o texto nativo do documento. Para textos em imagem (scans antigos), continue usando a ferramenta "Extrair Texto".</p>
+                                <p className="text-[10px] text-gray-400 leading-tight">O Gemini agora lê automaticamente o texto nativo do documento. Para textos em imagem (scans antigos), use a ferramenta "Extrair Texto" com Florence-2 para máxima precisão.</p>
                             </div>
                         </div>
                     )}

@@ -5,12 +5,10 @@ import { getStoredApiKey } from "../utils/apiKeyUtils";
 
 // --- CONFIG ---
 const getAiClient = () => {
-  // 1. Tenta a chave do usuário primeiro (LocalStorage)
   const userKey = getStoredApiKey();
   if (userKey) {
     return new GoogleGenAI({ apiKey: userKey });
   }
-  // 2. Fallback para a chave do ambiente (se existir)
   if (process.env.API_KEY) {
     return new GoogleGenAI({ apiKey: process.env.API_KEY });
   }
@@ -22,13 +20,11 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // --- RAG UTILS (Local Search) ---
 
-// Stopwords básicas em Português e Inglês para melhorar a busca
 const STOP_WORDS = new Set([
   'o', 'a', 'os', 'as', 'um', 'uma', 'de', 'do', 'da', 'em', 'no', 'na', 'para', 'com', 'por', 'que', 'e', 'é', 
   'the', 'a', 'an', 'of', 'in', 'on', 'for', 'with', 'by', 'that', 'and', 'is', 'to'
 ]);
 
-// Divide o texto em blocos lógicos (parágrafos)
 export function chunkText(fullText: string, maxChunkSize = 1000): string[] {
   const cleanText = fullText.replace(/\r\n/g, '\n');
   let rawChunks = cleanText.split(/\n\s*\n/);
@@ -90,21 +86,13 @@ export function findRelevantChunks(documentText: string, query: string, topK = 4
   return relevant.slice(0, topK).map(c => c.text);
 }
 
-/**
- * Detecta intenção de leitura de página específica na query.
- * Suporta: "página 10", "pg 5-8", "pág 2 a 4", "pag 12 ate 15"
- */
 export function extractPageRangeFromQuery(query: string): { start: number, end: number } | null {
   const clean = query.toLowerCase();
-  // Regex robusto para capturar padrões de página
-  // Grupo 1: Página inicial
-  // Grupo 2: Página final (opcional)
   const regex = /(?:p[áa]gina|p[áa]g|pg)\.?\s*(\d+)(?:\s*(?:a|at[ée]| |-)\s*(\d+))?/i;
   
   const match = clean.match(regex);
   if (match) {
      const start = parseInt(match[1]);
-     // Se não houver segundo grupo, o final é igual ao inicial (página única)
      const end = match[2] ? parseInt(match[2]) : start;
      
      if (!isNaN(start)) {
@@ -116,10 +104,6 @@ export function extractPageRangeFromQuery(query: string): { start: number, end: 
 
 // --- AI FUNCTIONS ---
 
-/**
- * Lente de Aumento Semântica
- * Realiza OCR de alta fidelidade usando o modelo Gemini Flash Latest.
- */
 export async function performSemanticOcr(base64Image: string): Promise<string> {
   const ai = getAiClient();
   const prompt = `Atue como um especialista em digitalização de documentos.
@@ -136,7 +120,7 @@ Retorne APENAS o Markdown.`;
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-flash-latest', // Modelo atualizado para versão estável mais recente
+      model: 'gemini-flash-latest', 
       contents: {
         parts: [
           { inlineData: { data: base64Image, mimeType: 'image/jpeg' } },
@@ -153,24 +137,15 @@ Retorne APENAS o Markdown.`;
   }
 }
 
-/**
- * Gera embeddings vetoriais com BATCH PROCESSING e Rate Limiting.
- * Processa em blocos para evitar erro 429.
- */
 export async function generateEmbeddings(texts: string[]): Promise<Float32Array[]> {
   const ai = getAiClient();
   const model = "text-embedding-004";
   
   const embeddings: Float32Array[] = new Array(texts.length).fill(new Float32Array(0));
   
-  // CONFIGURAÇÃO TÁTICA DE BATCH
-  // Free Tier: ~15 RPM (Requests Per Minute)
-  // Batch de 3 requisições paralelas a cada 4 segundos = ~45 RPM (Risco Médio, mas com Backoff é seguro)
-  // Reduzido para 2 requisições a cada 2.5s para segurança total.
   const BATCH_SIZE = 2;
   const BATCH_DELAY_MS = 2500; 
 
-  // Helper para processar um único texto com retry
   const processSingle = async (text: string, index: number, retryCount = 0): Promise<void> => {
       if (!text || !text.trim()) return;
 
@@ -187,30 +162,23 @@ export async function generateEmbeddings(texts: string[]): Promise<Float32Array[
           const isRateLimit = e.message?.includes('429') || e.message?.includes('quota');
           
           if (isRateLimit && retryCount < 3) {
-              const backoff = Math.pow(2, retryCount + 1) * 2000; // 4s, 8s, 16s
-              console.warn(`[AI] Rate Limit (429) no item ${index}. Retentativa ${retryCount+1} em ${backoff}ms...`);
+              const backoff = Math.pow(2, retryCount + 1) * 2000;
               await sleep(backoff);
               return processSingle(text, index, retryCount + 1);
           }
           console.error(`[AI] Falha no embedding (Item ${index}):`, e.message);
-          // Deixa como vetor zero em caso de falha final
       }
   };
 
-  // Processamento em Blocos
   for (let i = 0; i < texts.length; i += BATCH_SIZE) {
       const batchPromises = [];
-      
       for (let j = 0; j < BATCH_SIZE; j++) {
           const idx = i + j;
           if (idx < texts.length) {
               batchPromises.push(processSingle(texts[idx], idx));
           }
       }
-
       await Promise.all(batchPromises);
-      
-      // Delay entre blocos (exceto no último)
       if (i + BATCH_SIZE < texts.length) {
           await sleep(BATCH_DELAY_MS);
       }
@@ -219,20 +187,14 @@ export async function generateEmbeddings(texts: string[]): Promise<Float32Array[
   return embeddings;
 }
 
-/**
- * Gera um Briefing estilo NotebookLM (Resumo Estruturado).
- * Processa apenas uma amostra significativa se o texto for muito longo.
- */
 export async function generateDocumentBriefing(fullText: string): Promise<string> {
     const ai = getAiClient();
     
-    // Se o texto for absurdamente grande (> 50k chars), pegamos amostras para o resumo inicial
-    // para evitar estourar tokens logo de cara.
     let textToAnalyze = fullText;
     if (fullText.length > 50000) {
-        const start = fullText.slice(0, 15000); // Intro
+        const start = fullText.slice(0, 15000); 
         const middle = fullText.slice(Math.floor(fullText.length / 2) - 10000, Math.floor(fullText.length / 2) + 10000);
-        const end = fullText.slice(fullText.length - 15000); // Conclusão/Anexos
+        const end = fullText.slice(fullText.length - 15000); 
         textToAnalyze = `[INÍCIO DO DOCUMENTO]\n${start}\n...\n[MEIO DO DOCUMENTO]\n${middle}\n...\n[FIM DO DOCUMENTO]\n${end}`;
     }
 
@@ -250,9 +212,7 @@ export async function generateDocumentBriefing(fullText: string): Promise<string
         const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
             contents: prompt,
-            config: {
-                temperature: 0.3
-            }
+            config: { temperature: 0.3 }
         });
         return response.text || "Não foi possível gerar o briefing.";
     } catch (e: any) {
@@ -312,12 +272,14 @@ export async function extractNewspaperContent(base64Image: string, mimeType: str
   }
 }
 
+/**
+ * REFINAMENTO DE OCR 2.0 (Context-Aware)
+ * Usa prompts avançados para corrigir erros de OCR com base no contexto da frase, não apenas da palavra isolada.
+ */
 export async function refineOcrWords(words: string[]): Promise<string[]> {
   const ai = getAiClient();
   
-  // Batching para refinamento de OCR se a lista for muito grande
   if (words.length > 500) {
-      // Divide em blocos seguros
       const chunks = [];
       for (let i = 0; i < words.length; i += 500) {
           chunks.push(words.slice(i, i + 500));
@@ -327,18 +289,26 @@ export async function refineOcrWords(words: string[]): Promise<string[]> {
       for (const chunk of chunks) {
           const refinedChunk = await refineOcrWords(chunk);
           results.push(...refinedChunk);
-          await sleep(1000); // Delay tático
+          await sleep(1000); 
       }
       return results;
   }
 
-  const prompt = `Abaixo está uma lista de palavras de um documento antigo extraídas via OCR.
-  O fluxo de leitura foi preservado respeitando as colunas originais do layout.
-  Corrija erros de reconhecimento tipográfico (ex: 'f' lido como 's', '1' como 'l') mantendo o sentido acadêmico.
-  IMPORTANTE: Retorne exatamente o mesmo número de itens.
-  
-  PALAVRAS:
-  ${words.join(' ')}`;
+  // Novo Prompt: Foca em reconstrução de fluxo para evitar alucinação de layout
+  const prompt = `Aja como um revisor editorial especializado em recuperação de documentos históricos.
+Abaixo está uma sequência de palavras extraídas via OCR (Optical Character Recognition).
+A sequência pode conter erros de caracteres (ex: '1' vs 'l', 'rn' vs 'm') ou quebras de palavras.
+
+SUA TAREFA:
+Corrigir os erros ortográficos e de pontuação APENAS onde houver certeza baseada no contexto linguístico.
+NÃO altere a ordem das palavras.
+NÃO remova palavras (a menos que seja lixo puro como '_^~').
+NÃO invente conteúdo novo.
+
+Retorne um JSON contendo o array 'correctedWords' com o mesmo tamanho da entrada.
+
+ENTRADA:
+${JSON.stringify(words)}`;
 
   try {
     const response = await ai.models.generateContent({
@@ -360,9 +330,16 @@ export async function refineOcrWords(words: string[]): Promise<string[]> {
     });
     const result = JSON.parse(response.text || '{"correctedWords": []}');
     const corrected = result.correctedWords || [];
-    if (corrected.length === words.length) return corrected;
-    return words;
+    
+    // Fallback de segurança: Se o tamanho diferir muito, desconfie da IA e use o original
+    if (Math.abs(corrected.length - words.length) > 5) {
+        console.warn("[AI Refine] Mismatch in word count. Returning original to avoid sync errors.");
+        return words;
+    }
+    
+    return corrected;
   } catch (e) {
+    console.error("OCR Refinement failed", e);
     return words;
   }
 }
@@ -411,14 +388,9 @@ export async function generateMindMapAi(topic: string): Promise<MindMapData> {
     }
 }
 
-/**
- * Chat Stream with Local RAG Strategy
- * Now accepts a contextString directly (pre-retrieved via RAG or regex)
- */
 export async function* chatWithDocumentStream(contextString: string, history: ChatMessage[], message: string) {
   const ai = getAiClient();
   
-  // Mapear histórico do formato interno para o formato do Gemini SDK
   const previousHistory = history.slice(0, -1).map(msg => ({
     role: msg.role === 'model' ? 'model' : 'user',
     parts: [{ text: msg.text }],
@@ -454,7 +426,6 @@ Ao responder, integre conceitos externos se o contexto do usuário for insuficie
       config: { systemInstruction, temperature: 0.2 }
     });
     
-    // RETRY LOGIC (Auto-Recovery Protocol)
     let stream;
     let attempt = 0;
     const maxRetries = 3;
@@ -462,11 +433,9 @@ Ao responder, integre conceitos externos se o contexto do usuário for insuficie
     while (true) {
         try {
             stream = await chat.sendMessageStream({ message });
-            break; // Success
+            break;
         } catch (err: any) {
             attempt++;
-            
-            // Check specifically for 429 (Quota Exceeded)
             const isQuotaError = err.message?.includes('429') || err.message?.includes('quota');
             
             if (attempt >= maxRetries) {
@@ -474,9 +443,7 @@ Ao responder, integre conceitos externos se o contexto do usuário for insuficie
                 throw err;
             }
             
-            // Backoff exponencial agressivo para 429: 3s, 9s, 27s (mais lento para garantir recuperação)
             const waitTime = isQuotaError ? Math.pow(3, attempt) * 1000 : Math.pow(2, attempt) * 1000;
-            
             console.warn(`[SextaFeira] Conexão instável (${isQuotaError ? '429' : 'Err'}). Retentativa ${attempt}/${maxRetries} em ${waitTime}ms...`);
             await sleep(waitTime);
         }
@@ -495,7 +462,6 @@ Ao responder, integre conceitos externos se o contexto do usuário for insuficie
     } else if (errorMessage.includes('429') || errorMessage.includes('quota') || errorMessage.includes('Cota')) {
         yield "🚦 **Alerta de Tráfego (429):** O processamento em blocos detectou alto volume. \n\n**Solução:** O sistema limitou o envio apenas aos seus destaques para economizar recursos. Aguarde alguns instantes.";
     } else {
-        // Expose the real error for debugging
         yield `Erro na conexão neural [STATUS: FALHA].\nDetalhes do Erro: ${errorMessage}\n\nTentando restabelecer link...`;
     }
   }

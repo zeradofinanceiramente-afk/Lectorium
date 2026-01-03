@@ -3,7 +3,7 @@ import React, { createContext, useContext, useState, useCallback, useMemo, useEf
 import { Annotation, SemanticLensData } from '../types';
 import { loadOcrData, saveOcrData, touchOfflineFile } from '../services/storageService';
 import { PDFDocumentProxy } from 'pdfjs-dist';
-import { OcrManager, OcrStatus } from '../services/ocrManager';
+import { OcrManager, OcrStatus, OcrEngineType } from '../services/ocrManager';
 import { refineOcrWords, performSemanticOcr } from '../services/aiService';
 import { indexDocumentForSearch } from '../services/ragService';
 import { scheduleWork, cancelWork } from '../utils/scheduler';
@@ -29,6 +29,8 @@ interface PdfSettings {
   // Interface Customization
   toolbarScale: number;
   toolbarYOffset: number;
+  // OCR Config
+  ocrEngine: OcrEngineType;
 }
 
 // Simplified Context State (Removidos estados de UI como scale/currentPage que agora estão no Zustand)
@@ -127,7 +129,8 @@ const DEFAULT_SETTINGS: PdfSettings = {
   inkStrokeWidth: 42, 
   inkOpacity: 0.35,
   toolbarScale: 1, 
-  toolbarYOffset: 0
+  toolbarYOffset: 0,
+  ocrEngine: 'tesseract'
 };
 
 export const PdfProvider: React.FC<PdfProviderProps> = ({ 
@@ -258,6 +261,7 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
     });
   }, [fileId]);
 
+  // OCR Manager Lifecycle - Agora reage a mudanças no settings.ocrEngine
   useEffect(() => {
     if (pdfDoc) {
         const manager = new OcrManager(
@@ -271,13 +275,15 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
             },
             () => {
                 if (fileId) touchOfflineFile(fileId).catch(() => {});
-            }
+            },
+            // Passa o motor selecionado
+            settings.ocrEngine
         );
         Object.keys(ocrMap).forEach(p => manager.markAsProcessed(parseInt(p)));
         ocrManagerRef.current = manager;
     }
     return () => { ocrManagerRef.current = null; };
-  }, [pdfDoc, fileId, showOcrNotification]);
+  }, [pdfDoc, fileId, showOcrNotification, settings.ocrEngine]);
 
   const updateSettings = useCallback((newSettings: Partial<PdfSettings>) => {
     setSettings(prev => {
@@ -320,9 +326,10 @@ export const PdfProvider: React.FC<PdfProviderProps> = ({
   const triggerOcr = useCallback((page: number) => {
     if (ocrManagerRef.current) {
         ocrManagerRef.current.schedule(page, 'high');
-        showOcrNotification(`Lendo Página ${page}...`);
+        const engineName = settings.ocrEngine === 'florence' ? 'Neural (Florence)' : 'Padrão (Tesseract)';
+        showOcrNotification(`Lendo Página ${page} (${engineName})...`);
     }
-  }, [showOcrNotification]);
+  }, [showOcrNotification, settings.ocrEngine]);
 
   const refinePageOcr = useCallback(async (page: number) => {
     const rawWords = ocrMap[page];
